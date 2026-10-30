@@ -1,0 +1,51 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="session" content="__SESSION_TOKEN__"><title>실시간 모의 종목 현황 · 코인봇</title>
+<style>:root{--bg:#0f1218;--card:#181d27;--line:#262d3a;--tx:#e6e9ef;--mu:#8b94a7;--up:#ef5350;--dn:#4a90ff;--green:#31bb91;--amber:#e9a454}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 system-ui,"Malgun Gothic",sans-serif}.w{max-width:1400px;margin:auto;padding:22px}h1{font-size:23px;margin:0}h2{font-size:16px;margin:25px 0 10px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:var(--mu)}.small{font-size:12px}.up{color:var(--up)}.dn{color:var(--dn)}.warn{color:var(--amber)}.green{color:var(--green)}a{color:inherit;text-decoration:none}.bt{display:inline-block;padding:8px 13px;background:var(--card);border:1px solid var(--line);border-radius:8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0}.card{padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:10px}.card strong{display:block;font-size:23px;margin-top:4px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;background:var(--card)}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{font-size:12px;color:var(--mu);font-weight:500}th:first-child,td:first-child{text-align:left}.badge{border:1px solid var(--green);border-radius:18px;padding:3px 12px;color:var(--green)}#error{white-space:pre-wrap}@media(max-width:700px){.w{padding:14px}.grid{grid-template-columns:1fr 1fr}.card strong{font-size:20px}}</style></head><body><main class="w">
+<div class="row"><div><h1>실시간 모의 종목 현황</h1><div class="small muted">독립 가상 계좌 · 실제 계좌 주문과 별도 · 화면 1초 갱신</div></div><a class="bt" href="/" target="_blank" rel="noopener">코인봇 메인 ↗</a></div>
+<div class="row" style="margin-top:14px"><span id="state" class="badge">연결 중</span><span id="clock" class="muted small"></span></div><div id="error" class="warn small"></div>
+<div class="grid" id="summary"></div>
+<details id="simulation-positions-panel" open style="margin-top:25px;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--card)"><summary style="cursor:pointer;font-size:16px;font-weight:600">모의 보유·진입 대기 종목 <span class="small muted">제목을 눌러 접기·펼치기</span></summary><div id="monitor-count" class="small muted" style="margin:8px 0"></div><div class="scroll" id="positions"></div>
+<div class="small muted" style="margin-top:8px">진입 제외 종목은 숨기며, 보유분과 대기 주문이 있는 종목은 계속 표시합니다. 기존 모의와 V3는 별도 장부입니다. 예약 총액은 지정가 × 미체결 잔량이며 수수료 차감 전입니다. 진입 신호가 확정되지 않으면 가격은 미정입니다.</div></details>
+<h2>선택한 종목의 관찰기간과 가격 추이</h2><div class="scroll" id="observations"></div><div class="small muted" style="margin-top:8px">관찰은 첫 체결부터 시작합니다. 관찰 수익률은 매수 체결가 대비 가격 변화이며 수수료·매도·외부 거래를 반영한 실현손익이 아닙니다. 관찰 종료는 자동 매도나 미체결 주문 취소를 만들지 않습니다.</div>
+<h2>모의 미체결·주문 내역</h2><div class="scroll" id="orders"></div>
+<h2>최근 모의 체결</h2><div class="scroll" id="fills"></div>
+<div class="small muted" style="margin-top:22px">브라우저 창을 닫아도 서버가 실행 중이면 모의 관리와 관찰이 계속됩니다. PC·서버·인터넷이 멈추면 감시가 멈춥니다.</div>
+</main><script>
+const $=id=>document.getElementById(id),token=document.querySelector('meta[name=session]').content;
+const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n=(v,d=0)=>Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d});const pct=v=>v==null?'—':(v>0?'+':'')+n(v,2)+'%';const cl=v=>v>0?'up':v<0?'dn':'muted';
+const date=t=>t?new Date(t*1000).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false}):'—';
+const table=(headers,rows)=>'<table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+ (rows.length?rows.map(r=>'<tr>'+r.map(v=>'<td>'+v+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+headers.length+'" class="muted">아직 기록이 없습니다.</td></tr>')+'</tbody></table>';
+const bucket=b=>({long:'장기',swing:'스윙',short:'단타'}[b]||'직접');
+const orderState=s=>({wait:'미체결·부분체결',submitting:'확인 중',unknown:'응답 미확인',done:'체결',cancel:'취소',rejected:'미접수'}[s]||s);
+function draw(s){
+  const p=s.portfolio,v=p.views.paper,c=p.comparison.paper,settings=p.settings.paper,obs=(p.observations||[]).filter(o=>o.mode==='paper');
+  $('clock').textContent='서버 확인 '+date(s.now);$('state').textContent=p.running?'모의 자동 신규 매수 검사 중':'모의 신규 매수 정지 · 위임 보유분 청산 관리';$('error').textContent=p.error||'';
+  $('summary').innerHTML=[['모의 순자산',n(v.total)+'원'],['원금 대비 수익률',pct(c.return_pct)],['가용 가상 원화',n(v.cash)+'원'],['체결 / 수수료',c.fills+'회 / '+n(c.fees,2)+'원'],['관찰 진행 / 완료',obs.filter(o=>o.status==='observing').length+' / '+obs.filter(o=>o.status==='completed').length+'건']].map(([k,val])=>'<div class="card"><span class="muted">'+k+'</span><strong>'+val+'</strong></div>').join('');
+  const markets=[...new Set([...Object.keys(settings),...v.holdings.map(h=>h.market),...p.orders.paper.filter(o=>['wait','unknown','submitting'].includes(o.status)).map(o=>o.market)])];
+  const v3=s.auto_v3,selected=v3?.state?.markets||[];
+  const short=Object.entries(settings).filter(([m,cfg])=>cfg.bucket==='short'&&cfg.auto).map(([m])=>m);
+  $('monitor-count').textContent='단타 감시 '+new Set([...short,...selected]).size+'종목 (기존 '+short.length+' / V3 '+selected.length+') · 신규 매수: 기존 '+(p.running?'실행':'정지')+' / V3 '+(v3?.running?'실행':'정지');
+  const money=x=>Number.isFinite(Number(x))&&Number(x)>0?n(x,8)+'원':'—';
+  const reservations=(orders,side)=>orders.filter(o=>o.side===side&&['wait','unknown','submitting'].includes(o.status));
+  const reservationPrice=orders=>orders.length?orders.map(o=>money(o.price)+(o.status==='unknown'||o.status==='submitting'?' (접수 확인 중)':'')).join('<br>'):'예약 없음';
+  const reservationAmount=orders=>orders.length?money(orders.reduce((sum,o)=>sum+Number(o.price)*Math.max(0,Number(o.volume)-Number(o.filled||0)),0)):'예약 없음';
+  const legacyRows=markets.map(m=>{
+    const h=v.holdings.find(h=>h.market===m),cfg=settings[m]||{},px=p.prices[m]??h?.price,name=p.catalog.find(x=>x.market===m)?.name||m;
+    const orders=p.orders.paper.filter(o=>o.market===m),buys=reservations(orders,'bid'),sells=reservations(orders,'ask'),waiting=buys.length||sells.length;
+    return [esc(name)+' <span class="small muted">'+esc(m)+'</span>','기존 · '+bucket(cfg.bucket)+' · '+(cfg.auto?'자동':'직접'),h?.qty?'모의 보유':waiting?'주문 대기':'진입 대기',n(h?.qty||0,8),h?.avg?n(h.avg,8):'—',px==null?'—':n(px,8),buys.length?reservationPrice(buys):h?.qty?'추가 매수 예약 없음':'미정 · 진입 신호 대기',reservationPrice(sells),reservationAmount(sells),h?.value==null?'—':n(h.value)+'원',h?.pnl==null?'—':'<span class="'+cl(h.pnl)+'">'+n(h.pnl)+'원 / '+pct(h.roi)+'</span>',cfg.stop?n(cfg.stop,8)+'원':esc(cfg.message||(s.trade_policy?.allow_entry?'기간별 진입 조건 확인 중':s.trade_policy?.reason||'거래 국면 확인 중'))]
+  });
+  const v3Visible=[...new Set([...selected,...Object.keys(v3?.state?.positions||{}),...(v3?.state?.orders||[]).filter(o=>['wait','unknown','submitting'].includes(o.status)).map(o=>o.market)])].filter(m=>v3.universe?.rows?.[m]?.eligible!==false||v3.state.positions[m]?.volume>0||v3.state.orders.some(o=>o.market===m&&['wait','unknown','submitting'].includes(o.status)));
+  const v3Rows=v3Visible.map(m=>{
+    const h=v3.state.positions[m],orders=v3.state.orders.filter(o=>o.market===m),buys=reservations(orders,'bid'),sells=reservations(orders,'ask'),q=v3.quotes[m],px=q?.bid;
+    const value=h&&px!=null?h.volume*px:null,pnl=value!=null?value-h.cost:null;
+    const row=v3.universe?.rows?.[m],excluded=row?.eligible===false;
+    return [esc(m),'V3 · 단타',h?'모의 보유':buys.length?'매수 예약 대기':excluded?'진입 제외':'진입 대기',n(h?.volume||0,8),h?money(h.entry):'—',money(px),buys.length?reservationPrice(buys):h?'추가 매수 예약 없음':'미정 · 진입 신호 대기',reservationPrice(sells),reservationAmount(sells),value==null?'—':money(value),pnl==null?'—':'<span class="'+cl(pnl)+'">'+n(pnl)+'원 / '+pct(h.cost?(value/h.cost-1)*100:null)+'</span>',h?money(h.stop):esc((!v3.state.funded?'운용자금 미설정 · ':'')+(excluded?row.reason:v3.signals[m]?.reason||row?.reason||'신호 확인 중'))]
+  });
+  $('positions').innerHTML=table(['종목','전략·분류·관리','상태','수량','매수평균가','현재가','진입 예정·대기 가격','매도 예약 가격','매도 예약 총액 (잔량)','평가액','평가손익 / 수익률','손절선·진입 대기 이유'],[...legacyRows,...v3Rows]);
+  const names={waiting:'첫 체결 대기',observing:'관찰 중',expired_wait:'종료 가격 확인 중',completed:'관찰 완료',cancelled:'미체결 종료'},units={hour:'시간',day:'일',week:'주',month:'개월'};
+  $('observations').innerHTML=table(['종목','관찰기간','상태','시작 / 종료 예정','관찰 매수가','관찰 가격','가격 수익률'],obs.map(o=>[esc(o.market),o.period.value+' '+units[o.period.unit],names[o.status],date(o.started)+'<br>'+date(o.ends),o.entry==null?'—':n(o.entry,8),o.price==null?'—':n(o.price,8),'<span class="'+cl(o.price_return_pct)+'">'+pct(o.price_return_pct)+'</span>']));
+  $('orders').innerHTML=table(['시각','종목','방향','지정가','요청 / 체결 수량','상태'],[...p.orders.paper].reverse().slice(0,50).map(o=>[date(o.created),esc(o.market),o.side==='bid'?'매수':'매도',n(o.price,8),n(o.volume,8)+' / '+n(o.filled,8),orderState(o.status)]));
+  $('fills').innerHTML=table(['시각','종목','방향','수량','금액','수수료'],[...p.journal.paper].reverse().slice(0,30).map(t=>[date(t.time),esc(t.market),t.side==='bid'?'매수':'매도',n(t.volume,8),n(t.funds)+'원',n(t.fee,2)+'원']));
+}
+async function load(){try{const r=await fetch('/api/data',{headers:{'X-Session-Token':token},cache:'no-store'});if(!r.ok)throw Error();draw(await r.json())}catch(e){$('error').textContent='서버 연결 지연 · 마지막 표시값입니다. 메인 창 또는 서버 상태를 확인하세요.'}finally{setTimeout(load,1000)}}load();
+</script></body></html>

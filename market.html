@@ -1,0 +1,61 @@
+﻿<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>시황 리포트</title>
+<style>
+:root{--bg:#0f1218;--card:#181d27;--line:#262d3a;--tx:#e6e9ef;--mu:#8b94a7;--up:#ef5350;--dn:#4a90ff}
+@media(prefers-color-scheme:light){:root{--bg:#f4f6fa;--card:#fff;--line:#dde2ea;--tx:#1b2230;--mu:#667085}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,"Malgun Gothic",sans-serif}
+.w{max-width:960px;margin:0 auto;padding:16px}.mu{color:var(--mu)}a{color:inherit}.up{color:var(--up)}.dn{color:var(--dn)}
+.top{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;font-size:12px}.top a{text-decoration:none}
+.hero{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:10px 0}
+.hero h1{font-size:22px;line-height:1.35;margin:0 0 10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{font-size:12px;padding:2px 10px;border-radius:12px;border:1px solid var(--line);color:var(--mu)}
+.chip.g1{color:var(--up);border-color:var(--up)}.chip.b1{color:var(--dn);border-color:var(--dn)}
+.coins{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:12px 0}
+.coin{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.coin .nm{font-weight:600}.coin .px{font-size:17px;margin:2px 0}.coin .d{font-size:22px;font-weight:700}.coin .sm{font-size:12px;color:var(--mu);margin-top:2px}
+h2{font-size:14px;margin:20px 0 8px;color:var(--mu);font-weight:600}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:baseline}.row:last-child{border:0}
+.tg{flex:none;font-size:11px;padding:0 7px;border-radius:8px;border:1px solid var(--line);color:var(--mu)}.tg.g1{color:var(--up);border-color:var(--up)}.tg.b1{color:var(--dn);border-color:var(--dn)}
+details summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:baseline;width:100%}details summary::-webkit-details-marker{display:none}
+details .dt{margin:4px 0 0 0;font-size:13px;color:var(--mu)}.row.d{display:block}
+.mv{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0;font-size:13px}
+.more{padding:8px 14px;font-size:12px;color:var(--mu);cursor:pointer}.nws a{text-decoration:none}.nws a:hover{text-decoration:underline}
+.out{font-size:12px;color:var(--mu);margin-top:8px}
+</style></head><body><div class="w">
+<div class="top"><a class="mu" href="/">← 트레이딩 대시보드</a><span class="mu" id="upd"></span></div>
+<div class="hero"><h1 id="head">불러오는 중…</h1><div class="chips" id="kw"></div><div class="out" id="sub"></div></div>
+<div class="coins" id="coins"></div>
+<h2>핵심 이슈</h2><div class="box" id="iss"></div>
+<h2>오늘 급등·급락 (09시 기준, 거래대금 50억↑)</h2><div class="mv" id="mv"></div>
+<h2>주요 뉴스</h2><div class="box nws" id="news"></div>
+<div class="out" id="out"></div>
+</div><script>
+const $=id=>document.getElementById(id),n=(v,d=0)=>Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d});
+const cl=v=>v>0?'up':v<0?'dn':'',sg=(v,d=2)=>v==null?'-':(v>0?'+':'')+n(v,d)+'%';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safe=u=>/^https?:\/\//.test(u)?esc(u):'#';
+const tc=t=>t=='호재'?'g1':t=='악재'?'b1':'';
+const hm=ts=>new Date(ts*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+const ago=ts=>{const m=Math.max(0,Math.round((Date.now()/1000-ts)/60));return m<60?m+'분 전':Math.floor(m/60)+'시간 전'};
+const ORDER=['KRW-BTC','KRW-XRP','KRW-ETH','KRW-SOL','KRW-DOGE'],NAME={'KRW-BTC':'비트코인','KRW-XRP':'리플','KRW-ETH':'이더리움','KRW-SOL':'솔라나','KRW-DOGE':'도지코인'};
+async function load(){try{const p=await (await fetch('/api/market')).json(),d=p.data,a=p.analysis;
+if(!d){$('head').textContent=p.running?'첫 수집 중… 잠시 후 자동 표시됩니다':'데이터 없음';return}
+$('upd').textContent='시세·뉴스 '+hm(d.time)+' · 분석 '+(a?hm(a.time)+(Date.now()/1000-a.time>3000?' (오래됨)':''):'-')+' · 20분마다 갱신';
+const by=Object.fromEntries(d.majors.map(c=>[c.market,c])),btc=by['KRW-BTC']||{},br=d.breadth,f=d.fng;
+$('head').textContent=a&&a.headline?a.headline:`BTC ${d.btc_trend} · 상승 종목 ${n(br.up/br.total*100,0)}%`;
+const kws=a&&a.keywords&&a.keywords.length?a.keywords:d.keywords.slice(0,8).map(k=>({word:k.word,tone:k.tone}));
+$('kw').innerHTML=kws.map(k=>`<span class="chip ${tc(k.tone)}">#${esc(k.word)}</span>`).join('');
+$('sub').textContent=`BTC ${d.btc_trend} · 상승 종목 ${br.up}/${br.total}(${n(br.up/br.total*100,0)}%) · 평균 ${sg(br.avg)}`+(f?` · 공포·탐욕 ${f.value}(${f.label})`:'')+(d.week?` · BTC 7일 ${sg(d.week.d7)}`:'');
+$('coins').innerHTML=ORDER.filter(m=>by[m]).map(m=>{const c=by[m];return `<div class="coin"><div class="nm">${NAME[m]} <span class="mu">${m.slice(4)}</span></div><div class="px">${n(c.price,c.price<100?2:0)}원</div><div class="d ${cl(c.d24)}">${sg(c.d24)} <span class="mu" style="font-size:11px;font-weight:400">오늘(09시~)</span></div><div class="sm">1시간 <span class="${cl(c.h1)}">${sg(c.h1)}</span> · 4시간 <span class="${cl(c.h4)}">${sg(c.h4)}</span></div></div>`}).join('');
+const is=a&&a.issues?a.issues.slice(0,5):[];
+$('iss').innerHTML=is.length?is.map(i=>`<div class="row d"><details><summary><span class="tg ${tc(i.impact)}">${esc(i.impact)}</span><b>${esc(i.title)}</b></summary>${i.detail?`<div class="dt">${esc(i.detail)}</div>`:''}</details></div>`).join(''):'<div class="row mu">분석 대기 중</div>';
+const mv=(t,l)=>t.slice(0,3).map(c=>`<span class="chip ${c.d24>0?'g1':'b1'}">${c.market.slice(4)} ${sg(c.d24,0)}</span>`).join('');
+$('mv').innerHTML='<span class="mu">급등</span>'+mv(d.gainers)+'<span class="mu" style="margin-left:10px">급락</span>'+mv(d.losers);
+const row=x=>`<div class="row"><span class="tg ${tc(x.tone)}">${x.tone}</span><span><a href="${safe(x.link)}" target="_blank" rel="noopener noreferrer">${esc(x.title.replace(/ - [^-]+$/,''))}</a> <span class="mu">· ${esc(x.source)} · ${ago(x.ts)}</span></span></div>`;
+const ko=d.news.filter(x=>x.lang=='ko'),pick=[...ko.slice(0,5),...d.news.filter(x=>x.lang!='ko').slice(0,3)].sort((u,v)=>v.ts-u.ts);
+$('news').innerHTML=pick.map(row).join('')+(d.news.length>pick.length?`<details><summary class="more">나머지 ${d.news.length-pick.length}건 보기</summary>${d.news.filter(x=>!pick.includes(x)).map(row).join('')}</details>`:'');
+$('out').textContent=a&&a.outlook?'유의: '+a.outlook:'';
+}catch(e){$('upd').textContent='연결 끊김'}}
+load();setInterval(load,30000);
+</script></body></html>

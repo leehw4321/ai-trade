@@ -1,0 +1,23 @@
+/* Balanced surfaces; reserve saturated color for status and profit/loss. */
+:root,:root[data-theme=gray]{color-scheme:light;--bg:#E8EDF2;--card:#F5F7FA;--line:#C5CFDA;--tx:#1C2D42;--mu:#526276;--up:#B92D39;--dn:#215CB5;--green:#16715B;--amber:#8C570B;--accent:#235FAB;--selected:#DCE7F4;--hero:#E0E8F2;--stripe:#EDF1F6;--link:#245FA8}
+:root[data-theme=ivory]{color-scheme:light;--bg:#ECE8DF;--card:#F7F4ED;--line:#CFC7B9;--tx:#302E29;--mu:#655F53;--up:#AD3038;--dn:#245BA3;--green:#176C5E;--amber:#87520D;--accent:#236E68;--selected:#DDE9E3;--hero:#E7E7D9;--stripe:#EFEBE2;--link:#236762}
+:root[data-theme=slate]{color-scheme:dark;--bg:#263445;--card:#324357;--line:#53677D;--tx:#F0F4F8;--mu:#BDCAD8;--up:#FF9397;--dn:#8DBDFF;--green:#86D8B8;--amber:#F4C77F;--accent:#9BC6FF;--selected:#405B79;--hero:#3A5069;--stripe:#364A60;--link:#AED0FF}
+body{line-height:1.65;letter-spacing:.01em}
+.w{padding-top:22px}h2{font-size:17px;font-weight:750;margin-top:28px}
+.news-panel,.toolbar,.bucket,.research-head{box-shadow:0 2px 8px #14263806}
+.c{padding:16px 18px}.c>span.mu{font-size:12px;font-weight:600}
+.c b.big{font-size:26px;font-weight:750;line-height:1.35;letter-spacing:-.03em;margin-top:7px;overflow-wrap:anywhere}
+.account-hero{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.account-hero .c{padding:10px 13px;border-radius:8px}.account-hero .c>span.mu{font-size:12px;font-weight:500}
+.account-hero .c:first-child{background:var(--card);border:1px solid var(--line)}
+.account-hero b.big,.account-hero .c:first-child b.big{font-size:21px;font-weight:650;line-height:1.4;letter-spacing:-.015em;margin-top:4px}
+.asset-price{font-size:27px;letter-spacing:-.025em}.asset-stats{gap:10px;font-size:14px}.asset-stats span{font-size:11px;margin-bottom:2px}
+td,.big,.asset-price,.asset-stats,.compare-value,#market-indicators{font-variant-numeric:tabular-nums lining-nums}
+th{background:var(--stripe);font-weight:650;color:var(--tx)}td{padding:12px 13px}tbody tr:nth-child(even){background:var(--stripe)}tbody tr:hover{background:var(--selected)}
+.rec-tabs .bt[aria-pressed=true],.bt[aria-pressed=true]{background:var(--selected);border-color:var(--accent);color:var(--tx)}
+.bt:focus-visible,.scalp-name:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.news-filter[aria-pressed=true],.rec-source{color:var(--link);border-color:var(--accent)}
+.impact,.impact.domestic,.impact.both{color:var(--mu);border-color:var(--line)}
+.theme-picker{gap:5px}.theme-picker .bt{font-size:12px;padding:6px 10px}
+#market-indicators .c{border-top:2px solid var(--line)}#market-indicators .c>div:nth-child(2){font-weight:750;font-size:25px!important;letter-spacing:-.025em}
+.news-title{font-weight:550}.news-meta,.news-sub{font-size:12px}
+@media(max-width:600px){.account-hero{grid-template-columns:1fr 1fr}.account-hero b.big,.account-hero .c:first-child b.big{font-size:19px}.c b.big{font-size:22px}.theme-picker{width:100%}.asset-price{font-size:24px}}

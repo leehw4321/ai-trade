@@ -14,6 +14,7 @@ import sys
 import time
 import traceback
 
+import position_popup
 import strategy as st
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -251,7 +252,7 @@ class Bot:
             return ''
         loss = self.live.raw_loss(prices) - L.get('risk_loss_offset', 0.)
         rows = ''.join(
-            f"<tr{' class=dust' if p['qty'] * prices.get(m, 0) < 5000 else ''}><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
+            f"<tr{position_popup.row_attrs(m, p['qty'] * prices.get(m, 0) < 5000)}><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
             f"<td class=n>{p['qty'] * prices.get(m, 0):,.0f}</td><td class=n>{p['stop']:,.4g}</td></tr>"
             for m, p in L['positions'].items()) or '<tr><td colspan=5 class=muted>위임된 실거래 보유 없음</td></tr>'
         orders = []
@@ -267,7 +268,7 @@ class Bot:
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
 <div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
 <div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
-<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script></section>"""
+<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script>{position_popup.data_script(L['positions'], prices, L.get('last_sell'))}{position_popup.MODAL}</section>"""
 
     def real_block(self, prices):
         if (DATA / 'account_live.html').exists():

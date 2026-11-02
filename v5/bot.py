@@ -43,6 +43,29 @@ def utc(ts):
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc)
 
 
+def ranking_rows(ranking, held, warned, p, esc=html.escape):
+    """순위표 행. 바탕색: 보유=하늘색, 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
+    매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목."""
+    out, want, scan, picked = [], p.entry_want or p.entry_top, p.entry_scan or p.entry_top, 0
+    for r in ranking:
+        m, rs, rank = r['market'], r['rs'], r['rank']
+        if m in warned:
+            cls, tag = 'rk-alert', '보유·경보' if m in held else '경보'
+        elif m in held:
+            cls, tag = 'rk-held', '보유'
+        elif rank <= scan and rs >= p.chase_rs_cap > 0:
+            cls, tag = '', '과열'
+        elif rank <= scan and rs > 0 and picked < want:
+            cls, tag, picked = 'rk-target', '투자 대상(매수 후보)', picked + 1
+        elif rank <= p.M and rs > 0:
+            cls, tag = 'rk-watch', '관찰'
+        else:
+            cls, tag = '', ''
+        out.append(f"<tr class='{cls}'><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
+                   f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{tag}</td></tr>")
+    return ''.join(out)
+
+
 class Bot:
     def __init__(self):
         self.p, self.cfg = load_params()
@@ -147,7 +170,7 @@ class Bot:
         now = time.time()
         d['banned'] = {m: t for m, t in d['banned'].items() if t > now}
         sells, buys, unknown = st.plan(ranked, held, set(d['banned']), entry_ok, self.p)
-        d['ranking'] = ranked[:12]
+        d['ranking'] = ranked[:15]
         d['ranking_time'] = utc(end).astimezone(KST).isoformat(timespec='minutes')
         log = lambda msg: (lg.event(msg), print(f'[{now_iso()}] {name} {msg}', flush=True))
         for m in unknown:
@@ -303,11 +326,16 @@ class Bot:
 <div class=cols><div><h3>보유 종목</h3><table><tr><th>종목</th><th class=n>평가액</th><th class=n>진입가</th><th class=n>현재가</th><th class=n>손절가</th><th class=n>손익</th></tr>{pos_rows}</table></div>
 <div><h3>최근 거래</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th></tr>{tr_rows}</table></div></div></section>"""
 
+    def held_markets(self, prices):
+        """평가 5,000원 이상 보유 종목(실제 계좌 + 봇 관리 장부)."""
+        held = {m for m, c in ((self.real or {}).get('coins') or {}).items() if c['qty'] * prices.get(m, 0) >= 5000}
+        held |= {m for m, pos in self.live.d['positions'].items() if pos['qty'] * prices.get(m, 0) >= 5000}
+        return held
+
     def write_status(self, prices, next_4h):
         d, e, p = self.ledger.d, html.escape, self.p
-        rk_rows = ''.join(
-            f"<tr><td class=n>{r['rank']}</td><td>{e(r['market'][4:])}</td><td class='n {'up' if r['rs'] >= 0 else 'dn'}'>{r['rs']*100:+.2f}%</td></tr>"
-            for r in d.get('ranking', [])) or '<tr><td colspan=3 class=muted>첫 판단 전</td></tr>'
+        warned = {m for m, info in (self.markets or {}).items() if info.get('warning')}
+        rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],
                         key=lambda x: x['time'])[-14:][::-1]
         ev = ''.join(f"<li><span class=t>{e(x['time'][5:16].replace('T', ' '))} {e(x['who'])}</span>{e(x['msg'])}</li>" for x in events)
@@ -321,6 +349,8 @@ class Bot:
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
 details>summary{{cursor:pointer;color:var(--muted);padding:8px 2px}}details[open]>summary{{margin-bottom:8px}}
+tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
+@media (prefers-color-scheme:dark){{tr.rk-held td{{background:#1d3647}} tr.rk-alert td{{background:#4a2a2d}} tr.rk-target td{{background:#22402a}} tr.rk-watch td{{background:#47401f}} .chip-held{{background:#1d3647;color:#e3e8eb}} .chip-alert{{background:#4a2a2d;color:#e3e8eb}} .chip-target{{background:#22402a;color:#e3e8eb}} .chip-watch{{background:#47401f;color:#e3e8eb}}}}
 :root{{--bg:#f4f6f7;--card:#fff;--ink:#17212b;--muted:#5d6b77;--line:#dde3e7;--acc:#0f6e5c;--up:#c8322f;--dn:#2457b3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#11171c;--card:#182128;--ink:#e3e8eb;--muted:#9aa6af;--line:#2c3740;--acc:#4fc2a6;--up:#ff6b66;--dn:#6e9bff}}}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Malgun Gothic",sans-serif;padding:24px max(16px,3vw)}}
@@ -342,7 +372,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</div>
 {blocks}
 <div class=grid>
-<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th></tr>{rk_rows}</table></section>
+<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>경보 종목(진입 불가)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> · 매수 후보는 상위 {p.entry_top}위 안·상승률 0~{p.chase_rs_cap:.0%}·보유/경보 아님</div></section>
 <section><h2>운영 기록</h2><ul>{ev}</ul></section>
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>

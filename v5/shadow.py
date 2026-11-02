@@ -72,7 +72,10 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     room = max(0.0, caps['max_total_buy_krw'] - bought)
     keep = set(holdings) - set(sells)
     picks = []
-    for r in ranked[:base.entry_top]:
+    want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
+    for r in ranked[:scan]:
+        if len(picks) >= want:
+            break
         if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep:
             last = (last_sells or {}).get(r['market'])
             why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)

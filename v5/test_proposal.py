@@ -67,3 +67,27 @@ class ReentryInProposal(unittest.TestCase):
         self.assertTrue(any('A 매수 보류' in x and '재진입' in x for x in reasons))
         text2, _ = proposal({}, ranked, {}, {'KRW-A'}, st.Params(entry_top=3), big, 1_000_000, 0, None)
         self.assertIn('매수 A', text2)
+
+
+class CandidateRuleConfig(unittest.TestCase):
+    BIG = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+
+    def ranked(self):
+        return [{'market': 'KRW-HELD', 'rank': 1, 'rs': .10}, {'market': 'KRW-HOT', 'rank': 2, 'rs': .20},
+                {'market': 'KRW-B', 'rank': 3, 'rs': .08}, {'market': 'KRW-C', 'rank': 4, 'rs': .06},
+                {'market': 'KRW-D', 'rank': 5, 'rs': .05}]
+
+    def text(self, **kw):
+        p = st.Params(coin_cap=1.0, total_cap=1.0, **kw)
+        ent = {'KRW-HELD', 'KRW-HOT', 'KRW-B', 'KRW-C', 'KRW-D'}
+        return proposal({'KRW-HELD': 100000}, self.ranked(), {}, ent, p, self.BIG, 900000, 0)[0]
+
+    def test_default_looks_only_at_top3_slots(self):
+        t = self.text()
+        self.assertIn('매수 B', t)                       # 3위만 적격
+        self.assertNotIn('매수 C', t)                    # 4위는 칸 밖
+
+    def test_fill_mode_takes_next_eligible_and_respects_want(self):
+        t = self.text(entry_want=2, entry_scan=10)
+        self.assertIn('매수 B', t); self.assertIn('매수 C', t)
+        self.assertNotIn('매수 D', t)                    # want=2에서 멈춤

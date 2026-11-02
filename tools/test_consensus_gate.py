@@ -100,3 +100,22 @@ class Provisional(unittest.TestCase):
         done = json.loads(self.state.read_text(encoding='utf-8'))
         self.assertTrue(done['P-1']['provisional'])
         self.assertFalse(done['D-2']['provisional'])               # 합의가 있으면 합의로 적용
+
+
+class Notify(unittest.TestCase):
+    def test_success_notifies_user_once_with_what_changed(self):
+        import json as _j
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        r = Path(tmp.name); debate, manifest, state = r / 't.md', r / 'm.json', r / 's.json'
+        debate.write_text(TABLE, encoding='utf-8')
+        manifest.write_text(_j.dumps({'D-2': {'commit': 'abc', 'note': '후보 규칙', 'config': {'strategy': {'entry_want': 2, 'entry_scan': 10}}}}), encoding='utf-8')
+        with mock.patch.object(cg, 'head_contains', return_value=True), mock.patch.object(cg.dp, 'deploy', return_value=0), \
+                mock.patch.object(cg, 'notify_user') as n:
+            cg.run_once(True, debate, manifest, state)
+            cg.run_once(True, debate, manifest, state)
+        self.assertEqual(n.call_count, 1)
+        self.assertIn('D-2', n.call_args.args[1]); self.assertIn('entry_want', n.call_args.args[1])
+
+    def test_candidate_keys_are_allowed_but_limits_are_not(self):
+        self.assertTrue(cg.config_allowed({'strategy': {'entry_want': 2, 'entry_scan': 10}})[0])
+        self.assertFalse(cg.config_allowed({'strategy': {'coin_cap': 1.0}})[0])

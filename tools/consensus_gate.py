@@ -34,6 +34,7 @@ TAG = re.compile(r'\[배포:([A-Za-z0-9._-]+)\]')
 ALLOWED = {  # 이 게이트가 바꿀 수 있는 설정 키(섹션.키). 한도·실거래 on/off·인수 범위는 의도적으로 없다.
     'live.trail_enabled', 'live.trail_adopted', 'live.adopted_trail_start_r',
     'live.partial_enabled', 'live.partial_r', 'live.partial_frac',
+    'strategy.entry_top', 'strategy.entry_want', 'strategy.entry_scan',
     'strategy.chase_rs_cap', 'strategy.stop_max_pct',
     'strategy.trail_enabled', 'strategy.trail_m', 'strategy.giveback', 'strategy.trail_start_r', 'strategy.trail_lock_r',
 }
@@ -54,6 +55,15 @@ def agreed_tags(text):
 def config_allowed(patch):
     bad = [f'{sec}.{k}' for sec, vals in patch.items() for k in vals if f'{sec}.{k}' not in ALLOWED]
     return not bad, bad
+
+
+def notify_user(title, message):
+    """바탕화면에 알림창을 띄운다(기다리지 않고 별도 프로세스로). 실패해도 적용 결과에는 영향이 없다."""
+    try:
+        code = 'import ctypes,sys;ctypes.windll.user32.MessageBoxW(0,sys.argv[2],sys.argv[1],0x40)'
+        subprocess.Popen([sys.executable, '-c', code, title, message], creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        pass
 
 
 def load_json(path, default):
@@ -101,6 +111,7 @@ def run_once(apply, debate=None, manifest=None, state=None, now=None):
             done[tag] = {'time': dt.datetime.now().isoformat(timespec='seconds'), 'row': row, 'commit': spec['commit'], 'provisional': not row}
             state.write_text(json.dumps(done, ensure_ascii=False, indent=2), encoding='utf-8')
             result.append((tag, row, '적용 완료'))
+            notify_user('봇 설정 변경 적용', f"{tag} ({'잠정, 합의 없음' if not row else '토론 안건 ' + str(row) + ' 합의'})\n{spec.get('note', '')}\n설정: {spec.get('config') or '코드 기본값'}\n되돌리기: v5-app/v5/_backup 최신 폴더")
         else:
             result.append((tag, row, f'적용 실패/보류(코드 {code}): 다음 점검에서 재시도'))
     return result

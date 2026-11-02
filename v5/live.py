@@ -40,6 +40,7 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'trail_enabled': False,  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
             'trail_adopted': False,  # 인수 보유분에도 추적 적용(거래소 평균 매수가=E, 15분 ATR로 R 정의). 결정 D-22, 승인 전까지 꺼짐
             'adopted_trail_start_r': 1.0,
+            'loss_daily': False,  # True면 손실 집계를 한국시간 하루 단위로 시작하고, 중단은 다음 날 0시에 자동 재개(D-46)
             'loss_stop_pct': 0.0,  # 0이면 loss_stop_krw(금액) 사용. 0보다 크면 '기준 총자산 대비 비율'로 신규 매수 중단(결정 D-37)
             'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
             'partial_r': 2.0, 'partial_frac': 0.3333}
@@ -179,6 +180,37 @@ class Live:
             self.record({'event': '손실 중단선 기준 총자산 확정', 'base': base, 'pct': pct, 'limit': base * pct})
         return base * pct
 
+    def raw_loss(self, prices):
+        return -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
+
+    def resume_buying(self, prices, reason='사용자 지시'):
+        """중단 해제. 지금까지의 손실을 기준(offset)으로 옮겨 손실 집계를 지금부터 다시 쌓는다(과거 손실은 장부에 남는다)."""
+        if self.missing_valuations(prices):
+            return False, '보유분 가격이 없어 손실 기준을 정할 수 없음'
+        was = self.d['halted']
+        offset = self.raw_loss(prices)
+        self.d['risk_loss_offset'] = offset
+        self.d['risk_day'] = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
+        self.d['halted'] = ''
+        self.save()
+        self.record({'event': '신규 매수 재개', 'reason': reason, 'loss_offset': offset, 'was_halted': was})
+        self.share(f'신규 매수 재개({reason}). 손실 집계 기준을 {offset:,.0f}원으로 옮김. 직전 중단: {was or "없음"}')
+        return True, f'재개: 손실 기준 {offset:,.0f}원'
+
+    def check_resume_request(self, prices):
+        """data/live/RESUME_BUY 파일이 있으면 수동 재개 요청으로 처리한다(tools/resume_trading.py가 만든다)."""
+        f = self.folder / 'RESUME_BUY'
+        if not f.exists():
+            return None
+        try:
+            reason = (f.read_text(encoding='utf-8').strip() or '사용자 지시')[:100]
+        except Exception:
+            reason = '사용자 지시'
+        ok, msg = self.resume_buying(prices, '수동 재개: ' + reason)
+        if ok:
+            f.unlink()
+        return msg
+
     def check_loss(self, prices):
         missing = self.missing_valuations(prices)
         if missing:
@@ -188,7 +220,18 @@ class Live:
             self.d['valuation_incomplete'] = missing
             return None
         self.d.pop('valuation_incomplete', None)
-        loss = -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
+        if self.cfg.get('loss_daily'):
+            today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
+            if self.d.get('risk_day') != today:
+                was = self.d['halted']
+                self.d['risk_day'] = today
+                self.d['risk_loss_offset'] = self.raw_loss(prices)
+                self.d['halted'] = ''
+                self.save()
+                self.record({'event': '손실 집계 하루 단위 시작', 'day': today, 'loss_offset': self.d['risk_loss_offset'], 'was_halted': was})
+                if was:
+                    self.share(f'새 날 시작: 손실 집계를 다시 시작하고 신규 매수를 재개함. 직전 중단: {was}')
+        loss = self.raw_loss(prices) - self.d.get('risk_loss_offset', 0.)
         limit = self.loss_limit(prices)
         if loss >= limit and not self.d['halted']:
             pct = float(self.cfg.get('loss_stop_pct') or 0)

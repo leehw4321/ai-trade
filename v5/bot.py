@@ -249,7 +249,7 @@ class Bot:
         e, L, c = html.escape, self.live.d, self.live.cfg
         if not c['enabled']:
             return ''
-        loss = -(L['realized'] + self.live.unrealized(prices) - L.get('risk_baseline_unrealized', 0.))
+        loss = self.live.raw_loss(prices) - L.get('risk_loss_offset', 0.)
         rows = ''.join(
             f"<tr{' class=dust' if p['qty'] * prices.get(m, 0) < 5000 else ''}><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
             f"<td class=n>{p['qty'] * prices.get(m, 0):,.0f}</td><td class=n>{p['stop']:,.4g}</td></tr>"
@@ -264,7 +264,8 @@ class Bot:
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])}</div>" if L['halted'] else ''
         adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
-<div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원 · 손실 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} (현재 손익 {-loss:+,.0f}원)</div>
+<div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
+<div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
 <div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
 <div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script></section>"""
 
@@ -407,6 +408,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     self.live.trail_check()
                     self.live.stop_check(live)
+                    self.live.check_resume_request(live)
                     self.live.check_loss(live)
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)

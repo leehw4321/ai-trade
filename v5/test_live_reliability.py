@@ -192,7 +192,7 @@ class MonitorOrder(unittest.TestCase):
         runner.p = st.Params()
         runner.ledgers = {'P10': SimpleNamespace(ready=True, d={'positions': {}})}
         runner.live = SimpleNamespace(cfg={'enabled': True}, d={'positions': {'KRW-A': {}}},
-            trail_check=lambda: None, stop_check=lambda prices: calls.append('live-risk'), check_loss=lambda prices: calls.append('loss'))
+            trail_check=lambda: None, check_resume_request=lambda prices: None, stop_check=lambda prices: calls.append('live-risk'), check_loss=lambda prices: calls.append('loss'))
         runner.align_timeframe = Mock()
         runner.log = Mock()
         runner.stop_check = lambda ledger, prices: calls.append('paper-risk')

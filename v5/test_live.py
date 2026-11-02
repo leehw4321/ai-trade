@@ -1,4 +1,5 @@
 import tempfile
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -334,3 +335,39 @@ class EquityTotal(unittest.TestCase):
                 mock.patch('upbit.tickers', return_value={'KRW-AAA': {'trade_price': 100.0}}) as t:
             self.assertAlmostEqual(lv.equity_total(), 1000 + 3 * 100.0)   # DEAD는 시세 조회 대상에서 제외
         self.assertEqual(t.call_args.args[0], ['KRW-AAA'])
+
+
+class ManualResume(unittest.TestCase):
+    def test_resume_clears_halt_and_restarts_loss_count(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            lv = live.Live(Path(t), {'loss_stop_krw': 15000}, st.Params())
+            lv.d['realized'] = -16000
+            self.assertGreaterEqual(lv.check_loss({}), 15000)
+            self.assertTrue(lv.d['halted'])
+            (Path(t) / 'RESUME_BUY').write_text('테스트', encoding='utf-8')
+            lv.check_resume_request({})
+            self.assertFalse(lv.d['halted'])
+            self.assertFalse((Path(t) / 'RESUME_BUY').exists())
+            self.assertEqual(lv.check_loss({}), 0)            # 과거 손실은 기준으로 이동
+            lv.d['realized'] -= 15000                          # 재개 후 새로 15,000원 잃으면 다시 중단
+            lv.check_loss({})
+            self.assertTrue(lv.d['halted'])
+
+
+class DailyLoss(unittest.TestCase):
+    def test_new_day_restarts_count_and_resumes(self):
+        with tempfile.TemporaryDirectory() as t:
+            lv = live.Live(Path(t), {'loss_stop_krw': 15000, 'loss_daily': True}, st.Params())
+            lv.d['risk_day'] = '2000-01-01'; lv.d['realized'] = -16000
+            self.assertEqual(lv.check_loss({}), 0)             # 새 날: 과거 손실은 기준으로 이동
+            self.assertFalse(lv.d['halted'])
+            lv.d['realized'] -= 15000                           # 같은 날 15,000원 더 잃으면 중단
+            lv.check_loss({})
+            self.assertTrue(lv.d['halted'])
+            day = lv.d['risk_day']
+            lv.check_loss({})
+            self.assertTrue(lv.d['halted'] and lv.d['risk_day'] == day)   # 같은 날에는 풀리지 않음
+            lv.d['risk_day'] = '2000-01-01'
+            lv.check_loss({})
+            self.assertFalse(lv.d['halted'])                    # 다음 날 자동 재개

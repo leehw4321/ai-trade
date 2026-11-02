@@ -32,7 +32,8 @@ LIMIT_KEYS = {'1건': 'max_order_krw', '누적': 'max_total_buy_krw', '1회매�
 LIMIT_ITEM = re.compile(r'^(1건|누적|1회매도|손실중단)\s+([\d,]+)\s*원$')
 
 DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'max_total_buy_krw': 100000,
-            'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240}
+            'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240,
+            'trail_enabled': False}  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
 
 
 def parse(text):
@@ -285,7 +286,13 @@ class Live:
             bars = upbit.completed_candles(m, self.cfg['stop_tf'], 100)
             atr = st.wilder_atr(bars) or entry * 0.05
             stop = entry - self.p.k * atr
+            fresh = m not in self.d['positions']
             pos = self.d['positions'].setdefault(m, {'qty': 0.0, 'cost': 0.0, 'stop': stop, 'time': now_iso()})
+            if fresh:
+                # EXIT-T1 대상: 봇이 새로 산 단일 진입만. E·A·초기 손절가는 이 시점에 확정하고 이후 바꾸지 않는다(안건 26).
+                pos.update(entry=entry, atr=atr, stop0=stop, trail=bool(self.cfg.get('trail_enabled')) and stop < entry)
+            else:
+                pos['trail'] = False  # 추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외
             pos['qty'] += v
             pos['cost'] += funds + fee
             pos['stop'] = max(pos['stop'], stop) if pos['qty'] > v else stop
@@ -317,14 +324,48 @@ class Live:
             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} > {c["max_spread"]:.0%}'
         return ''
 
+    def trail_params(self):
+        from dataclasses import replace
+        return replace(self.p, trail_enabled=True)
+
+    def trail_check(self):
+        """EXIT-T1(실거래, 기본 꺼짐). 확정 1분봉 종가로 봉마다 한 번 평가한다. 봇이 새로 산 단일 진입만 대상."""
+        if not self.cfg.get('trail_enabled'):
+            return
+        p = self.trail_params()
+        changed = False
+        for m, pos in list(self.d['positions'].items()):
+            if not pos.get('trail') or pos['qty'] <= 0 or 'entry' not in pos:
+                continue
+            try:
+                bars = upbit.completed_candles(m, 1, 3)
+            except Exception:
+                continue
+            bar = bars[-1] if bars else None
+            if not bar or pos.get('last_bar') == bar['t'] or not st.bar_after_entry(bar, pos['time']):
+                continue
+            pos['last_bar'] = bar['t']
+            why = st.ratchet(m, pos, bar['c'], p)
+            changed = True
+            if why:
+                self.sell_all(m, pos, why)
+        if changed:
+            self.save()
+
+    def sell_all(self, m, pos, reason):
+        o = self._wait(upbit.market_sell(m, pos['qty']))
+        v, funds, fee = self._fill(o)
+        self.d['realized'] += funds - fee - pos['cost']
+        self.d['positions'].pop(m, None)
+        self.save()
+        self.record({'side': '매도', 'market': m, 'volume': v, 'funds': funds, 'fee': fee, 'reason': reason, 'state': o['state']})
+        self.share(f'{m[4:]} {reason} 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+
     def stop_check(self, prices):
         """실거래로 산 물량만 손절한다. 기존 보유분에는 손대지 않는다."""
+        trail_on = bool(self.cfg.get('trail_enabled'))
         for m, pos in list(self.d['positions'].items()):
-            if m in prices and prices[m] <= pos['stop'] and pos['qty'] > 0:
-                o = self._wait(upbit.market_sell(m, pos['qty']))
-                v, funds, fee = self._fill(o)
-                self.d['realized'] += funds - fee - pos['cost']
-                del self.d['positions'][m]
-                self.save()
-                row = self.record({'side': '매도', 'market': m, 'volume': v, 'funds': funds, 'fee': fee, 'reason': '손절', 'state': o['state']})
-                self.share(f'{m[4:]} 손절 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            # EXIT-T1 대상은 초기 고정 손절만 실시간 가격으로 보호하고, 상향된 손절가는 확정 1분봉에서 평가한다.
+            limit = pos.get('stop0', pos['stop']) if trail_on and pos.get('trail') else pos['stop']
+            if m in prices and prices[m] <= limit and pos['qty'] > 0:
+                self.sell_all(m, pos, '손절')

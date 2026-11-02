@@ -372,6 +372,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
+                    self.live.trail_check()
                     self.live.stop_check(live)
                     self.live.check_loss(live)
                     last_stop = now

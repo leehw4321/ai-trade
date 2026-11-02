@@ -83,10 +83,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
     return '실행 주문안: ' + '; '.join(parts), reasons
 
 
-def bar_after_entry(bar, entry_iso):
-    """봉이 진입 시각 이후에 마감됐는지. 체결 이전·같은 봉 정보를 쓰지 않기 위한 검사."""
-    end = dt.datetime.fromisoformat(bar['t']) + dt.timedelta(minutes=1)
-    return end > dt.datetime.fromisoformat(entry_iso)
+bar_after_entry = st.bar_after_entry
 
 
 def variants(base):

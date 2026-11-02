@@ -141,3 +141,10 @@ def ratchet(market, pos, price, p):
     if price <= pos['stop']:
         return '추적 손절' if pos['stop'] > pos['stop0'] else '손절'
     return None
+
+
+def bar_after_entry(bar, entry_iso):
+    """1분봉이 진입 시각 이후에 마감됐는지. 체결 이전·같은 봉 정보를 쓰지 않기 위한 검사."""
+    import datetime as dt
+    end = dt.datetime.fromisoformat(bar['t']) + dt.timedelta(minutes=1)
+    return end > dt.datetime.fromisoformat(entry_iso)

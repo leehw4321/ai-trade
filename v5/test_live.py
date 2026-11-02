@@ -102,3 +102,59 @@ class Limits2(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TrailLive(unittest.TestCase):
+    """EXIT-T1 실거래 연결: 기본 꺼짐, 새 단일 진입만 대상, 확정 1분봉 종가로 평가."""
+
+    def make(self, trail):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        lv = live.Live(self.tmp.name, {'enabled': True, 'trail_enabled': trail}, st.Params())
+        entry_time = '2026-11-02T21:00:00+09:00'
+        lv.d['positions']['KRW-X'] = {'qty': 1.0, 'cost': 100.0, 'stop': 97.0, 'time': entry_time,
+                                      'entry': 100.0, 'atr': 1.0, 'stop0': 97.0, 'trail': trail}
+        lv.d['positions']['KRW-OLD'] = {'qty': 1.0, 'cost': 100.0, 'stop': 50.0, 'time': entry_time}  # 인수 보유분: entry 없음
+        return lv
+
+    @staticmethod
+    def bar(minute, close):
+        import datetime as dt
+        return {'t': dt.datetime(2026, 11, 2, 12, minute, tzinfo=dt.timezone.utc).isoformat(),
+                'o': close, 'h': close, 'l': close, 'c': close}
+
+    def run_bars(self, lv, closes):
+        sold = []
+        order = {'uuid': 'u', 'state': 'done', 'paid_fee': '0', 'trades': [{'volume': '1', 'funds': '104'}]}
+        with mock.patch('upbit.market_sell', side_effect=lambda m, q: sold.append(m) or order), \
+                mock.patch('upbit.get_order', return_value=order):
+            for minute, close in closes:
+                with mock.patch('upbit.completed_candles', return_value=[self.bar(minute, close)]):
+                    lv.trail_check()
+        return sold
+
+    def test_default_off_never_sells_on_trail(self):
+        lv = self.make(False)
+        self.assertEqual(self.run_bars(lv, [(1, 110), (2, 104)]), [])
+        self.assertIn('KRW-X', lv.d['positions'])
+
+    def test_on_exits_new_position_only(self):
+        lv = self.make(True)
+        sold = self.run_bars(lv, [(1, 110), (2, 110), (3, 104)])
+        self.assertEqual(sold, ['KRW-X'])                      # 인수 보유분 KRW-OLD는 건드리지 않음
+        self.assertNotIn('KRW-X', lv.d['positions'])
+        self.assertIn('KRW-OLD', lv.d['positions'])
+
+    def test_raised_stop_not_evaluated_by_live_price_only_initial_stop(self):
+        lv = self.make(True)
+        self.run_bars(lv, [(1, 110), (2, 110)])               # 손절가 상향(110-2=108), 아직 보유
+        sold = []
+        order = {'uuid': 'u', 'state': 'done', 'paid_fee': '0', 'trades': [{'volume': '1', 'funds': '107'}]}
+        with mock.patch('upbit.market_sell', side_effect=lambda m, q: sold.append(m) or order), \
+                mock.patch('upbit.get_order', return_value=order):
+            lv.stop_check({'KRW-X': 107.0})                    # 상향 손절가(108) 아래지만 실시간 평가 대상 아님
+            self.assertEqual(sold, [])
+            lv.stop_check({'KRW-X': 96.0})                     # 초기 고정 손절(97)은 실시간 보호
+            self.assertEqual(sold, ['KRW-X'])
+
+

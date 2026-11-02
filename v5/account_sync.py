@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
 
 
-DUST_KRW = 5000  # 평가금액이 이 값 미만인 보유(미평가 제외)는 기본으로 숨긴다
+DUST_KRW = 5000  # 평가금액이 이 값 미만이거나 시세가 없는(미평가) 보유는 기본으로 숨긴다
 
 
 def snapshot():
@@ -67,14 +67,14 @@ def render(data, error=''):
         if n is None: return '—'
         return f'{n:,.0f}' if n >= 1000 else f'{n:,.4f}'.rstrip('0').rstrip('.')
     rows = []
-    dust_n = sum(1 for a in coins if a['value'] is not None and a['value'] < DUST_KRW)
+    dust_n = sum(1 for a in coins if a['value'] is None or a['value'] < DUST_KRW)
     for a in sorted(coins, key=lambda a: -(a['value'] or 0)):
         known = a['value'] is not None and a['avg'] > 0
         buy = a['quantity'] * a['avg'] if a['avg'] > 0 else None
         gain = a['value'] - buy if known else None
         rate = gain / buy * 100 if known and buy else None
         weight = a['value'] / total * 100 if a['value'] is not None and total else 0
-        dust = a['value'] is not None and a['value'] < DUST_KRW
+        dust = a['value'] is None or a['value'] < DUST_KRW  # 소액과 미평가(시세 없음) 모두 숨김 대상
         rows.append(f'''<tr{' class="dust"' if dust else ''}><td><div class="asset"><span class="coin">{esc(a['currency'][:2])}</span><div><strong>{esc(a['currency'])}</strong><small>{esc(a.get('name',a['currency']))}</small></div></div></td>
 <td>{a['quantity']:,.8g}<small>잠금 {a['locked']:,.8g}</small></td>
 <td>{price(a['avg']) if a['avg'] > 0 else '—'}<small>KRW</small></td>
@@ -95,7 +95,7 @@ html.hd .dust{{display:none}}.dustswitch{{font-size:12px;color:#62758e;margin-le
 <div class="card"><div class="label">총 매입금액 · 계산 가능 보유분</div><div class="amount">{cost:,.0f}<span class="unit">원</span></div><small>코인 평가액 {total-cash:,.0f}원</small></div>
 <div class="card"><div class="label">보유 원화</div><div class="amount">{cash:,.0f}<span class="unit">원</span></div><small>주문 가능 {available:,.0f}원 · 비중 {(cash/total*100 if total else 0):.1f}%</small></div></div>
 <div class="stamp"><span>마지막 조회 {esc(data.get('time','아직 성공하지 않음').replace('T',' '))}</span><span id="fresh">5초 간격 자동 갱신</span></div>
-<section class="panel"><div class="panelhead"><h2>보유 코인</h2><span class="count"><span id="cnt">{len(coins)}개 자산</span> · 매입 대비 손익<label class="dustswitch"><input type="checkbox" id="hideDust">소액({DUST_KRW:,}원 미만) 숨기기</label></span></div><div class="scroll"><table><thead><tr><th>자산</th><th>보유 수량</th><th>매입 평균가</th><th>현재가</th><th>매입금액</th><th>평가금액</th><th>평가손익 / 수익률</th><th>계좌 비중</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="8">계좌 조회를 기다리고 있습니다.</td></tr>'}</tbody></table></div></section>
+<section class="panel"><div class="panelhead"><h2>보유 코인</h2><span class="count"><span id="cnt">{len(coins)}개 자산</span> · 매입 대비 손익<label class="dustswitch"><input type="checkbox" id="hideDust">소액({DUST_KRW:,}원 미만)·미평가 숨기기</label></span></div><div class="scroll"><table><thead><tr><th>자산</th><th>보유 수량</th><th>매입 평균가</th><th>현재가</th><th>매입금액</th><th>평가금액</th><th>평가손익 / 수익률</th><th>계좌 비중</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="8">계좌 조회를 기다리고 있습니다.</td></tr>'}</tbody></table></div></section>
 <footer>수익률은 현재 보유분의 평균 매입가 대비 미실현 손익이며, 입출금을 반영한 계좌 누적 수익률이 아닙니다. 수수료·예상 매도 비용은 차감 전입니다.<br>시세 없는 자산 {unknown}개는 총 평가액에서 제외하고 수량을 보존합니다. 시세는 있으나 평균 매입가가 없는 {unknown_cost}개는 합산 손익·수익률 계산에서 제외합니다.</footer></main>
 <script>(function(){{const box=document.getElementById('hideDust'),cnt=document.getElementById('cnt');function apply(){{const on=box.checked;document.documentElement.classList.toggle('hd',on);try{{localStorage.setItem('hideDust',on?'1':'0');}}catch(e){{}}cnt.textContent=on?'{len(coins)-dust_n}개 표시 · 소액 {dust_n}개 숨김':'전체 {len(coins)}개 자산';}}box.checked=document.documentElement.classList.contains('hd');box.addEventListener('change',apply);apply();}})();</script><script>function freshness(){{const age=Math.max(0,Math.floor(Date.now()/1000-{float(data.get('epoch',0))}));const el=document.getElementById('fresh');el.textContent=age>20?'갱신 지연 · '+age+'초 경과':'5초 간격 자동 갱신 · 조회 후 '+age+'초';if(age>20)el.style.color='#c34b43';}}freshness();setInterval(freshness,1000);
 try{{const k='account-scroll:'+location.pathname;const saved=JSON.parse(sessionStorage.getItem(k)||'null');if(saved){{window.scrollTo(0,saved.y);document.querySelector('.scroll').scrollLeft=saved.x;}}window.addEventListener('pagehide',()=>sessionStorage.setItem(k,JSON.stringify({{y:window.scrollY,x:document.querySelector('.scroll').scrollLeft}})));}}catch(e){{}}</script></html>'''

@@ -7,6 +7,8 @@
   3. 설정 변경은 허용 키 목록 안의 값만 가능하다. 주문 금액 한도·손실 중단선·실거래 켜기/끄기·계좌 인수 범위는 이 게이트로 바꿀 수 없다.
   4. 정본 코드의 HEAD가 매니페스트의 커밋을 포함하고, v5 테스트가 모두 통과하고, 미확정 주문이 없다(deploy_v5가 점검).
   5. 같은 ID는 한 번만 적용한다(tools/deploy_state.json).
+  6. 사용자 규칙(2026-11-03 00:00): 토론이 결론 나지 않으면 합의된 부분만 적용하고 나머지는 Claude 추론대로 '잠정' 적용한 뒤 ChatGPT와 함께 평가·수정한다.
+     매니페스트 항목에 `provisional_after`(ISO 시각)가 있고 그 시각이 지났으며 합의가 없으면 잠정 적용한다. 허용 키·테스트·미확정 주문 점검은 그대로다.
 
   python tools/consensus_gate.py            점검만(적용하지 않음)
   python tools/consensus_gate.py --apply    조건이 맞는 항목을 적용
@@ -31,6 +33,7 @@ STATE = ROOT / 'tools' / 'deploy_state.json'
 TAG = re.compile(r'\[배포:([A-Za-z0-9._-]+)\]')
 ALLOWED = {  # 이 게이트가 바꿀 수 있는 설정 키(섹션.키). 한도·실거래 on/off·인수 범위는 의도적으로 없다.
     'live.trail_enabled', 'live.trail_adopted', 'live.adopted_trail_start_r',
+    'live.partial_enabled', 'live.partial_r', 'live.partial_frac',
     'strategy.chase_rs_cap', 'strategy.stop_max_pct',
     'strategy.trail_enabled', 'strategy.trail_m', 'strategy.giveback', 'strategy.trail_start_r', 'strategy.trail_lock_r',
 }
@@ -62,13 +65,20 @@ def head_contains(commit):
     return r.returncode == 0
 
 
-def run_once(apply, debate=None, manifest=None, state=None):
+def run_once(apply, debate=None, manifest=None, state=None, now=None):
     debate, manifest, state = debate or DEBATE, manifest or MANIFEST, state or STATE
+    now = now or dt.datetime.now()
     tags = agreed_tags(debate.read_text(encoding='utf-8')) if debate.exists() else {}
     items = load_json(manifest, {})
     done = load_json(state, {})
     result = []
-    for tag, row in sorted(tags.items()):
+    # 합의가 없어도 사용자 규칙에 따라 기한이 지난 항목은 '잠정' 후보(row 0)로 올린다. 합의가 있으면 합의가 우선.
+    cands = dict(tags)
+    for tag, spec in items.items():
+        when = spec.get('provisional_after')
+        if tag not in cands and when and now >= dt.datetime.fromisoformat(when):
+            cands[tag] = 0
+    for tag, row in sorted(cands.items()):
         if tag in done:
             continue
         spec = items.get(tag)
@@ -85,9 +95,10 @@ def run_once(apply, debate=None, manifest=None, state=None):
         if not apply:
             result.append((tag, row, '적용 가능(점검 모드)'))
             continue
-        code = dp.deploy(f'합의 게이트 {tag}(토론 안건 {row})', config_patch=spec.get('config') or None)
+        label = f'합의 게이트 {tag}(토론 안건 {row})' if row else f'잠정 적용 {tag}(합의 없음, 사용자 규칙)'
+        code = dp.deploy(label, config_patch=spec.get('config') or None)
         if code == 0:
-            done[tag] = {'time': dt.datetime.now().isoformat(timespec='seconds'), 'row': row, 'commit': spec['commit']}
+            done[tag] = {'time': dt.datetime.now().isoformat(timespec='seconds'), 'row': row, 'commit': spec['commit'], 'provisional': not row}
             state.write_text(json.dumps(done, ensure_ascii=False, indent=2), encoding='utf-8')
             result.append((tag, row, '적용 완료'))
         else:

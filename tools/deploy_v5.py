@@ -241,6 +241,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--watch', action='store_true')
+    ap.add_argument('--patch', help='config.json에 덮어쓸 설정 JSON 파일 경로(예: tools/patches/profit_protection.json). --apply와 함께 사용')
     a = ap.parse_args(argv)
     if not APP.exists():
         print('실행 사본 없음:', APP)
@@ -249,7 +250,8 @@ def main(argv=None):
         watch()
         return 0
     if a.apply:
-        return deploy('사용자 직접 실행')
+        patch = json.loads(Path(a.patch).read_text(encoding='utf-8')) if a.patch else None
+        return deploy('사용자 직접 실행' + (f' + 설정 {Path(a.patch).name}' if a.patch else ''), config_patch=patch)
     pre = preflight()
     print('다른 파일:', pre['diff'] or '없음')
     print('실행 중인 프로세스:', pre['alive'] or '없음')

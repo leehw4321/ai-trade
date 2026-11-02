@@ -39,7 +39,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240,
             'trail_enabled': False,  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
             'trail_adopted': False,  # 인수 보유분에도 추적 적용(거래소 평균 매수가=E, 15분 ATR로 R 정의). 결정 D-22, 승인 전까지 꺼짐
-            'adopted_trail_start_r': 1.0}
+            'adopted_trail_start_r': 1.0,
+            'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
+            'partial_r': 2.0, 'partial_frac': 0.3333}
 
 
 def parse(text):
@@ -554,7 +556,7 @@ class Live:
         if not self.cfg['enabled'] or not self.cfg.get('trail_enabled'): return
         if not self.recover_all_pending(): return
         p = replace(self.p, trail_enabled=True)
-        exits, changed = [], False
+        exits, parts, changed = [], [], False
         if self.cfg.get('trail_adopted') and self.adopt_trail_init(): changed = True
         for m, pos in list(self.d['positions'].items()):
             if not pos.get('trail') or pos['qty'] <= 0 or 'entry' not in pos: continue
@@ -567,8 +569,11 @@ class Live:
             changed = True
             why = st.ratchet(m, pos, bar['c'], p_pos)
             if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
+            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and pos['atr'] > 0:
+                if (bar['c'] - pos['entry']) / (p_pos.k * pos['atr']) >= float(self.cfg.get('partial_r', 2.0)):
+                    parts.append((m, pos, bar['c']))
         if changed: self.save()
-        if not exits: return
+        if not exits and not parts: return
         balances = {r['currency']: r for r in upbit.accounts()}
         for m, pos, why, price in exits:
             volume = min(pos['qty'], float(balances.get(m[4:], {}).get('balance', 0)))
@@ -582,6 +587,24 @@ class Live:
             except Exception as error:
                 self.record({'event': '종목 익절 청산 대기', 'market': m,
                              'reason': type(error).__name__ + ': ' + str(error)[:250]})
+        for m, pos, price in parts:
+            if self.market_has_uncertain_order(m) or m not in self.d['positions']: continue
+            avail = float(balances.get(m[4:], {}).get('balance', 0))
+            vol = int(min(pos['qty'], avail) * float(self.cfg.get('partial_frac', 1 / 3)) * 1e8) / 1e8
+            if vol * price < 5000 or (pos['qty'] - vol) * price < 5000:
+                pos['part_done'] = True  # 너무 작아 나눠 팔 수 없다: 다시 시도하지 않는다
+                self.save()
+                continue
+            try:
+                o = self._trade('ask', m, vol, '부분 익절', risk=True)
+                v, funds, fee = self._fill(o)
+                if m in self.d['positions']: self.d['positions'][m]['part_done'] = True
+                self.save()
+                self.share(f'{m[4:]} 부분 익절 {funds - fee:,.0f}원 (수익 {(price / pos["entry"] - 1):+.1%} 구간, 실현 누적 {self.d["realized"]:+,.0f}원)')
+            except SessionLost:
+                raise
+            except Exception as error:
+                self.record({'event': '부분 익절 대기', 'market': m, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
 
     def stop_check(self, prices):
         """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""

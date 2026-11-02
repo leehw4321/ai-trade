@@ -1,0 +1,10 @@
+{
+  "live": {
+    "trail_enabled": true,
+    "trail_adopted": true,
+    "adopted_trail_start_r": 1.0,
+    "partial_enabled": true,
+    "partial_r": 2.0,
+    "partial_frac": 0.3333
+  }
+}

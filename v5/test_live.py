@@ -229,3 +229,41 @@ class AdoptedTrail(unittest.TestCase):
         top = pos['entry'] + 1.5 * 3 * pos['atr']
         self.assertIsNone(st.ratchet('KRW-A', pos, top, p))
         self.assertEqual(st.ratchet('KRW-A', pos, top - 2.1 * pos['atr'], p) is not None, True)
+
+
+class PartialProfit(TrailLive):
+    def trade_log(self, lv, closes, **cfg):
+        lv.cfg.update(partial_enabled=True, **cfg)
+        sold = []
+
+        def fake(side, market, amount, reason, risk=False):
+            sold.append((market, reason, amount))
+            pos = lv.d['positions'][market]
+            pos['qty'] -= amount
+            return {'state': 'done', 'trades': [{'volume': str(amount), 'funds': str(amount * 106000)}], 'paid_fee': '0'}
+
+        with mock.patch.object(lv, '_trade', side_effect=fake), mock.patch.object(lv, 'recover_all_pending', return_value=True), \
+                mock.patch('upbit.accounts', return_value=[{'currency': 'X', 'balance': '1'}]):
+            for minute, close in closes:
+                with mock.patch('upbit.completed_candles', return_value=[self.bar(minute, close)]):
+                    lv.trail_check()
+        return sold
+
+    def test_partial_sells_once_at_2r_not_before(self):
+        lv = self.make(True)
+        lv.d['positions']['KRW-X']['qty'] = 1.0
+        lv.d['positions']['KRW-X']['cost'] = 100000.0
+        sold = self.trade_log(lv, [(1, 104000), (2, 107000), (3, 108000)])   # 1R=3,000 → 2R=106,000
+        self.assertEqual([(m, r) for m, r, _ in sold], [('KRW-X', '부분 익절')])  # 104,000(1.33R) 전엔 안 팔고, 한 번만
+        self.assertAlmostEqual(sold[0][2], 0.3333, places=3)
+        self.assertTrue(lv.d['positions']['KRW-X']['part_done'])
+        self.assertIn('KRW-OLD', lv.d['positions'])                                    # 인수 보유분은 건드리지 않음
+
+    def test_partial_off_by_default(self):
+        lv = self.make(True)
+        lv.cfg['partial_enabled'] = False
+        with mock.patch.object(lv, '_trade') as t, mock.patch.object(lv, 'recover_all_pending', return_value=True), \
+                mock.patch('upbit.accounts', return_value=[{'currency': 'X', 'balance': '1'}]), \
+                mock.patch('upbit.completed_candles', return_value=[self.bar(1, 107000)]):
+            lv.trail_check()
+        t.assert_not_called()

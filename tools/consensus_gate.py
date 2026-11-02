@@ -34,7 +34,7 @@ TAG = re.compile(r'\[배포:([A-Za-z0-9._-]+)\]')
 ALLOWED = {  # 이 게이트가 바꿀 수 있는 설정 키(섹션.키). 한도·실거래 on/off·인수 범위는 의도적으로 없다.
     'live.trail_enabled', 'live.trail_adopted', 'live.adopted_trail_start_r',
     'live.partial_enabled', 'live.partial_r', 'live.partial_frac',
-    'strategy.entry_top', 'strategy.entry_want', 'strategy.entry_scan',
+    'strategy.size_by_risk', 'strategy.entry_top', 'strategy.entry_want', 'strategy.entry_scan',
     'strategy.chase_rs_cap', 'strategy.stop_max_pct',
     'strategy.trail_enabled', 'strategy.trail_m', 'strategy.giveback', 'strategy.trail_start_r', 'strategy.trail_lock_r',
 }

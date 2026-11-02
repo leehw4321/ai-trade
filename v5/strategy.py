@@ -31,6 +31,7 @@ class Params:
     chase_rs_cap: float = 0.15    # 기간 상승률이 이 값 이상이면 신규 매수 보류
     stop_max_pct: float = 0.08    # 손절가는 진입가(또는 인수 시점 가격)보다 이 비율 이상 멀리 두지 않음
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
+    size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
     entry_want: int = 0    # 한 번에 사려는 후보 수 (0 = entry_top)
     entry_scan: int = 0    # 후보를 찾아보는 최대 순위 (0 = entry_top)
     # 실거래 재진입 규칙(결정 D-38): 직전 매도 뒤 대기 시간과 조건. 0이면 해당 대기 없음.

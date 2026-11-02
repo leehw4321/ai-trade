@@ -90,7 +90,8 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     total_room = max(0.0, base.total_cap * equity - invested)
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
-        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room) // 1000 * 1000)
+        risk_room = base.risk * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0 else float('inf')
+        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room) // 1000 * 1000)
         if amt < 5000:
             reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원, 종목 한도 잔여 {coin_room:,.0f}원, 총투입 한도 잔여 {total_room:,.0f}원)')
             continue

@@ -91,3 +91,19 @@ class CandidateRuleConfig(unittest.TestCase):
         t = self.text(entry_want=2, entry_scan=10)
         self.assertIn('매수 B', t); self.assertIn('매수 C', t)
         self.assertNotIn('매수 D', t)                    # want=2에서 멈춤
+
+
+class RiskSizing(unittest.TestCase):
+    BIG = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+
+    def amount(self, **kw):
+        p = st.Params(coin_cap=0.25, total_cap=0.5, risk=0.002, stop_max_pct=0.08, **kw)
+        ranked = [{'market': 'KRW-B', 'rank': 1, 'rs': .05}]
+        text = proposal({}, ranked, {}, {'KRW-B'}, p, self.BIG, 2_000_000, 0)[0]
+        return text
+
+    def test_default_keeps_ratio_caps(self):
+        self.assertIn('500000', self.amount().replace(',', ''))   # 종목당 25% 한도
+
+    def test_risk_sizing_limits_to_risk_over_stop(self):
+        self.assertIn('50000', self.amount(size_by_risk=True).replace(',', ''))   # 0.002×2,000,000/0.08

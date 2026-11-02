@@ -226,20 +226,21 @@ class Bot:
         e, L, c = html.escape, self.live.d, self.live.cfg
         if not c['enabled']:
             return ''
-        loss = -(L['realized'] + self.live.unrealized(prices))
+        loss = -(L['realized'] + self.live.unrealized(prices) - L.get('risk_baseline_unrealized', 0.))
         rows = ''.join(
             f"<tr><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
             f"<td class=n>{p['qty'] * prices.get(m, 0):,.0f}</td><td class=n>{p['stop']:,.4g}</td></tr>"
-            for m, p in L['positions'].items()) or '<tr><td colspan=5 class=muted>봇이 실거래로 산 코인 없음</td></tr>'
+            for m, p in L['positions'].items()) or '<tr><td colspan=5 class=muted>위임된 실거래 보유 없음</td></tr>'
         orders = []
         f = DATA / 'live' / 'orders.jsonl'
         if f.exists():
             orders = [json.loads(x) for x in f.read_text(encoding='utf-8').splitlines()[-8:] if x.strip()][::-1]
         ol = ''.join(f"<li><span class=t>{e(o['time'][5:16].replace('T', ' '))}</span>"
                      f"{e(o.get('result') or o.get('reason') or (o.get('side', '') + ' ' + o.get('market', '')[4:] + ' ' + format(o.get('funds', 0), ',.0f') + '원'))}</li>"
-                     for o in orders) or '<li class=muted>아직 실거래 없음 · 두 AI가 실행 주문안에 합의하면 자동 실행</li>'
+                     for o in orders) or '<li class=muted>아직 새 체결 없음 · 현재 전략의 새 주문안을 대기 중</li>'
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])}</div>" if L['halted'] else ''
-        return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}
+        adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
+        return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원 · 손실 중단선 {c['loss_stop_krw']:,}원 (현재 손익 {-loss:+,.0f}원)</div>
 <div class=cols><div><h3>봇 실거래 보유</h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
 <div><h3>실거래 기록</h3><ul>{ol}</ul></div></div></section>"""
@@ -350,7 +351,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         if not all(lg.ready for lg in self.ledgers.values()):
             self.init_t0()
         self.align_timeframe(time.time())
-        self.log('봇 실행 시작 (모의 운영)')
+        self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
         last_snap = last_stop = last_live = last_display = 0
         while not (STOP.exists() or STOP_ASCII.exists()):
             guard = getattr(self, 'session_guard', None)
@@ -361,17 +362,17 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             try:
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
-                if now - last_display >= 30:
-                    self.refresh_display(end4 + TF + SETTLE)
-                    last_display = now
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
                 if held and now - last_stop >= self.p.stop_seconds:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
-                    for lg in self.ledgers.values():
-                        self.stop_check(lg, live)
                     self.live.stop_check(live)
                     self.live.check_loss(live)
+                    for lg in self.ledgers.values():
+                        self.stop_check(lg, live)
                     last_stop = now
+                if now - last_display >= 30:
+                    self.refresh_display(end4 + TF + SETTLE)
+                    last_display = now
                 if now - last_live >= 30:
                     self.live.poll(self.markets or upbit.krw_markets())
                     last_live = now

@@ -16,10 +16,14 @@ import json
 from pathlib import Path
 import re
 import time
+import uuid
+import datetime as dt
+import math
 
 import strategy as st
 import upbit
 from paper import now_iso
+from session_guard import SessionLost
 
 DEBATE = Path(os.environ.get('AI_DEBATE_DIR', str(Path.home() / 'Desktop' / 'AI토론장'))) / '토론.md'
 EVIDENCE = Path(os.environ.get('AI_DEBATE_DIR', str(Path.home() / 'Desktop' / 'AI토론장'))) / '공유_근거자료.md'
@@ -133,8 +137,21 @@ class Live:
     def unrealized(self, prices):
         return sum(p['qty'] * prices[m] * (1 - 0.0005) - p['cost'] for m, p in self.d['positions'].items() if m in prices)
 
+    def missing_valuations(self, prices):
+        return [m for m in self.d['positions']
+                if m not in prices or type(prices[m]) not in (int, float)
+                or not math.isfinite(prices[m]) or prices[m] <= 0]
+
     def check_loss(self, prices):
-        loss = -(self.d['realized'] + self.unrealized(prices))
+        missing = self.missing_valuations(prices)
+        if missing:
+            if self.d.get('valuation_incomplete') != missing:
+                self.record({'event': '손익 평가 보류', 'markets': missing,
+                             'reason': '일부 보유분 가격 누락·무효: 손익을 0으로 간주하지 않음'})
+            self.d['valuation_incomplete'] = missing
+            return None
+        self.d.pop('valuation_incomplete', None)
+        loss = -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
         if loss >= self.cfg['loss_stop_krw'] and not self.d['halted']:
             self.d['halted'] = f'{now_iso()} 실거래 누적 손실 {loss:,.0f}원 ≥ 중단선 {self.cfg["loss_stop_krw"]:,}원'
             self.save()
@@ -158,12 +175,162 @@ class Live:
         funds = sum(float(t['funds']) for t in trades)
         return vol, funds, float(o.get('paid_fee') or 0)
 
+    def _pending(self, risk_market=None):
+        return (self.d.get('risk_pending_orders', {}).get(risk_market) if risk_market is not None
+                else self.d.get('pending_order'))
+
+    def _set_pending(self, pending, risk_market=None):
+        if risk_market is None:
+            self.d['pending_order'] = pending
+        elif pending is None:
+            self.d.setdefault('risk_pending_orders', {}).pop(risk_market, None)
+        else:
+            self.d.setdefault('risk_pending_orders', {})[risk_market] = pending
+
+    def has_uncertain_orders(self):
+        return bool(self.d.get('pending_order') or self.d.get('risk_pending_orders'))
+
+    def market_has_uncertain_order(self, market):
+        primary = self.d.get('pending_order')
+        return bool((primary and primary['market'] == market)
+                    or market in self.d.get('risk_pending_orders', {}))
+
+    def _apply_pending(self, order, risk_market=None):
+        """Apply cumulative fills once and retain partial/unknown orders durably."""
+        pending = self._pending(risk_market)
+        if not pending: raise ValueError('정산할 주문 의도 없음')
+        if order.get('market', pending['market']) != pending['market']:
+            raise ValueError('주문 종목 불일치: 정산 보류')
+        if pending.get('uuid') and order.get('uuid', pending['uuid']) != pending['uuid']:
+            raise ValueError('주문 식별자 불일치: 정산 보류')
+        if order.get('identifier', pending['identifier']) != pending['identifier']:
+            raise ValueError('클라이언트 주문 식별자 불일치: 정산 보류')
+        if order.get('side', pending['side']) != pending['side']:
+            raise ValueError('주문 방향 불일치: 정산 보류')
+        volume, funds, fee = self._fill(order)
+        if any(not math.isfinite(x) or x < 0 for x in (volume, funds, fee)):
+            raise ValueError('체결 수량·금액 무효: 정산 보류')
+        terminal = order.get('state') in ('done', 'cancel')
+        executed = float(order.get('executed_volume', volume))
+        if not math.isfinite(executed) or executed < 0:
+            raise ValueError('주문 누적 체결량 무효: 정산 보류')
+        if terminal and executed > volume + 1e-8:
+            raise ValueError('상세 체결 자료 부족: 주문 대사 필요')
+        dv = volume - pending.get('applied_volume', 0.)
+        df = funds - pending.get('applied_funds', 0.)
+        dfee = fee - pending.get('applied_fee', 0.)
+        if min(dv, df, dfee) < -1e-8:
+            raise ValueError('주문 누적 체결량 역전: 정산 보류')
+        m = pending['market']
+        if dv > 1e-12:
+            if pending['side'] == 'bid':
+                old = self.d['positions'].get(m)
+                qty = (old['qty'] if old else 0.) + dv
+                cost = (old['cost'] if old else 0.) + df + dfee
+                stop = df / dv - self.p.k * pending['atr']
+                self.d['positions'][m] = {'qty': qty, 'cost': cost,
+                    'stop': max(old['stop'], stop) if old else stop,
+                    'time': old['time'] if old else pending['time']}
+                self.d['bought_krw'] += df + dfee
+            else:
+                pos = self.d['positions'].get(m)
+                if not pos and (risk_market is not None or self.d.get('account_adoption')):
+                    raise ValueError('위임 장부 없는 매도 체결: 대사 필요')
+                if pos:
+                    if dv > pos['qty'] + 1e-8:
+                        raise ValueError('위임 장부 수량 초과 체결: 대사 필요')
+                    fraction = min(1., dv / pos['qty'])
+                    basis = pos['cost'] * fraction
+                    self.d['realized'] += df - dfee - basis
+                    pos['qty'] = max(0., pos['qty'] - dv)
+                    pos['cost'] -= basis
+                    if pos['qty'] <= 1e-8:
+                        del self.d['positions'][m]
+        elif dfee > 0:
+            if pending['side'] == 'bid':
+                if m in self.d['positions']: self.d['positions'][m]['cost'] += dfee
+                self.d['bought_krw'] += dfee
+            else:
+                self.d['realized'] -= dfee
+        pending.update(applied_volume=volume, applied_funds=funds, applied_fee=fee)
+        if order.get('uuid'): pending['uuid'] = order['uuid']
+        if terminal:
+            self._set_pending(None, risk_market)
+        self.save()
+        if dv > 1e-12 or terminal:
+            self.record({'side': '매수' if pending['side'] == 'bid' else '매도', 'market': m,
+                'volume': max(0., dv), 'funds': max(0., df), 'fee': max(0., dfee),
+                'identifier': pending['identifier'], 'state': order.get('state'), 'reason': pending['reason']})
+        return terminal
+
+    def recover_pending(self, risk_market=None):
+        pending = self._pending(risk_market)
+        if not pending: return True
+        order = upbit.get_order(pending['uuid']) if pending.get('uuid') else upbit.get_order_by_identifier(pending['identifier'])
+        return self._apply_pending(order, risk_market)
+
+    def recover_all_pending(self):
+        """Unrelated market risk exits may continue while an order is unresolved."""
+        slots = [None] + list(self.d.get('risk_pending_orders', {}))
+        for market in slots:
+            if not self._pending(market): continue
+            try:
+                self.recover_pending(market)
+            except Exception as error:
+                key = market or 'primary'
+                message = type(error).__name__ + ': ' + str(error)[:250]
+                alerts = self.d.setdefault('recovery_alerts', {})
+                if alerts.get(key) != message:
+                    alerts[key] = message
+                    try:
+                        self.record({'event': '미확정 주문 조회 대기', 'slot': key, 'reason': message})
+                    except OSError:
+                        pass
+        return not self.has_uncertain_orders()
+
+    def _trade(self, side, market, amount, reason, risk=False):
+        if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
+        if risk:
+            if side != 'ask': raise ValueError('위험 청산은 매도만 허용')
+            if self.market_has_uncertain_order(market): raise RuntimeError('동일 종목 미확정 주문: 중복 청산 차단')
+        elif self.has_uncertain_orders():
+            raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
+        atr = None
+        if side == 'bid':
+            atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
+            if atr is None or not math.isfinite(atr) or atr <= 0:
+                raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+        pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
+                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
+        risk_market = market if risk else None
+        self._set_pending(pending, risk_market)
+        self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
+        try:
+            order = (upbit.market_buy(market, amount, identifier=pending['identifier']) if side == 'bid'
+                     else upbit.market_sell(market, amount, identifier=pending['identifier']))
+        except (upbit.OrderRejected, SessionLost) as error:
+            # Rejected submission or failed lease check happened before acceptance; do not create a phantom order.
+            self._set_pending(None, risk_market)
+            self.save()
+            self.record({'event': '주문 전송 차단·거부', 'market': market,
+                         'identifier': pending['identifier'], 'reason': str(error)[:300]})
+            raise
+        if order.get('uuid'):
+            pending['uuid'] = order['uuid']; self.save()
+        order = self._wait(order)
+        if not self._apply_pending(order, risk_market):
+            raise RuntimeError('주문 미종결: 체결 반영 후 신규 주문 대기')
+        return order
+
     def poll(self, markets):
         """봇 주문안(위임)과 토론 합의 주문안을 확인하고, 새것이면 한 번 실행한다."""
         if not self.cfg['enabled']:
             return
+        if not self.recover_all_pending(): return
         if self.cfg['auto_proposal']:
             self.poll_proposal(markets)
+        # An adopted account uses fresh strategy proposals, never replays historical discussion orders.
+        if self.d.get('account_adoption'): return
         if not DEBATE.exists():
             return
         mtime = DEBATE.stat().st_mtime
@@ -221,6 +388,22 @@ class Live:
         if not f.exists():
             return
         prop = json.loads(f.read_text(encoding='utf-8'))
+        if self.d.get('account_adoption'):
+            created = dt.datetime.fromisoformat(prop['time']).timestamp()
+            if not self.d['account_adoption']['epoch'] <= created <= time.time(): return
+            if time.time() - created > self.cfg.get('proposal_max_age_seconds', 120): return
+            # A fresh JSON write does not make an old strategy signal current.
+            closed = prop.get('signal_closed_at')
+            tf = prop.get('signal_tf_minutes')
+            evaluated = prop.get('evaluated_at')
+            now = time.time()
+            if (type(tf) is not int or tf != self.p.tf or tf <= 0
+                    or type(closed) not in (int, float) or not math.isfinite(closed)
+                    or type(evaluated) not in (int, float) or not math.isfinite(evaluated)):
+                return
+            expected = int((now - 20) // (tf * 60)) * tf * 60
+            if closed != expected or not closed + 20 <= evaluated <= now:
+                return
         text = prop['text'].split('실행 주문안:', 1)[-1].strip()
         key = 'P' + hashlib.sha256(f"{prop['time']}|{text}".encode()).hexdigest()[:15]
         if key in self.d['executed']:
@@ -238,6 +421,7 @@ class Live:
         self.share(f'{label} (사용자 위임으로 자동 실행) 「{text}」 → {result}')
 
     def execute(self, plan, markets):
+        if self.has_uncertain_orders(): return '미확정 주문 대사 중: 새 주문안 보류'
         orders = parse(plan[1])
         if not orders:
             return '주문 없음 (매도 없음·매수 없음)'
@@ -256,17 +440,8 @@ class Live:
             if vol * tick[m]['trade_price'] < 5000:
                 done.append(f'{m[4:]} 매도 건너뜀(5,000원 미만)')
                 continue
-            o = self._wait(upbit.market_sell(m, vol))
+            o = self._trade('ask', m, vol, plan[0])
             v, funds, fee = self._fill(o)
-            if m in self.d['positions']:  # 봇이 산 물량이면 실현 손익 반영
-                pos = self.d['positions'][m]
-                share = min(1.0, v / pos['qty'])
-                self.d['realized'] += funds - fee - pos['cost'] * share
-                pos['qty'] -= v
-                pos['cost'] *= (1 - share)
-                if pos['qty'] <= 1e-8:
-                    del self.d['positions'][m]
-            self.record({'side': '매도', 'market': m, 'volume': v, 'funds': funds, 'fee': fee, 'state': o['state'], 'plan': plan[0]})
             done.append(f'{m[4:]} 매도 {v:g}개 → {funds - fee:,.0f}원 ({o["state"]})')
         self.save()
         for side, m, krw in orders:
@@ -276,21 +451,12 @@ class Live:
             if why:
                 done.append(f'{m[4:]} 매수 안 함: {why}')
                 continue
-            o = self._wait(upbit.market_buy(m, krw))
+            o = self._trade('bid', m, krw, plan[0])
             v, funds, fee = self._fill(o)
             if v <= 0:
                 done.append(f'{m[4:]} 매수 미체결 ({o["state"]})')
                 continue
-            entry = funds / v
-            bars = upbit.completed_candles(m, self.cfg['stop_tf'], 100)
-            atr = st.wilder_atr(bars) or entry * 0.05
-            stop = entry - self.p.k * atr
-            pos = self.d['positions'].setdefault(m, {'qty': 0.0, 'cost': 0.0, 'stop': stop, 'time': now_iso()})
-            pos['qty'] += v
-            pos['cost'] += funds + fee
-            pos['stop'] = max(pos['stop'], stop) if pos['qty'] > v else stop
-            self.d['bought_krw'] += funds + fee
-            self.record({'side': '매수', 'market': m, 'volume': v, 'funds': funds, 'fee': fee, 'stop': stop, 'state': o['state'], 'plan': plan[0]})
+            stop = self.d['positions'][m]['stop']
             done.append(f'{m[4:]} 매수 {funds + fee:,.0f}원 · 손절가 {stop:,.4g}')
             self.save()
         return ' / '.join(done) or '실행할 주문 없음'
@@ -299,6 +465,10 @@ class Live:
         c = self.cfg
         if self.d['halted']:
             return '손실 중단선 도달로 신규 매수 중단 상태'
+        if self.has_uncertain_orders():
+            return '미확정 주문 대사 중: 신규 매수 보류'
+        if self.d.get('valuation_incomplete'):
+            return '일부 보유분 가격 미확인: 신규 매수 보류'
         if m not in markets:
             return '원화 마켓에 없음'
         if markets[m].get('warning'):
@@ -307,7 +477,7 @@ class Live:
             return '5,000원 미만'
         if krw > c['max_order_krw']:
             return f'1건 한도 {c["max_order_krw"]:,}원 초과'
-        if self.d['bought_krw'] + krw > c['max_total_buy_krw']:
+        if self.d['bought_krw'] + krw * (1 + self.p.fee) > c['max_total_buy_krw']:
             return f'누적 매수 한도 {c["max_total_buy_krw"]:,}원 초과 (현재 {self.d["bought_krw"]:,.0f}원)'
         krw_avail = float(next((r['balance'] for r in upbit.accounts() if r['currency'] == 'KRW'), 0))
         if krw * 1.0005 > krw_avail:
@@ -318,13 +488,26 @@ class Live:
         return ''
 
     def stop_check(self, prices):
-        """실거래로 산 물량만 손절한다. 기존 보유분에는 손대지 않는다."""
-        for m, pos in list(self.d['positions'].items()):
-            if m in prices and prices[m] <= pos['stop'] and pos['qty'] > 0:
-                o = self._wait(upbit.market_sell(m, pos['qty']))
+        """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""
+        if not self.cfg['enabled']: return
+        self.recover_all_pending()
+        candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
+                      if m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
+                      and prices[m] > 0 and prices[m] <= pos['stop'] and pos['qty'] > 0
+                      and not self.market_has_uncertain_order(m)]
+        if not candidates: return
+        balances = {r['currency']: r for r in upbit.accounts()}
+        for m, pos in candidates:
+            available = float(balances.get(m[4:], {}).get('balance', 0))
+            volume = min(pos['qty'], available)
+            if volume * prices[m] < 5000: continue
+            try:
+                o = self._trade('ask', m, volume, '손절', risk=True)
                 v, funds, fee = self._fill(o)
-                self.d['realized'] += funds - fee - pos['cost']
-                del self.d['positions'][m]
-                self.save()
-                row = self.record({'side': '매도', 'market': m, 'volume': v, 'funds': funds, 'fee': fee, 'reason': '손절', 'state': o['state']})
                 self.share(f'{m[4:]} 손절 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            except SessionLost:
+                raise
+            except Exception as error:
+                # One market's rejected/uncertain order must not suppress other owned-market exits.
+                self.record({'event': '종목 청산 대기', 'market': m,
+                             'reason': type(error).__name__ + ': ' + str(error)[:250]})

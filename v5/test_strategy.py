@@ -70,3 +70,53 @@ class Sizing(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Ratchet(unittest.TestCase):
+    def pos(self):
+        # 진입 100, ATR 1, k=3 -> 초기 손절 97, 1R=3
+        return {'entry': 100.0, 'stop': 97.0, 'atr': 1.0}
+
+    def test_disabled_matches_fixed_stop(self):
+        p = st.Params()
+        pos = self.pos()
+        self.assertIsNone(st.ratchet('KRW-X', pos, 110, p))
+        self.assertEqual(pos['stop'], 97.0)
+        self.assertEqual(st.ratchet('KRW-X', pos, 96.9, p), '손절')
+
+    def test_breakeven_lock_then_trailing_stop_never_decreases(self):
+        p = st.Params(trail_enabled=True, giveback=0)
+        pos = self.pos()
+        self.assertIsNone(st.ratchet('KRW-X', pos, 103, p))      # g=1 -> 본전 잠금
+        self.assertGreater(pos['stop'], 100.0)
+        self.assertIsNone(st.ratchet('KRW-X', pos, 110, p))      # g>=2 -> 110-2*1=108
+        self.assertAlmostEqual(pos['stop'], 108.0)
+        self.assertIsNone(st.ratchet('KRW-X', pos, 109, p))      # 하락해도 손절가는 유지
+        self.assertAlmostEqual(pos['stop'], 108.0)
+        self.assertEqual(st.ratchet('KRW-X', pos, 107.9, p), '추적 손절')
+
+    def test_giveback_exit(self):
+        p = st.Params(trail_enabled=True, trail_m=10.0, giveback=0.5)  # 추적 거리를 넓혀 반납 규칙만 시험
+        pos = self.pos()
+        st.ratchet('KRW-X', pos, 110, p)                              # 고점 이익 10
+        self.assertIsNone(st.ratchet('KRW-X', pos, 106, p))           # 반납 40%
+        self.assertEqual(st.ratchet('KRW-X', pos, 105, p), '수익 반납')  # 반납 50%
+
+    def test_no_trailing_before_start_r(self):
+        p = st.Params(trail_enabled=True)
+        pos = self.pos()
+        st.ratchet('KRW-X', pos, 105, p)                              # g=1.67: 본전 잠금까지만
+        self.assertLess(pos['stop'], 105 - 2 * 1.0 + 0.01)
+        self.assertIsNone(st.ratchet('KRW-X', pos, 103, p))           # 반납 규칙은 g>=2부터
+
+    def test_metaplex_like_path_exits_before_giving_back_to_plus_4_percent(self):
+        # 설명용 합성 경로: 1R=3%, ATR=1%. +10%까지 올랐다가 하락.
+        p = st.Params(trail_enabled=True, k=3.0)
+        pos = {'entry': 100.0, 'stop': 97.0, 'atr': 1.0}
+        reason = None
+        for price in [102, 105, 108, 110, 109, 108, 107, 106, 105, 104]:
+            reason = st.ratchet('KRW-X', pos, price, p)
+            if reason:
+                break
+        self.assertIsNotNone(reason)
+        self.assertGreater(price, 104)

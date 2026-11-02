@@ -22,7 +22,7 @@ SECRET = [
     re.compile(r'Bearer\s+[A-Za-z0-9._\-]{20,}'),
     re.compile(r'\b(?:sk|ghp|gho|github_pat)_[A-Za-z0-9_]{20,}'),
 ]
-TRACKED = ['HANDOFF.md', 'CLAUDE.md', 'AGENTS.md', 'docs', 'tools', 'debate_tools']
+TRACKED = ['HANDOFF.md', 'CLAUDE.md', 'AGENTS.md', 'docs', 'tools', 'debate_tools', 'v5', '.gitignore']
 
 
 def git(*a, check=False):

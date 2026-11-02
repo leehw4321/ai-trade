@@ -1,0 +1,63 @@
+import datetime as dt
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import shadow
+import strategy as st
+from paper import Ledger
+
+
+def make(tmp):
+    s = shadow.Shadow.__new__(shadow.Shadow)
+    s.base = st.Params()
+    s.vars = shadow.variants(s.base)
+    s.ledgers = {n: Ledger(Path(tmp) / n) for n in ('L72_k3_M5', 'EXIT_T1T2T3')}
+    for lg in s.ledgers.values():
+        lg.start(1000000, 1.0, {}, 0, [])
+    return s
+
+
+def bar(minute, close):
+    start = dt.datetime(2026, 11, 2, 12, minute, tzinfo=dt.timezone.utc)
+    return {'t': start.isoformat(), 'o': close, 'h': close, 'l': close, 'c': close}
+
+
+class ExitT1(unittest.TestCase):
+    def test_arms_fixed_and_baseline_is_existing_rule(self):
+        v = shadow.variants(st.Params())
+        self.assertFalse(v['L72_k3_M5'].trail_enabled)
+        self.assertTrue(v['EXIT_T1'].trail_enabled and v['EXIT_T1'].giveback == 0)
+        self.assertEqual((v['EXIT_T1T2'].trail_m, v['EXIT_T1T2'].giveback), (2.0, 0))
+        self.assertEqual((v['EXIT_T1T2T3'].trail_m, v['EXIT_T1T2T3'].giveback), (2.0, 0.5))
+
+    def test_trail_uses_confirmed_bar_and_exits_while_baseline_holds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s = make(tmp)
+            entry_time = dt.datetime(2026, 11, 2, 21, 0, tzinfo=dt.timezone(dt.timedelta(hours=9))).isoformat()
+            for lg in s.ledgers.values():
+                lg.d['positions']['KRW-X'] = {'qty': 1.0, 'entry': 100.0, 'stop': 97.0, 'atr': 1.0,
+                                              'time': entry_time, 'spend': 100.0}
+            sold = []
+            books = lambda ms: {m: {'bid': 105.0, 'ask': 105.1} for m in ms}
+            with patch.object(shadow.upbit, 'tickers', lambda ms: {m: {'trade_price': 105.0} for m in ms}), \
+                    patch.object(shadow.upbit, 'orderbooks', books):
+                # 21:00 KST = 12:00 UTC. 첫 봉(12:00 시작, 12:01 마감)은 진입 시각과 같아 제외, 이후 봉 사용
+                for minute, close in [(0, 110.0), (1, 110.0), (2, 104.0)]:
+                    with patch.object(shadow.upbit, 'completed_candles', lambda m, mins, n, c=close, mi=minute: [bar(mi, c)]):
+                        s.stops()
+            self.assertIn('KRW-X', s.ledgers['L72_k3_M5'].d['positions'])      # 기존 규칙은 계속 보유
+            self.assertNotIn('KRW-X', s.ledgers['EXIT_T1T2T3'].d['positions'])  # 비교군은 청산
+            rows = s.ledgers['EXIT_T1T2T3'].read_jsonl('trades.jsonl')
+            self.assertEqual(len([r for r in rows if r['side'] == '매도']), 1)
+            self.assertTrue(rows[-1]['reason'].startswith(('추적 손절', '수익 반납')))
+
+    def test_bar_before_entry_is_ignored(self):
+        entry = dt.datetime(2026, 11, 2, 12, 5, tzinfo=dt.timezone.utc).isoformat()
+        self.assertFalse(shadow.bar_after_entry(bar(4, 100), entry))
+        self.assertTrue(shadow.bar_after_entry(bar(5, 100), entry))
+
+
+if __name__ == '__main__':
+    unittest.main()

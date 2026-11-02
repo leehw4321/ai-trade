@@ -83,10 +83,21 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
     return '실행 주문안: ' + '; '.join(parts), reasons
 
 
+def bar_after_entry(bar, entry_iso):
+    """봉이 진입 시각 이후에 마감됐는지. 체결 이전·같은 봉 정보를 쓰지 않기 위한 검사."""
+    end = dt.datetime.fromisoformat(bar['t']) + dt.timedelta(minutes=1)
+    return end > dt.datetime.fromisoformat(entry_iso)
+
+
 def variants(base):
     out = {}
     for L, k, M in itertools.product(GRID['L'], GRID['k'], GRID['M']):
         out[f'L{L}_k{k:g}_M{M}'] = replace(base, L=L, k=k, M=M)
+    # EXIT-T1 비교군 (토론 안건 26 합의). 비교 기준 '기존'은 위 격자의 기본 변형(trail 꺼짐)이다.
+    inf = float('inf')
+    out['EXIT_T1'] = replace(base, trail_enabled=True, trail_start_r=inf, giveback=0.0)
+    out['EXIT_T1T2'] = replace(base, trail_enabled=True, giveback=0.0)
+    out['EXIT_T1T2T3'] = replace(base, trail_enabled=True)
     return out
 
 
@@ -277,13 +288,47 @@ class Shadow:
         if not held:
             return
         live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
-        hit = sorted({m for lg in self.ledgers.values() for m, pos in lg.d['positions'].items() if m in live and live[m] <= pos['stop']})
+        # EXIT-T1: 확정 1분봉 종가로만 평가하고 봉마다 한 번만 반영한다. 진입 이후 마감된 봉만 쓴다.
+        closes = {}
+        for n, lg in self.ledgers.items():
+            if self.vars[n].trail_enabled:
+                for m in lg.d['positions']:
+                    if m not in closes:
+                        try:
+                            bars = upbit.completed_candles(m, 1, 3)
+                        except Exception:
+                            bars = []
+                        closes[m] = bars[-1] if bars else None
+        reasons = {}
+        for n, lg in self.ledgers.items():
+            p = self.vars[n]
+            for m, pos in lg.d['positions'].items():
+                if m not in live:
+                    continue
+                why = []
+                if p.trail_enabled:
+                    bar = closes.get(m)
+                    if bar and pos.get('last_bar') != bar['t'] and bar_after_entry(bar, pos['time']):
+                        pos['last_bar'] = bar['t']
+                        r = st.ratchet(m, pos, bar['c'], p)
+                        if r:
+                            why.append(r)
+                    if live[m] <= pos.get('stop0', pos['stop']) and '손절' not in why:
+                        why.append('손절')  # 초기 고정 손절은 기존처럼 실시간 가격으로 보호
+                elif live[m] <= pos['stop']:
+                    why.append('손절')
+                if why:
+                    reasons[(n, m)] = '+'.join(why)
+            if p.trail_enabled:
+                lg.save()
+        hit = sorted({m for _, m in reasons})
         if not hit:
             return
         books = upbit.orderbooks(hit)
-        for n, lg in self.ledgers.items():
-            for m in [m for m in hit if m in lg.d['positions'] and live[m] <= lg.d['positions'][m]['stop']]:
-                lg.sell(m, books[m]['bid'], '손절', self.vars[n], banned_until=time.time() + self.base.reentry_hours * 3600)
+        for (n, m), why in reasons.items():
+            lg = self.ledgers[n]
+            if m in lg.d['positions']:  # 종목·비교군당 청산 요청은 한 번, 사유는 모두 기록
+                lg.sell(m, books[m]['bid'], why, self.vars[n], banned_until=time.time() + self.base.reentry_hours * 3600)
 
     def snapshot(self):
         ms = sorted({m for lg in self.ledgers.values() for m in list(lg.d['positions']) + list(lg.d['H']['basket'])})

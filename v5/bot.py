@@ -175,13 +175,16 @@ class Bot:
     def stop_check(self, lg, live):
         """실시간 손절: 현재 체결가가 손절가 이하이면 최우선 매수호가로 매도 (사용자 의견으로 봉 마감 대기 폐지)."""
         d = lg.d
-        hit = [m for m, pos in d['positions'].items() if m in live and live[m] <= pos['stop']]
+        reasons = {m: st.ratchet(m, pos, live[m], self.p) for m, pos in d['positions'].items() if m in live}
+        if self.p.trail_enabled and reasons:
+            lg.save()  # 고점·상향된 손절가 보존
+        hit = [m for m, why in reasons.items() if why]
         if not hit:
             return
         books = upbit.orderbooks(hit)
         for m in hit:
-            r = lg.sell(m, books[m]['bid'], '손절', self.p, banned_until=time.time() + self.p.reentry_hours * 3600)
-            lg.event(f"{m} 손절 매도 {r['amount']:,}원 (손익 {r['pnl']:+,}원) · 24시간 재진입 금지")
+            r = lg.sell(m, books[m]['bid'], reasons[m], self.p, banned_until=time.time() + self.p.reentry_hours * 3600)
+            lg.event(f"{m} {reasons[m]} 매도 {r['amount']:,}원 (손익 {r['pnl']:+,}원) · 24시간 재진입 금지")
 
     def prices(self, lg=None):
         """최신 체결가. 응답에 빠진 종목은 마지막 관측값을 쓰고 price_missing에 기록한다."""

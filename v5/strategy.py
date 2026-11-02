@@ -27,6 +27,12 @@ class Params:
     cost_other: float = 0.0020  # 편도 가격 비용 c (기타)
     reentry_hours: float = 24.0
     require_positive_rs: bool = True  # 임시: 상대강도 0 이하 종목은 신규 진입하지 않음
+    # 익절·추적 손절 EXIT-T1 (토론 근거 3, 합의 전까지 꺼짐). 모의·그림자 전용이며 live.py에는 연결하지 않는다.
+    trail_enabled: bool = False
+    trail_lock_r: float = 1.0     # 이 R배수 이익 도달 시 손절가를 본전(비용 포함)으로
+    trail_start_r: float = 2.0    # 이 R배수부터 추적·반납 상한 적용
+    trail_m: float = 2.0          # 추적 손절 = 고점 − m×ATR
+    giveback: float = 0.5         # 고점 이익 중 이 비율 이상 반납하면 청산 (0이면 끔)
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
 
     @classmethod
@@ -107,3 +113,31 @@ def size(equity, invested, cash, P, S, p):
               cash / (P * (1 + p.fee)))
     qty = math.floor(max(qty, 0.0) * 1e8) / 1e8
     return qty if qty * P >= p.min_order else 0.0
+
+
+def ratchet(market, pos, price, p):
+    """EXIT-T1. 고점·손절가를 갱신하고 청산 사유('수익 반납'|'추적 손절'|'손절')를 반환한다. 손절가는 내려가지 않는다.
+
+    pos: entry, stop, atr 필요. 갱신값 peak, stop0(초기 손절가), stop을 pos에 기록한다.
+    trail_enabled=False이면 기존 규칙(고정 손절)과 동일하다.
+    """
+    pos.setdefault('stop0', pos['stop'])
+    if not p.trail_enabled:
+        return '손절' if price <= pos['stop'] else None
+    E, A = pos['entry'], pos['atr']
+    R = p.k * A
+    peak = max(pos.get('peak', E), price)
+    pos['peak'] = peak
+    if R > 0:
+        g = (peak - E) / R
+        stop = pos['stop']
+        if g >= p.trail_lock_r:
+            stop = max(stop, E * (1 + 2 * p.fee + cost(market, p)))
+        if g >= p.trail_start_r:
+            stop = max(stop, peak - p.trail_m * A)
+        pos['stop'] = stop
+        if p.giveback > 0 and g >= p.trail_start_r and peak > E and (peak - price) / (peak - E) >= p.giveback:
+            return '수익 반납'
+    if price <= pos['stop']:
+        return '추적 손절' if pos['stop'] > pos['stop0'] else '손절'
+    return None

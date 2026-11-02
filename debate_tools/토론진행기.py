@@ -397,7 +397,7 @@ def run(continuous=False):
                 (ROOT/'1차합의안.md').write_text('# 공통 평가 도구와 비교 모델 1차 합의안\n\n'+obj['agreement']+'\n',encoding='utf-8')
                 log('완료: 1차합의안.md를 확인하세요.'); break
             # Wait a bounded ten seconds before the next turn; stop is checked throughout.
-            for _ in range(20):
+            for _ in range(4):  # 차례 사이 대기 10초 -> 2초 (응답 속도 개선)
                 if STOP.exists(): break
                 time.sleep(.5)
                 heartbeat()

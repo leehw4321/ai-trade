@@ -29,3 +29,7 @@ coin-main/
 *.zip
 *.lnk
 .venv/
+
+# 계좌·장부 상태는 Git에 올리지 않는다
+data/
+v5/data/

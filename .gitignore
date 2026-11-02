@@ -1,35 +1,23 @@
-﻿.env
-bot_state.json
-bot.log
-history_daily.json
-shadow_trades.jsonl
-scan_result.json
-event_scan.json
-analysis.json
-__pycache__/
-*.pyc
-paper_event/
-analysis_runs/
-.env.tmp
-trend_data/
-trend_validation.json
-trend_app.stdout.log
-trend_app.stderr.log
-trend_web.stdout.log
-trend_web.stderr.log
-
-# Local credentials, account state, logs and downloaded copies never travel.
+# 키·계좌·장부 등 로컬 상태는 올리지 않는다
+.env
 .env.*
 !.env.example
-*.log
-key_setup_status.json
-settings.json
-paper_day.json
-coin-main/
-*.zip
-*.lnk
-.venv/
-
-# 계좌·장부 상태는 Git에 올리지 않는다
 data/
 v5/data/
+*.lock
+*.log
+settings.json
+__pycache__/
+*.pyc
+*.lnk
+*.zip
+.venv/
+
+# 실행 중 생성되는 토론 기록(원본 스냅샷은 docs/ai-history/debates/ 로 저장)
+debate_tools/자동진행기록/
+debate_tools/회차별/
+debate_tools/시간별보고서/
+debate_tools/*.json
+debate_tools/*.jsonl
+debate_tools/*.txt
+debate_tools/*.html

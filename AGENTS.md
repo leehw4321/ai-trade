@@ -3,7 +3,7 @@
 이 프로젝트는 PC를 옮기며 Claude와 ChatGPT(Codex)가 번갈아 작업한다. 이력을 찾는 데 시간을 쓰지 않도록 아래 순서를 지킨다.
 
 1. `python tools/ai_session.py start` 를 실행한다. 최신 코드를 받고 인계 요약, 최근 기록, 실행 중인 프로세스, 미커밋 변경을 한 번에 보여 준다.
-2. [HANDOFF.md](HANDOFF.md)를 읽는다. 현재 상태, 사용자 지시, 미해결 항목, 위치 지도가 있다.
+2. [HANDOFF.md](HANDOFF.md)를 읽는다. PC·AI 교대 직후라면 [docs/ai-history/내일_회사에서_다시.md](docs/ai-history/내일_회사에서_다시.md)와 [decision-log.md](docs/ai-history/decision-log.md)를 먼저 읽는다. 현재 상태, 사용자 지시, 미해결 항목, 위치 지도가 있다.
 3. 필요하면 [docs/ai-history/README.md](docs/ai-history/README.md)에서 날짜별 기록과 토론 기록을 찾는다.
 4. 작업을 마치면 HANDOFF.md의 '현재 상태'와 오늘 날짜 기록(`docs/ai-history/YYYY-MM-DD.md`)에 추가한 뒤 `python tools/ai_session.py end -m "요약"` 을 실행한다. 커밋과 푸시까지 한다.
 

@@ -1,13 +1,13 @@
-# V5 — 집에서 작업 이어가기
+# V5 봇 (v5/)
 
-2026-11-02 현재 개발 코드입니다. Python 3.10 이상과 표준 라이브러리를 사용합니다. `account_sync.py`는 Windows 전용 파일 잠금을 사용합니다.
+저장소 전체 개요는 [루트 README](../README.md), 지금 상태는 [HANDOFF](../HANDOFF.md). 2026-11-02 현재 개발 코드입니다. Python 3.10 이상과 표준 라이브러리를 사용합니다. `account_sync.py`는 Windows 전용 파일 잠금을 사용합니다.
 
 ## 처음 시작
 
 ```powershell
 git clone https://github.com/leehw4321/ai-trade.git
 cd ai-trade\v5
-Copy-Item .env.example .env
+Copy-Item ..\.env.example .env
 # .env에 본인 업비트 키를 직접 입력합니다. 파일을 Git에 추가하지 않습니다.
 python -m unittest -q
 python account_sync.py

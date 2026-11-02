@@ -17,6 +17,14 @@ ENV_FILES = [ROOT / '.env', ROOT.parent / '.env']
 ORDER_GUARD = None
 
 
+class OrderRejected(RuntimeError):
+    """The exchange definitively rejected a submission before creating this order."""
+    def __init__(self, status, name, message):
+        self.status = status
+        self.name = name
+        super().__init__(f'주문 거부 {status} ({name}): {message}')
+
+
 def _get(path, params=None, headers=None, retries=3):
     url = BASE + path + ('?' + urllib.parse.urlencode(params) if params else '')
     for attempt in range(retries):
@@ -127,19 +135,28 @@ def get_order(order_uuid):
     return _get('/v1/order', params, headers=_auth(params))
 
 
+def get_order_by_identifier(identifier):
+    params = {'identifier': identifier}
+    return _get('/v1/order', params, headers=_auth(params))
+
+
 def open_orders():
     params = {'state': 'wait'}
     return _get('/v1/orders/open', params, headers=_auth(params))
 
 
-def market_buy(market, krw):
+def market_buy(market, krw, identifier=None):
     """시장가 매수: 원화 금액 지정."""
-    return _post_order({'market': market, 'side': 'bid', 'ord_type': 'price', 'price': str(int(krw))})
+    params = {'market': market, 'side': 'bid', 'ord_type': 'price', 'price': str(int(krw))}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
 
 
-def market_sell(market, volume):
+def market_sell(market, volume, identifier=None):
     """시장가 매도: 수량 지정."""
-    return _post_order({'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': f'{volume:.8f}'})
+    params = {'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': f'{volume:.8f}'}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
 
 
 def _post_order(params):
@@ -151,4 +168,13 @@ def _post_order(params):
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f'주문 거부 {e.code}: {e.read().decode(errors="replace")[:300]}')
+        body = e.read().decode(errors='replace')[:300]
+        try:
+            detail = json.loads(body).get('error', {})
+            name = str(detail.get('name', 'unknown'))
+        except (ValueError, AttributeError):
+            name = 'unknown'
+        # Duplicate identifiers can refer to an existing accepted order; resolve by lookup.
+        if e.code in (400, 401, 403, 404, 422) and name != 'unknown' and 'duplicate' not in name.lower():
+            raise OrderRejected(e.code, name, body) from e
+        raise RuntimeError(f'주문 응답 불확정 {e.code}: {body}') from e

@@ -142,7 +142,7 @@ class UsageLimitReached(RuntimeError):
 def usage_limit_message(message):
     # Explicit account/session usage exhaustion only; network errors and generic HTTP429 are not enough.
     return bool(re.search(r"usage_limit_reached|usage limit (?:has been |was )?(?:reached|exceeded)|"
-                          r"you(?:'|’)?ve hit your limit|you have (?:hit|reached) (?:your |the )?(?:usage |session )?limit|"
+                          r"you(?:'|’)?ve hit your (?:usage )?limit|hit your usage limit|try again at [A-Z][a-z]{2} \d|you have (?:hit|reached) (?:your |the )?(?:usage |session )?limit|"
                           r"(?:5.hour|session|weekly) (?:usage )?limit (?:reached|exceeded)|"
                           r"usage limit exceeded|사용량.{0,12}(?:소진|초과)|사용 한도.{0,12}(?:도달|초과)",
                           str(message),re.I))
@@ -178,7 +178,7 @@ def latest_binary(pattern):
 def env():
     e=os.environ.copy()
     for k in list(e):
-        if k.upper() in {'OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN',
+        if k.upper() in {'OPENAI_API_KEY','CODEX_API_KEY','UPBIT_ACCESS_KEY','UPBIT_SECRET_KEY','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN',
                           'ANTHROPIC_BASE_URL','OPENAI_BASE_URL','CLAUDECODE'}: e.pop(k,None)
     e['PYTHONIOENCODING']='utf-8'
     return e
@@ -275,8 +275,15 @@ def apply_reply(text,ai,n,obj):
         updated,count=re.subn(pattern,change,updated,flags=re.M)
         if count==0:
             marker='\n\n상태: 제안'
-            if marker not in updated: raise ValueError('안건 표 끝을 찾지 못했습니다.')
-            updated=updated.replace(marker,f"\n| {u['id']} | 추가 결정 사항 | {u['status']} | {cell} |"+marker,1)
+            row=f"| {u['id']} | 추가 결정 사항 | {u['status']} | {cell} |"
+            if marker in updated:
+                updated=updated.replace(marker,'\n'+row+marker,1)
+            else:
+                # The home-PC template has no legacy '상태: 제안' footer.
+                rows=list(re.finditer(r'^\| \d+ \| [^\n]+$',updated,re.M))
+                if not rows: raise ValueError('안건 표 끝을 찾지 못했습니다.')
+                end=rows[-1].end()
+                updated=updated[:end]+'\n'+row+updated[end:]
         elif count!=1: raise ValueError('중복 안건 표')
     finish=False if CONTINUOUS else (obj['finish'] or n>=MAX_ROUND)
     if finish and not obj['agreement'].strip(): raise ValueError('종료 합의안 누락')

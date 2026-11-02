@@ -1,0 +1,139 @@
+"""Explicitly delegated all-holdings adoption. A new baseline, not restored history."""
+import argparse
+import datetime as dt
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+import uuid
+
+import strategy as st
+import upbit
+from session_guard import GitStore
+
+ROOT = Path(__file__).resolve().parent
+WORKSPACE = ROOT.parents[1]
+
+
+def inventory(rows):
+    return sorted((r['currency'], float(r['balance']), float(r['locked']), float(r.get('avg_buy_price', 0))) for r in rows)
+
+
+def open_orders():
+    result = []
+    for state in ('wait', 'watch'):
+        page = 1
+        while True:
+            params = {'state': state, 'limit': 100, 'page': page}
+            rows = upbit._get('/v1/orders/open', params, headers=upbit._auth(params))
+            result += rows
+            if len(rows) < 100: break
+            page += 1
+    return result
+
+
+def build_state(rows, quotes, listed, atrs, previous, params, epoch, adoption_id):
+    state = {'executed': {}, 'positions': {}, 'bought_krw': 0., 'realized': 0., 'halted': '',
+             'pending_order': None, 'unmanaged_assets': [], 'risk_baseline_unrealized': 0.,
+             'account_adoption': {'id': adoption_id, 'previous_checkpoint': previous,
+                 'scope': 'all_current_holdings', 'no_open_orders': True, 'epoch': epoch,
+                 'time': dt.datetime.fromtimestamp(epoch, dt.timezone(dt.timedelta(hours=9))).isoformat(),
+                 'authorization': 'User explicitly delegated cash and all existing holdings for continued live trading at home.',
+                 'history_restored': False, 'stops_restored': False,
+                 'stop_policy': 'snapshot_price minus configured k times configured stop-timeframe ATR',
+                 'prior_lifetime_buys_and_realized_pnl': 'unknown; new baseline starts here'}}
+    for row in rows:
+        if row['currency'] == 'KRW': continue
+        qty = float(row['balance']) + float(row['locked'])
+        if qty <= 0: continue
+        m = 'KRW-' + row['currency']
+        price = quotes.get(m, {}).get('trade_price')
+        atr = atrs.get(m)
+        if m not in listed or price is None or atr is None or atr <= 0 or price - params.k * atr <= 0:
+            state['unmanaged_assets'].append({'currency': row['currency'], 'qty': qty,
+                'reason': 'KRW market, fresh price or valid ATR unavailable; no fabricated valuation/order'})
+            continue
+        avg = float(row.get('avg_buy_price', 0))
+        cost = qty * (avg if avg > 0 else price)
+        state['positions'][m] = {'qty': qty, 'cost': cost, 'stop': price - params.k * atr,
+            'time': state['account_adoption']['time'], 'inherited': True,
+            'adoption_price': price, 'cost_basis_source': 'account_average' if avg > 0 else 'snapshot_estimate'}
+        state['risk_baseline_unrealized'] += qty * price * (1 - params.fee) - cost
+    return state
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--user-authorized-all-holdings', action='store_true', required=True)
+    args = ap.parse_args()
+    upbit.ENV_FILES.append(WORKSPACE / '.env')
+    config_path = ROOT / 'config.json'
+    cfg = json.loads(config_path.read_text(encoding='utf-8'))
+    if cfg.get('live', {}).get('enabled'):
+        raise RuntimeError('Already enabled: refuse to create another baseline.')
+    if (ROOT / 'data/live/live.json').exists():
+        raise RuntimeError('Existing live ledger must be reconciled; refuse overwrite.')
+    # Graceful shutdown preserves the old owner's acknowledgement and checkpoint.
+    for name in ('stop.txt', 'stop_shadow.txt'):
+        (ROOT / name).write_text('authorized account adoption', encoding='utf-8')
+    deadline = time.monotonic() + 150
+    while (ROOT / 'bot.lock').exists() or (ROOT / 'shadow.lock').exists():
+        if time.monotonic() > deadline:
+            raise RuntimeError('Existing local bot did not acknowledge shutdown; no takeover.')
+        time.sleep(1)
+    store = GitStore(ROOT / 'data/session_git', cfg.get('session', {}).get('remote', 'https://github.com/leehw4321/ai-trade.git'))
+    _, lease = store.read()
+    if lease.get('owner') or lease.get('request'):
+        raise RuntimeError('Another owner or handoff still exists; no forced takeover.')
+    if open_orders():
+        raise RuntimeError('Open/reserved orders exist; require reconciliation, not automatic cancellation.')
+    rows = upbit.accounts()
+    if any(float(r['locked']) > 1e-12 for r in rows):
+        raise RuntimeError('Locked funds remain: no baseline adoption.')
+    listed = upbit.krw_markets()
+    markets = ['KRW-' + r['currency'] for r in rows
+               if r['currency'] != 'KRW' and 'KRW-' + r['currency'] in listed
+               and float(r['balance']) > 0]
+    quotes = upbit.tickers(markets) if markets else {}
+    params = st.Params.from_dict(cfg.get('strategy', {}))
+    atrs = {}
+    for m in markets:
+        atrs[m] = st.wilder_atr(upbit.completed_candles(m, cfg['live']['stop_tf'], 100))
+        time.sleep(.15)
+    # Quotation can move while candles load; reset risk prices from fresh quotes.
+    quotes = upbit.tickers(markets) if markets else {}
+    if inventory(upbit.accounts()) != inventory(rows) or open_orders():
+        raise RuntimeError('Account changed during adoption: retry only after reconciliation.')
+    previous = lease.get('checkpoint', '')
+    adoption_id = str(uuid.uuid4())
+    state = build_state(rows, quotes, listed, atrs, previous, params, time.time(), adoption_id)
+    folder = ROOT / 'data/live'
+    folder.mkdir(exist_ok=True)
+    backup = WORKSPACE / 'private_handoff' / ('adoption-' + str(int(time.time())))
+    backup.mkdir(parents=True)
+    (backup / 'config.before.json').write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+    (backup / 'inventory.json').write_text(json.dumps({'accounts': rows, 'quotes': quotes}, ensure_ascii=False, indent=2), encoding='utf-8')
+    (backup / 'previous-lease.json').write_text(json.dumps(lease, indent=2), encoding='utf-8')
+    (folder / 'live.json').write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf-8')
+    cfg['live'].update(enabled=True, auto_proposal=True, proposal_max_age_seconds=120)
+    cfg.setdefault('session', {})['account_adoption_id'] = adoption_id
+    temp = config_path.with_suffix('.tmp')
+    temp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+    temp.replace(config_path)
+    report = {'adopted_at': state['account_adoption']['time'], 'scope': 'all_current_holdings',
+              'managed_market_count': len(state['positions']), 'unmanaged_asset_count': len(state['unmanaged_assets']),
+              'past_history_restored': False, 'previous_stop_prices_restored': False,
+              'config_enabled': True, 'orders_submitted_by_adoption': 0}
+    (ROOT / 'data/adoption-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    with (ROOT / 'data/adoption-launch.stdout.log').open('ab') as out, (ROOT / 'data/adoption-launch.stderr.log').open('ab') as err:
+        child = subprocess.Popen([sys.executable, str(WORKSPACE / 'launch_v5.py'), '--console'],
+            cwd=WORKSPACE, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+    print(json.dumps(report, ensure_ascii=False))
+    print('launcher_pid=' + str(child.pid))
+
+
+if __name__ == '__main__':
+    main()

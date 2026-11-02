@@ -141,7 +141,18 @@ class SessionGuard:
         expected = state.get('checkpoint', '')
         self.required_checkpoint = expected if expected and self.checkpoint_hash() != expected else ''
         if self.cfg.get('live_enabled') and self.required_checkpoint:
-            raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮긴 뒤 다시 실행해 주세요.')
+            # Explicit account adoption creates a NEW baseline; it never claims to restore old history.
+            file = self.root / 'data' / 'live' / 'live.json'
+            adoption = json.loads(file.read_text(encoding='utf-8')).get('account_adoption', {}) if file.exists() else {}
+            valid = (self.cfg.get('account_adoption_id')
+                     and adoption.get('id') == self.cfg['account_adoption_id']
+                     and adoption.get('previous_checkpoint') == expected
+                     and adoption.get('scope') == 'all_current_holdings'
+                     and adoption.get('no_open_orders') is True
+                     and 0 <= self.clock() - adoption.get('epoch', 0) <= 600)
+            if not valid:
+                raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮기거나 명시적으로 위임된 계좌 인수 절차가 필요합니다.')
+            self.required_checkpoint = ''
         if not self.store.cas(oid, self.record()):
             raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
         self.acquired = True

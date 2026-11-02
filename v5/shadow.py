@@ -10,6 +10,7 @@ import datetime as dt
 import html
 import itertools
 import json
+import math
 import os
 import os
 from pathlib import Path
@@ -48,6 +49,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
         r = pos.get(m)
         rs = r['rs'] if r else rs_out.get(m)
         if r is None:
+            if rs is None:
+                reasons.append(f'{m[4:]} 자료 누락: 순위 매도 판단 보류')
+                continue
             why = f'거래대금 상위 {base.universe} 밖' + (f'(상대강도 {rs:+.1%})' if rs is not None else '')
         elif r['rank'] > base.M:
             why = f'순위 {r["rank"]}위 > 유지 {base.M}위 (상대강도 {rs:+.1%})'
@@ -205,8 +209,34 @@ class Shadow:
         self.markets = {}
         self.prop = None
         self.base_ranked, self.rs_out, self.entry_ok = [], {}, set()
+        self.signal_closed_at = self.signal_tf_minutes = self.evaluated_at = None
+
+    def proposal_signal(self, now=None):
+        """Return provenance only for the current completed signal, never a relabelled cache."""
+        now = time.time() if now is None else now
+        tf = self.base.tf
+        if type(tf) is not int or tf <= 0 or self.signal_tf_minutes != tf:
+            raise ValueError('주문안 신호 주기 불일치: 새 판단 필요')
+        closed, evaluated = self.signal_closed_at, self.evaluated_at
+        if any(type(value) not in (int, float) or not math.isfinite(value)
+               for value in (now, closed, evaluated)):
+            raise ValueError('주문안 신호 출처 누락 또는 비정상 시각')
+        expected = boundary(now - SETTLE, tf * 60)
+        if closed != expected or not closed + SETTLE <= evaluated <= now:
+            raise ValueError('주문안 신호가 최신 마감 판단과 다름: 오래된 순위 사용 금지')
+        if not self.base_ranked:
+            raise ValueError('주문안 순위 자료 없음')
+        for row in self.base_ranked:
+            try:
+                bar_close = dt.datetime.fromisoformat(row['bar']).timestamp() + tf * 60
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError('주문안 순위 봉 시각 오류') from error
+            if bar_close != closed:
+                raise ValueError('주문안 순위와 신호 마감 시각 불일치')
+        return {'signal_closed_at': closed, 'signal_tf_minutes': tf, 'evaluated_at': evaluated}
 
     def make_proposal(self):
+        self.proposal_signal()  # Refuse stale cached ranks before any private account lookup.
         rows = upbit.accounts()
         krw = sum(float(r['balance']) for r in rows if r['currency'] == 'KRW')
         coins = {'KRW-' + r['currency']: float(r['balance']) for r in rows
@@ -219,7 +249,9 @@ class Shadow:
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought)
-        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons}
+        # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
+        provenance = self.proposal_signal()
+        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons, **provenance}
         tmp = DATA / 'proposal.tmp'
         tmp.write_text(json.dumps(self.prop, ensure_ascii=False, indent=1), encoding='utf-8')
         tmp.replace(DATA / 'proposal.json')
@@ -234,6 +266,9 @@ class Shadow:
                 lg.save()
 
     def decide(self, end):
+        # A failed refresh must not leave the previous ranks eligible for a newly stamped order.
+        self.signal_closed_at = self.signal_tf_minutes = self.evaluated_at = None
+        self.prop = None
         self.markets = upbit.krw_markets()
         tick = upbit.tickers(self.markets)
         pool = sorted((m for m in tick if m not in self.base.exclude), key=lambda m: -tick[m]['acc_trade_price_24h'])
@@ -279,6 +314,9 @@ class Shadow:
             lg.d['signals'] = lg.d.get('signals', 0) + len(buys)
             lg.d['last_4h'] = end
             lg.save()
+        self.signal_closed_at = end
+        self.signal_tf_minutes = self.base.tf
+        self.evaluated_at = time.time()
 
     def stops(self):
         held = sorted({m for lg in self.ledgers.values() for m in lg.d['positions']})
@@ -335,6 +373,9 @@ class Shadow:
 
     def run(self):
         self.init()
+        if self.cfg.get('live', {}).get('enabled') and self.cfg.get('live', {}).get('auto_proposal'):
+            # Recompute current ranks on restart; ledgers already processed at this close are skipped.
+            self.decide(boundary(time.time() - SETTLE, self.base.tf * 60))
         last_stop = last_snap = 0
         next_report = time.time() + 60
         while not STOP.exists():

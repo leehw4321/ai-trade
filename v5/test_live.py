@@ -105,16 +105,16 @@ if __name__ == '__main__':
 
 
 class TrailLive(unittest.TestCase):
-    """EXIT-T1 실거래 연결: 기본 꺼짐, 새 단일 진입만 대상, 확정 1분봉 종가로 평가."""
+    """EXIT-T1 실거래 연결: 기본 꺼짐, 새 포지션만 대상, 확정 1분봉 종가로 평가, 상향 손절가는 실시간 평가 제외."""
 
     def make(self, trail):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         lv = live.Live(self.tmp.name, {'enabled': True, 'trail_enabled': trail}, st.Params())
-        entry_time = '2026-11-02T21:00:00+09:00'
-        lv.d['positions']['KRW-X'] = {'qty': 1.0, 'cost': 100.0, 'stop': 97.0, 'time': entry_time,
-                                      'entry': 100.0, 'atr': 1.0, 'stop0': 97.0, 'trail': trail}
-        lv.d['positions']['KRW-OLD'] = {'qty': 1.0, 'cost': 100.0, 'stop': 50.0, 'time': entry_time}  # 인수 보유분: entry 없음
+        t0 = '2026-11-02T21:00:00+09:00'
+        lv.d['positions']['KRW-X'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 97000.0, 'time': t0,
+                                      'entry': 100000.0, 'atr': 1000.0, 'stop0': 97000.0, 'trail': trail}
+        lv.d['positions']['KRW-OLD'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 50000.0, 'time': t0}  # 인수 보유분: entry 없음
         return lv
 
     @staticmethod
@@ -123,11 +123,15 @@ class TrailLive(unittest.TestCase):
         return {'t': dt.datetime(2026, 11, 2, 12, minute, tzinfo=dt.timezone.utc).isoformat(),
                 'o': close, 'h': close, 'l': close, 'c': close}
 
-    def run_bars(self, lv, closes):
+    def run_trail(self, lv, closes):
         sold = []
-        order = {'uuid': 'u', 'state': 'done', 'paid_fee': '0', 'trades': [{'volume': '1', 'funds': '104'}]}
-        with mock.patch('upbit.market_sell', side_effect=lambda m, q: sold.append(m) or order), \
-                mock.patch('upbit.get_order', return_value=order):
+
+        def fake_trade(side, market, amount, reason, risk=False):
+            sold.append((market, reason))
+            lv.d['positions'].pop(market, None)
+            return {'state': 'done', 'trades': [{'volume': str(amount), 'funds': '104000'}], 'paid_fee': '0'}
+
+        with mock.patch.object(lv, '_trade', side_effect=fake_trade),                 mock.patch.object(lv, 'recover_all_pending', return_value=True),                 mock.patch('upbit.accounts', return_value=[{'currency': 'X', 'balance': '1'}]):
             for minute, close in closes:
                 with mock.patch('upbit.completed_candles', return_value=[self.bar(minute, close)]):
                     lv.trail_check()
@@ -135,26 +139,39 @@ class TrailLive(unittest.TestCase):
 
     def test_default_off_never_sells_on_trail(self):
         lv = self.make(False)
-        self.assertEqual(self.run_bars(lv, [(1, 110), (2, 104)]), [])
+        self.assertEqual(self.run_trail(lv, [(1, 110000), (2, 104000)]), [])
         self.assertIn('KRW-X', lv.d['positions'])
 
     def test_on_exits_new_position_only(self):
         lv = self.make(True)
-        sold = self.run_bars(lv, [(1, 110), (2, 110), (3, 104)])
-        self.assertEqual(sold, ['KRW-X'])                      # 인수 보유분 KRW-OLD는 건드리지 않음
-        self.assertNotIn('KRW-X', lv.d['positions'])
+        sold = self.run_trail(lv, [(1, 110000), (2, 110000), (3, 104000)])
+        self.assertEqual([m for m, _ in sold], ['KRW-X'])      # 인수 보유분 KRW-OLD는 건드리지 않음
+        self.assertTrue(sold[0][1] in ('추적 손절', '수익 반납'))
         self.assertIn('KRW-OLD', lv.d['positions'])
 
-    def test_raised_stop_not_evaluated_by_live_price_only_initial_stop(self):
+    def test_raised_stop_is_not_checked_by_live_price(self):
         lv = self.make(True)
-        self.run_bars(lv, [(1, 110), (2, 110)])               # 손절가 상향(110-2=108), 아직 보유
-        sold = []
-        order = {'uuid': 'u', 'state': 'done', 'paid_fee': '0', 'trades': [{'volume': '1', 'funds': '107'}]}
-        with mock.patch('upbit.market_sell', side_effect=lambda m, q: sold.append(m) or order), \
-                mock.patch('upbit.get_order', return_value=order):
-            lv.stop_check({'KRW-X': 107.0})                    # 상향 손절가(108) 아래지만 실시간 평가 대상 아님
-            self.assertEqual(sold, [])
-            lv.stop_check({'KRW-X': 96.0})                     # 초기 고정 손절(97)은 실시간 보호
-            self.assertEqual(sold, ['KRW-X'])
+        self.run_trail(lv, [(1, 110000), (2, 110000)])               # 손절가 상향(108), 아직 보유
+        pos = lv.d['positions']['KRW-X']
+        self.assertGreater(pos['stop'], 100000)
+        self.assertEqual(lv.stop_limit(pos), 97000.0)             # 실시간 평가는 초기 고정 손절만
+        self.assertEqual(lv.stop_limit(lv.d['positions']['KRW-OLD']), 50000.0)
 
-
+    def test_new_buy_fixes_entry_and_addon_disables_trail(self):
+        lv = self.make(True)
+        lv.d['positions'].clear()
+        pending = {'identifier': 'i', 'side': 'bid', 'market': 'KRW-N', 'amount': 10000, 'reason': 'p', 'uuid': 'u',
+                   'time': '2026-11-02T21:00:00+09:00', 'atr': 1.0}
+        order = {'identifier': 'i', 'side': 'bid', 'state': 'done', 'executed_volume': '100',
+                 'trades': [{'volume': '100', 'funds': '10000'}], 'paid_fee': '5', 'uuid': 'u'}
+        lv.d['pending_order'] = pending
+        lv._apply_pending(order, None)
+        pos = lv.d['positions']['KRW-N']
+        self.assertEqual((pos['entry'], pos['atr'], pos['trail']), (100.0, 1.0, True))
+        self.assertAlmostEqual(pos['stop0'], 97.0)
+        pending2 = {k: v for k, v in pending.items() if not k.startswith('applied_')} | {'identifier': 'j', 'uuid': 'v'}
+        order2 = {**order, 'identifier': 'j', 'uuid': 'v'}
+        lv.d['pending_order'] = pending2
+        lv._apply_pending(order2, None)
+        self.assertFalse(lv.d['positions']['KRW-N']['trail'])  # 추가 매수 lot은 제외(안건 27 미합의)
+        self.assertEqual(lv.d['positions']['KRW-N']['entry'], 100.0)

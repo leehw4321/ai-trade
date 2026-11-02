@@ -94,6 +94,13 @@ def status(_):
             lf = d / 'data' / f
             if lf.exists():
                 print('  봇 최근 로그:', lf.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1][:160])
+    dirs = v5_dirs()
+    if len(dirs) == 2:
+        import hashlib
+        h = lambda f: hashlib.sha256(f.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+        diff = [f.name for f in sorted(dirs[0].glob('*.py')) if (dirs[1] / f.name).exists() and h(f) != h(dirs[1] / f.name)]
+        only = [f.name for f in sorted(dirs[1].glob('*.py')) if not (dirs[0] / f.name).exists()]
+        print('\n[코드 어긋남]', '없음(두 사본 동일)' if not diff and not only else f'다름 {diff} / v5-app에만 있음 {only}  -> HANDOFF의 동기화 절차 참고')
     procs = running()
     print('\n[실행 중인 프로세스]', '없음 (봇 꺼짐)' if not procs else '\n  ' + '\n  '.join(procs))
     print('\n주의: 같은 PC의 다른 AI 세션이 설정을 바꿀 수 있다. 상태를 단정하기 전에 이 명령을 다시 실행한다.')

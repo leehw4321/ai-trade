@@ -70,13 +70,20 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
         reasons.append(f'{m[4:]} 매도 100% (약 {v:,.0f}원): {why}')
     cash = (krw + sold * 0.997) * 0.98
     room = max(0.0, caps['max_total_buy_krw'] - bought)
-    keep = set(holdings) - set(sells)
+    # Eligibility is based on the inventory at plan creation, not the inventory after
+    # hypothetical sales. A queued sale must never make the same coin a fresh buy.
+    originally_held = set(holdings)
+    sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
     for r in ranked[:scan]:
         if len(picks) >= want:
             break
-        if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep:
+        if r['market'] in originally_held or r['market'] in sell_queued:
+            if r['market'] in sell_queued:
+                reasons.append(f'{r["market"][4:]} 동일 주문안 매도 예정: 재매수 금지')
+            continue
+        if r['market'] in entry_ok and r['rs'] > 0:
             last = (last_sells or {}).get(r['market'])
             why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)
             if why:
@@ -269,7 +276,20 @@ class Shadow:
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'))
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
-        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons, **provenance}
+        # Public signal prices, not account inventory: the receiver can enforce the SAME
+        # chase cap against a later executable ask instead of trusting a frozen return.
+        entry_context = {}
+        for row in self.base_ranked:
+            close, rs = row.get('close'), row.get('rs')
+            if (type(close) not in (int, float) or not math.isfinite(close) or close <= 0
+                    or type(rs) not in (int, float) or not math.isfinite(rs) or rs <= -1):
+                continue
+            anchor = close / (1 + rs)
+            if not math.isfinite(anchor) or anchor <= 0: continue
+            entry_context[row['market']] = {'market': row['market'], 'signal_close': close,
+                'anchor_close': anchor, 'rs': rs, **provenance}
+        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons,
+                     'entry_context': entry_context, **provenance}
         tmp = DATA / 'proposal.tmp'
         tmp.write_text(json.dumps(self.prop, ensure_ascii=False, indent=1), encoding='utf-8')
         tmp.replace(DATA / 'proposal.json')

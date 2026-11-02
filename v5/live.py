@@ -34,6 +34,7 @@ BUY = re.compile(r'^매수\s+([A-Z0-9]+)\s+([\d,]+)\s*원$')
 LIMITS = re.compile(r'실행 한도:\s*([^’‘\'"`\n|]+)')
 LIMIT_KEYS = {'1건': 'max_order_krw', '누적': 'max_total_buy_krw', '1회매도': 'max_sell_krw_per_plan', '손실중단': 'loss_stop_krw'}
 LIMIT_ITEM = re.compile(r'^(1건|누적|1회매도|손실중단)\s+([\d,]+)\s*원$')
+_NO_ASK = object()
 
 DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'max_total_buy_krw': 100000,
             'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240,
@@ -384,7 +385,7 @@ class Live:
                         pass
         return not self.has_uncertain_orders()
 
-    def _trade(self, side, market, amount, reason, risk=False):
+    def _trade(self, side, market, amount, reason, risk=False, entry_context=None, validate_entry=False):
         if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
         if risk:
             if side != 'ask': raise ValueError('위험 청산은 매도만 허용')
@@ -393,9 +394,18 @@ class Live:
             raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
         atr = None
         if side == 'bid':
+            if validate_entry:
+                why = self.entry_chase_block(market, entry_context)
+                if why: raise ValueError(why)
             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
             if atr is None or not math.isfinite(atr) or atr <= 0:
                 raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+            if validate_entry:
+                # The ATR lookup can take time or cross a candle boundary. Re-read the
+                # ask and source immediately before durable intent and submission.
+                book = upbit.orderbooks([market]).get(market, {})
+                why = self.entry_chase_block(market, entry_context, book.get('ask'))
+                if why: raise ValueError(why)
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
         risk_market = market if risk else None
@@ -508,7 +518,8 @@ class Live:
         self.d['executed'][key] = {'id': label, 'text': text, 'time': now_iso(), 'result': '처리 중'}
         self.save()
         try:
-            result = self.execute((label, text), markets)
+            result = self.execute((label, text), markets,
+                                  entry_context=prop.get('entry_context'), automatic=True)
         except Exception as ex:
             result = f'중단: {type(ex).__name__}: {ex}'
         self.d['executed'][key]['result'] = result
@@ -516,9 +527,14 @@ class Live:
         self.record({'event': '주문안 처리', 'id': label, 'plan': text, 'result': result})
         self.share(f'{label} (사용자 위임으로 자동 실행) 「{text}」 → {result}')
 
-    def execute(self, plan, markets):
+    def execute(self, plan, markets, entry_context=None, automatic=False):
         if self.has_uncertain_orders(): return '미확정 주문 대사 중: 새 주문안 보류'
         orders = parse(plan[1])
+        sold_markets = {m for side, m, _ in orders if side == 'sell'}
+        bought_markets = {m for side, m, _ in orders if side == 'buy'}
+        if sold_markets & bought_markets:
+            # Reject before the first account request or order; old generators cannot sell then rebuy.
+            return '실행 거부: 동일 주문안 매도·매수 종목 충돌 ' + ', '.join(sorted(sold_markets & bought_markets))
         if not orders:
             return '주문 없음 (매도 없음·매수 없음)'
         acc = {r['currency']: r for r in upbit.accounts()}
@@ -543,11 +559,21 @@ class Live:
         for side, m, krw in orders:
             if side != 'buy':
                 continue
-            why = self.buy_block(m, krw, markets)
+            # Automatic buys always require source context. Manual plan buys also
+            # require it while the chase cap is enabled; absent context is an
+            # explicit skip, never an implicit bypass. Disabled-cap manual policy
+            # and private low-level recovery/test callers retain their old contract.
+            cap = self.p.chase_rs_cap
+            strict = (automatic or type(cap) not in (int, float)
+                      or not math.isfinite(cap) or cap > 0)
+            context = entry_context.get(m) if isinstance(entry_context, dict) else None
+            why = (self.buy_block(m, krw, markets, entry_context=context, validate_entry=True)
+                   if strict else self.buy_block(m, krw, markets))
             if why:
                 done.append(f'{m[4:]} 매수 안 함: {why}')
                 continue
-            o = self._trade('bid', m, krw, plan[0])
+            o = (self._trade('bid', m, krw, plan[0], entry_context=context, validate_entry=True)
+                 if strict else self._trade('bid', m, krw, plan[0]))
             v, funds, fee = self._fill(o)
             if v <= 0:
                 done.append(f'{m[4:]} 매수 미체결 ({o["state"]})')
@@ -557,10 +583,52 @@ class Live:
             self.save()
         return ' / '.join(done) or '실행할 주문 없음'
 
-    def buy_block(self, m, krw, markets):
+    def entry_chase_block(self, market, context, ask=_NO_ASK):
+        """Validate source identity and enforce the receiver's existing cap; no new threshold."""
+        if not isinstance(context, dict) or context.get('market') != market:
+            return '매수 신호 출처 누락·종목 불일치: 매수 보류'
+        close, anchor, rs = (context.get(k) for k in ('signal_close', 'anchor_close', 'rs'))
+        if (any(type(v) not in (int, float) or not math.isfinite(v) for v in (close, anchor, rs))
+                or close <= 0 or anchor <= 0 or rs <= 0):
+            return '매수 신호 기준가격·상승률 무효: 매수 보류'
+        if not math.isclose(close / anchor - 1, rs, rel_tol=1e-9, abs_tol=1e-12):
+            return '매수 신호 가격과 상승률 불일치: 매수 보류'
+        closed, tf, evaluated = (context.get(k) for k in ('signal_closed_at', 'signal_tf_minutes', 'evaluated_at'))
+        now = time.time()
+        if (type(tf) is not int or tf != self.p.tf or tf <= 0
+                or any(type(v) not in (int, float) or not math.isfinite(v) for v in (closed, evaluated))):
+            return '매수 신호 시각·주기 무효: 매수 보류'
+        expected = int((now - 20) // (tf * 60)) * tf * 60
+        if closed != expected or not closed + 20 <= evaluated <= now:
+            return '매수 신호가 최신 마감 판단과 다름: 매수 보류'
+        cap = self.p.chase_rs_cap
+        if type(cap) not in (int, float) or not math.isfinite(cap):
+            return '과열 상한 설정 무효: 매수 보류'
+        if cap > 0 and rs >= cap:
+            return '신호 시점부터 기존 과열 상한 이상: 매수 보류'
+        if ask is not _NO_ASK:
+            if type(ask) not in (int, float) or not math.isfinite(ask) or ask <= 0:
+                return '매수 호가 무효: 매수 보류'
+            # Price comparison avoids rounding an exact 15% boundary below the cap.
+            if cap > 0 and ask >= anchor * (1 + cap):
+                return f'실행 호가가 기존 과열 상한 {cap:.1%} 이상: 추격 매수 보류'
+        return None
+
+    def buy_block(self, m, krw, markets, entry_context=None, validate_entry=False):
         c = self.cfg
         if self.d['halted']:
             return '손실 중단선 도달로 신규 매수 중단 상태'
+        last = self.d.get('last_sell', {}).get(m)
+        if last:
+            # Re-read the current durable state, not the producer's pre-sale snapshot.
+            if type(last.get('time')) not in (int, float) or not math.isfinite(last['time']):
+                return '현재 매도 기록 시각 무효: 재진입 보류'
+            elapsed = time.time() - last['time']
+            if elapsed < 0:
+                return '현재 매도 기록이 미래 시각: 재진입 보류'
+            hours = self.p.reentry_profit_hours if last.get('profit') else self.p.reentry_loss_hours
+            if 0 <= elapsed < min(hours, self.p.reentry_window_hours) * 3600:
+                return '현재 매도 장부 기준 재진입 대기: ' + str(m)
         if self.has_uncertain_orders():
             return '미확정 주문 대사 중: 신규 매수 보류'
         if self.d.get('valuation_incomplete'):
@@ -575,12 +643,25 @@ class Live:
             return f'1건 한도 {c["max_order_krw"]:,}원 초과'
         if self.d['bought_krw'] + krw * (1 + self.p.fee) > c['max_total_buy_krw']:
             return f'누적 매수 한도 {c["max_total_buy_krw"]:,}원 초과 (현재 {self.d["bought_krw"]:,.0f}원)'
+        if validate_entry:
+            why = self.entry_chase_block(m, entry_context)
+            if why: return why
         krw_avail = float(next((r['balance'] for r in upbit.accounts() if r['currency'] == 'KRW'), 0))
         if krw * 1.0005 > krw_avail:
             return f'가용 원화 부족 ({krw_avail:,.0f}원)'
         ob = upbit.orderbooks([m])[m]
         if (ob['ask'] - ob['bid']) / ob['ask'] > c['max_spread']:
             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} > {c["max_spread"]:.0%}'
+        if validate_entry:
+            why = self.entry_chase_block(m, entry_context, ob.get('ask'))
+            if why: return why
+        if (last and last.get('profit') and self.p.reentry_dip_atr > 0
+                and time.time() - last['time'] < self.p.reentry_window_hours * 3600):
+            atr = st.wilder_atr(upbit.completed_candles(m, self.p.tf, 100))
+            if atr is None or not math.isfinite(atr) or atr <= 0:
+                return '재진입 판정 ATR 자료 부족'
+            why = st.reentry_block({'close': ob['ask'], 'atr': atr}, last, time.time(), self.p)
+            if why: return why
         return ''
 
     def rebase_adopted_stops(self, prices):

@@ -52,7 +52,7 @@ python shadow.py                    # 그림자 비교 (별도 프로세스)
 
 - 실거래 설정은 `v5/config.json`의 `live`. GitHub의 기본값은 `enabled=false`, `auto_proposal=false`다. 실제 운용 PC의 설정은 Git에 올리지 않는다.
 - 같은 계좌를 두 PC가 동시에 실거래하지 않는다. PC를 바꿀 때는 실행권 양도(`session_guard`)와 `data/` 비공개 이전이 필요하다.
-- API 키, 계좌 수치, 주문 UUID, `data/`, `.env`는 저장소에 올리지 않는다. **이 저장소는 공개(Public)일 수 있다.**
+- API 키·시크릿·토큰, 계좌번호, 주문 UUID, `data/`, `.env`는 저장소에 올리지 않는다. 종목·금액·손익 기록은 사용자 허용으로 문서에 남긴다. **이 저장소는 공개(Public)다.**
 - 키는 출금 권한 없이 만들고, 업비트 허용 IP를 확인한다.
 
 ## AI 협업과 이력
@@ -66,4 +66,4 @@ python tools/ai_session.py end -m "요약"   # 비밀정보 검사 -> 토론 스
 ```
 
 - Claude Code는 [CLAUDE.md](CLAUDE.md), Codex·ChatGPT는 [AGENTS.md](AGENTS.md)를 세션 시작 때 읽는다.
-- 코드는 이 저장소(`v5/`)에서만 고친다. 실행 중인 사본은 `python tools/sync_v5.py --apply`로 맞춘다(봇이 꺼져 있을 때).
+- 코드는 이 저장소(`v5/`)에서만 고친다. 실행 중인 사본에는 `python tools/deploy_v5.py`(점검)와 `--apply`(테스트 → 정상 종료 → 백업 → 적용 → 재시작 → 실패 시 롤백)를 쓴다. `--watch`는 `tools/APPROVED_COMMIT`에 적힌 승인 커밋만 자동 배포한다. 봇이 꺼져 있을 때의 단순 복사는 `tools/sync_v5.py --apply`.

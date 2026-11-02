@@ -189,3 +189,43 @@ class AdoptedStopRebase(unittest.TestCase):
         self.assertEqual(lv.d['positions']['KRW-NEAR']['stop'], 97000.0)
         lv.rebase_adopted_stops({'KRW-FAR': 50000.0})              # 한 번만 적용: 가격이 폭락해도 다시 당기지 않음
         self.assertAlmostEqual(lv.d['positions']['KRW-FAR']['stop'], 92000.0)
+
+
+class AdoptedTrail(unittest.TestCase):
+    def make(self, on):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True, 'trail_enabled': True, 'trail_adopted': on}, st.Params())
+        lv.d['positions']['KRW-A'] = {'qty': 300.0, 'cost': 30000.0, 'stop': 80.0, 'time': '2026-11-02T21:12:57+09:00'}
+        return lv
+
+    @staticmethod
+    def bars(*closes):
+        import datetime as dt
+        out = []
+        for i, c in enumerate(closes):
+            start = dt.datetime(2026, 11, 2, 12, 0, tzinfo=dt.timezone.utc) + dt.timedelta(minutes=15 * i)
+            out.append({'t': start.isoformat(), 'o': c, 'h': c * 1.01, 'l': c * 0.99, 'c': c})
+        return out
+
+    def test_off_by_default_leaves_adopted_alone(self):
+        lv = self.make(False)
+        with mock.patch('upbit.completed_candles', return_value=self.bars(*([100.0] * 40))):
+            lv.trail_check()
+        self.assertNotIn('entry', lv.d['positions']['KRW-A'])
+
+    def test_adopted_gets_entry_from_account_average_and_trails_from_1r(self):
+        lv = self.make(True)
+        base = [100.0 + (i % 3) for i in range(40)]
+        with mock.patch('upbit.completed_candles', return_value=self.bars(*base)):
+            self.assertTrue(lv.adopt_trail_init())
+        pos = lv.d['positions']['KRW-A']
+        self.assertEqual(pos['entry'], 100.0)                       # 30000/300 = 거래소 평균 매수가
+        self.assertTrue(pos['trail'] and pos['adopted_trail'])
+        self.assertEqual(pos['stop0'], 80.0)                        # 초기 손절은 기존 값 유지
+        self.assertGreater(pos['atr'], 0)
+        # 1R(=3×ATR) 이상 올랐다가 고점−2×ATR 아래로 확정 종가가 내려오면 청산 신호
+        p = st.Params(trail_enabled=True, trail_start_r=1.0)
+        top = pos['entry'] + 1.5 * 3 * pos['atr']
+        self.assertIsNone(st.ratchet('KRW-A', pos, top, p))
+        self.assertEqual(st.ratchet('KRW-A', pos, top - 2.1 * pos['atr'], p) is not None, True)

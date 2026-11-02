@@ -37,7 +37,9 @@ LIMIT_ITEM = re.compile(r'^(1건|누적|1회매도|손실중단)\s+([\d,]+)\s*�
 
 DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'max_total_buy_krw': 100000,
             'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240,
-            'trail_enabled': False}  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
+            'trail_enabled': False,  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
+            'trail_adopted': False,  # 인수 보유분에도 추적 적용(거래소 평균 매수가=E, 15분 ATR로 R 정의). 결정 D-22, 승인 전까지 꺼짐
+            'adopted_trail_start_r': 1.0}
 
 
 def parse(text):
@@ -523,6 +525,29 @@ class Live:
             return pos.get('stop0', pos['stop'])
         return pos['stop']
 
+    def adopt_trail_init(self):
+        """인수 보유분(entry 없음)에 추적 기준을 한 번 만든다. E=거래소 평균 매수가(cost/qty), A=현재 15분 ATR, 고점=편입 이후 확정 15분봉 고점.
+        초기 고정 손절 stop0는 현재 손절가 그대로 쓴다. 진입 시점을 모르므로 편입 시각 이후 봉만 쓰고 R은 3×ATR15로 정의한다(D-22)."""
+        done = False
+        for m, pos in self.d['positions'].items():
+            if 'entry' in pos or pos.get('adopted_trail_failed') or pos['qty'] <= 0: continue
+            try:
+                bars = upbit.completed_candles(m, 15, 100)
+                atr = st.wilder_atr(bars)
+            except Exception:
+                continue
+            entry = pos['cost'] / pos['qty']
+            if not atr or not math.isfinite(atr) or atr <= 0 or entry <= 0:
+                pos['adopted_trail_failed'] = True
+                continue
+            after = [b['h'] for b in bars if st.bar_after_entry(b, pos['time'])]
+            pos.update(entry=entry, atr=atr, stop0=pos['stop'], trail=True, adopted_trail=True,
+                       peak=max([entry] + after))
+            self.record({'event': '인수 보유분 추적 기준 생성', 'market': m, 'entry': entry, 'atr15': atr, 'peak': pos['peak'],
+                         'rule': '거래소 평균 매수가=E, R=3×ATR15, 1R부터 추적(결정 D-22)'})
+            done = True
+        return done
+
     def trail_check(self):
         """EXIT-T1(실거래, 기본 꺼짐). 확정 1분봉 종가로 봉마다 한 번 평가. 봇이 새로 산 포지션만 대상."""
         from dataclasses import replace
@@ -530,15 +555,17 @@ class Live:
         if not self.recover_all_pending(): return
         p = replace(self.p, trail_enabled=True)
         exits, changed = [], False
+        if self.cfg.get('trail_adopted') and self.adopt_trail_init(): changed = True
         for m, pos in list(self.d['positions'].items()):
             if not pos.get('trail') or pos['qty'] <= 0 or 'entry' not in pos: continue
+            p_pos = replace(p, trail_start_r=float(self.cfg.get('adopted_trail_start_r', 1.0))) if pos.get('adopted_trail') else p
             try: bars = upbit.completed_candles(m, 1, 3)
             except Exception: continue
             bar = bars[-1] if bars else None
             if not bar or pos.get('last_bar') == bar['t'] or not st.bar_after_entry(bar, pos['time']): continue
             pos['last_bar'] = bar['t']
             changed = True
-            why = st.ratchet(m, pos, bar['c'], p)
+            why = st.ratchet(m, pos, bar['c'], p_pos)
             if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
         if changed: self.save()
         if not exits: return

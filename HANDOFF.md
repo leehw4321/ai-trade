@@ -16,7 +16,7 @@
 | 봇 코드·테스트 | `v5/` (`strategy.py` 전략, `live.py` 실주문, `paper.py` 모의, `shadow.py` 그림자 비교, `account_sync.py` 계좌 조회, `session_guard.py` PC 간 실행권, `adopt_account.py` 계좌 인수) |
 | 토론 규칙·근거·합의 표 | `debate_tools/` (실시간 파일). 진행기 `토론진행기.py --continuous-run`, 자동 재개 `자동재개감시.py` |
 | 이력 | `docs/ai-history/` — `내일_회사에서_다시.md`, `decision-log.md`, 날짜별 기록, `debates/`, `codex-session/` |
-| 도구 | `tools/ai_session.py`, `tools/sync_v5.py` |
+| 도구 | `tools/ai_session.py`, `tools/sync_v5.py`, `tools/deploy_v5.py`(안전 배포: 승인 커밋만 자동 적용, 실패 시 롤백) |
 | 이전 버전(V3/V4) | 삭제됨. 태그 `legacy-v3-v4-2026-11-02` |
 | **GitHub에 없음(PC 로컬)** | `.env`, `v5/data/`(특히 `live/live.json`), 실행 PC의 `config.json`(live 켜짐), 토론 원시 기록 — '내일 회사에서 다시' §8 |
 | 실행 사본 | `코인 트레이딩/v5-app/v5` (실제로 도는 코드). 정본은 `ai-trade/v5`. `sync_v5.py`로만 갱신 |
@@ -38,7 +38,7 @@
 - 구규칙의 알려진 문제: 상위 3위·18시간 상승률 양수면 매수(과열 필터 없음), 손절 ATR이 4시간봉이라 손절가 거리가 15~35%, 익절 규칙 없음. 사용자가 돌핀(POD)·문버드(BIRB)의 손실을 지적.
 
 ## 5. 미해결·다음 작업
-1. **사용자 결정**: D-12 실거래 적용(봇 정지→`sync_v5.py --apply`→재시작), EXIT-T1 실거래 켜기, 저장소 비공개 전환 또는 이력 정리(D-17).
+1. **사용자 결정**: D-12 실거래 적용 — `python tools/deploy_v5.py --apply` 한 번이면 정상 종료→백업→적용→재시작(D-19). 자동으로 하려면 `tools/APPROVED_COMMIT`에 승인할 커밋 해시를 적고 `deploy_v5.py --watch`, EXIT-T1 실거래 켜기, 저장소 비공개 전환 또는 이력 정리(D-17).
 2. ChatGPT 복귀 후: decision-log의 D-12·D-05·D-08·D-02 검토 → 이견 7건(15·31·35·39·41·43·47) → 안건 24.
 3. 합의된 분석 절차 구현(신호→주문→체결→잔고 시간표, U·D, 짝비교, 출구 비용 곡선): 모의·그림자 경로에서만.
 4. 회사 PC에서 실거래를 이어가려면 집 봇 종료·`data/` 비공개 이전·`.env`·허용 IP·실행권 양도(같은 계좌 동시 실거래 금지).

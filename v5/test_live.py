@@ -321,3 +321,16 @@ class LastSellRecord(unittest.TestCase):
         self.assertTrue(ls['profit'])
         self.assertAlmostEqual(ls['price'], 110000.0)
         self.assertIn('추적', ls['reason'])
+
+
+class EquityTotal(unittest.TestCase):
+    def test_ignores_assets_without_krw_market(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True}, st.Params())
+        rows = [{'currency': 'KRW', 'balance': '1000', 'locked': '0'}, {'currency': 'AAA', 'balance': '2', 'locked': '1'},
+                {'currency': 'DEAD', 'balance': '9', 'locked': '0'}]
+        with mock.patch('upbit.accounts', return_value=rows), mock.patch('upbit.krw_markets', return_value={'KRW-AAA': {}}), \
+                mock.patch('upbit.tickers', return_value={'KRW-AAA': {'trade_price': 100.0}}) as t:
+            self.assertAlmostEqual(lv.equity_total(), 1000 + 3 * 100.0)   # DEAD는 시세 조회 대상에서 제외
+        self.assertEqual(t.call_args.args[0], ['KRW-AAA'])

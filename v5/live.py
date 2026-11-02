@@ -152,8 +152,10 @@ class Live:
         """계좌 총자산(원화 잔고+잠금+코인 평가). 조회 실패·가격 누락이 있으면 None."""
         try:
             rows = upbit.accounts()
+            valid = set(upbit.krw_markets())  # 원화 시장이 없는(상장폐지 등) 자산은 시세 조회에서 제외
             coins = {'KRW-' + r['currency']: float(r['balance']) + float(r['locked']) for r in rows
-                     if r['currency'] != 'KRW' and float(r['balance']) + float(r['locked']) > 0}
+                     if r['currency'] != 'KRW' and float(r['balance']) + float(r['locked']) > 0
+                     and 'KRW-' + r['currency'] in valid}
             krw = sum(float(r['balance']) + float(r['locked']) for r in rows if r['currency'] == 'KRW')
             tick = upbit.tickers(list(coins)) if coins else {}
         except Exception:

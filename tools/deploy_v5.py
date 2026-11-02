@@ -15,6 +15,7 @@
 import argparse
 import datetime as dt
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -142,8 +143,9 @@ def wait_stopped(app, timeout):
 def start_bot(launch=None):
     """바탕화면 실행과 같은 경로(launch_v5.py)로 시작한다. 상태 화면이 새로 만들어질 때까지 기다린다."""
     launch = launch or LAUNCH
+    # 자동 재시작이 매번 브라우저 탭을 새로 열지 않게 한다(화면은 이미 열려 있으면 자동 갱신된다).
     r = subprocess.run([sys.executable, str(launch), '--console'], cwd=launch.parent, capture_output=True, text=True,
-                       timeout=420, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                       timeout=420, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env={**os.environ, 'V5_NO_BROWSER': '1'})
     return r.returncode == 0, (r.stderr or r.stdout)[-400:]
 
 

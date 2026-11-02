@@ -5,4 +5,12 @@ if exist stop_shadow.txt del stop_shadow.txt
 start "" pythonw bot.py
 start "" pythonw shadow.py
 timeout /t 5 >nul
-if exist data\status.html start "" data\status.html
+if exist data\status.html (
+  if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
+    start "" "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" "%~dp0data\status.html"
+  ) else if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+    start "" "%ProgramFiles%\Google\Chrome\Application\chrome.exe" "%~dp0data\status.html"
+  ) else (
+    start "" data\status.html
+  )
+)

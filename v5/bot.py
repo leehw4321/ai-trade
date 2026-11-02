@@ -311,12 +311,16 @@ class Bot:
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],
                         key=lambda x: x['time'])[-14:][::-1]
         ev = ''.join(f"<li><span class=t>{e(x['time'][5:16].replace('T', ' '))} {e(x['who'])}</span>{e(x['msg'])}</li>" for x in events)
-        blocks = self.real_block(prices) + self.live_block(prices) + self.block(f"실제 규모 · 계좌의 {d['fraction']:.0%} ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
-            self.block(f"단독 전략 실험 · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
+        # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
+        paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
+            self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
+        blocks = self.real_block(prices) + self.live_block(prices) + \
+            '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
+details>summary{{cursor:pointer;color:var(--muted);padding:8px 2px}}details[open]>summary{{margin-bottom:8px}}
 :root{{--bg:#f4f6f7;--card:#fff;--ink:#17212b;--muted:#5d6b77;--line:#dde3e7;--acc:#0f6e5c;--up:#c8322f;--dn:#2457b3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#11171c;--card:#182128;--ink:#e3e8eb;--muted:#9aa6af;--line:#2c3740;--acc:#4fc2a6;--up:#ff6b66;--dn:#6e9bff}}}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Malgun Gothic",sans-serif;padding:24px max(16px,3vw)}}

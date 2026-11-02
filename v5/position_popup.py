@@ -1,7 +1,7 @@
-"""봇 실거래 보유 종목을 클릭하면 상세 정보를 보여 주는 읽기 전용 팝업.
+"""봇 실거래 보유 종목을 클릭하면 상세 정보를 보여 주고, 설정으로 켠 경우에만 '강제 청산' 버튼을 둔다.
 
-주문·설정·장부를 바꾸지 않는다. 화면은 정적 HTML(file://)이라 서버가 없으므로 버튼으로 주문을 보낼 수 없다.
-상세 값은 페이지 안에 JSON으로 넣고, 30초마다 자동 새로고침되어도 열린 창이 유지되도록 sessionStorage에 종목을 기억한다.
+화면은 정적 HTML(file://)이다. 상세 값은 페이지 안에 JSON으로 넣고, 30초마다 자동 새로고침되어도 열린 창이 유지되도록
+sessionStorage에 종목을 기억한다. 청산은 '청산을 원하십니까? [예][아니오]'를 거쳐 manual_orders의 127.0.0.1 서버로만 보낸다.
 """
 import html
 import json
@@ -32,6 +32,7 @@ def detail(market, pos, price, last_sell=None, now=None):
         'adoption_price': _num(pos.get('adoption_price')),
         'entered': str(pos.get('time') or '')[:16].replace('T', ' '),
         'held_hours': None, 'last_sell': None,
+        'sellable': value is not None and value >= 5000,  # 업비트 최소 주문금액
     }
     try:
         import datetime as dt
@@ -46,12 +47,19 @@ def detail(market, pos, price, last_sell=None, now=None):
     return out
 
 
-def data_script(positions, prices, last_sells=None, now=None):
-    """종목별 상세를 담은 JSON 스크립트 태그. '<' 를 이스케이프해 태그가 깨지지 않게 한다."""
+def _json_tag(tag_id, value):
+    text = json.dumps(value, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    return f'<script type="application/json" id="{tag_id}">{text}</script>'
+
+
+def data_script(positions, prices, last_sells=None, now=None, action=None):
+    """종목별 상세(와 청산 서버 접속 정보)를 담은 JSON 스크립트 태그. '<' 를 이스케이프해 태그가 깨지지 않게 한다.
+
+    action은 {'port': 포트, 'token': 토큰} 또는 None. None이면 화면에 청산 버튼이 나오지 않는다.
+    """
     last_sells = last_sells or {}
     rows = {m: detail(m, p, prices.get(m), last_sells.get(m), now) for m, p in positions.items()}
-    text = json.dumps(rows, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
-    return f'<script type="application/json" id="posdata">{text}</script>'
+    return _json_tag('posdata', rows) + (_json_tag('posaction', action) if action else '')
 
 
 def row_attrs(market, dust=False):
@@ -62,7 +70,10 @@ def row_attrs(market, dust=False):
 MODAL = """<div id="posmodal" hidden><div class="pm-card" role="dialog" aria-modal="true" aria-labelledby="pm-title">
 <button type="button" class="pm-x" aria-label="닫기">×</button><h3 id="pm-title"></h3><div class="pm-sub" id="pm-sub"></div>
 <table class="pm-t"><tbody id="pm-body"></tbody></table>
-<div class="pm-note">조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.</div></div></div>
+<div id="pm-act" hidden><button type="button" id="pm-liq" class="pm-btn pm-danger">강제 청산</button>
+<div id="pm-ask" hidden><div id="pm-q"></div><div class="pm-row"><button type="button" id="pm-yes" class="pm-btn pm-danger">예, 청산합니다</button><button type="button" id="pm-no" class="pm-btn">아니오</button></div></div>
+<div id="pm-res" role="status"></div></div>
+<div class="pm-note" id="pm-note">조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.</div></div></div>
 <style>
 tr.clk{cursor:pointer}tr.clk:hover td{background:rgba(120,140,170,.14)}
 #posmodal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
@@ -73,18 +84,36 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:rgba(120,140,170,.14)}
 .pm-t{width:100%;border-collapse:collapse;font-size:14px}.pm-t td{padding:6px 2px;border-bottom:1px solid rgba(128,140,160,.22)}
 .pm-t td:last-child{text-align:right;font-variant-numeric:tabular-nums}.pm-note{font-size:12px;opacity:.65;margin-top:10px}
 .pm-up{color:#c34b43}.pm-dn{color:#2f6fd0}
+#pm-act{margin-top:12px}.pm-row{display:flex;gap:8px;margin-top:8px}
+.pm-btn{border:1px solid rgba(128,140,160,.5);background:none;color:inherit;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+.pm-btn:disabled{opacity:.45;cursor:not-allowed}.pm-danger{background:#c34b43;border-color:#c34b43;color:#fff}
+#pm-q{font-size:14px;font-weight:600;line-height:1.5}#pm-res{font-size:13.5px;margin-top:8px;line-height:1.5}
 </style>
 <script>
 (function(){
 var el=document.getElementById('posdata'),box=document.getElementById('posmodal');
 if(!el||!box)return;
 var D={};try{D=JSON.parse(el.textContent)}catch(e){}
+var A=null;try{A=JSON.parse(document.getElementById('posaction').textContent)}catch(e){}
+var cur=null,busy=false;
+function $(i){return document.getElementById(i)}
 function n(v,d){return v==null?'-':Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d==null?0:d})}
 function px(v){return v==null?'-':n(v,v<100?4:(v<1000?2:0))}
 function sg(v,d){return v==null?'-':(v>0?'+':'')+n(v,d)}
 function put(k,v,cls){var tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td');
 a.textContent=k;b.textContent=v;if(cls)b.className=cls;tr.appendChild(a);tr.appendChild(b);document.getElementById('pm-body').appendChild(tr)}
-function show(m){var x=D[m];if(!x)return;
+function resetAct(x){busy=false;$('pm-ask').hidden=true;$('pm-res').textContent='';$('pm-liq').hidden=false;
+$('pm-yes').disabled=false;$('pm-no').disabled=false;
+if(!A){$('pm-act').hidden=true;$('pm-note').textContent='조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.';return}
+$('pm-act').hidden=false;$('pm-note').textContent='청산은 전량 시장가 매도이며 되돌릴 수 없습니다.';
+$('pm-liq').disabled=!x.sellable;if(!x.sellable)$('pm-res').textContent='평가액 5,000원 미만은 최소 주문금액 때문에 청산할 수 없습니다.'}
+function ask(){var x=D[cur];if(!x||busy)return;$('pm-liq').hidden=true;
+$('pm-q').textContent=x.name+' 전량(평가액 약 '+n(x.value)+'원)을 시장가로 청산합니다. 청산을 원하십니까?';$('pm-ask').hidden=false}
+function send(){if(!A||!cur||busy)return;busy=true;$('pm-yes').disabled=true;$('pm-no').disabled=true;$('pm-res').textContent='청산 요청 중… (최대 45초)';
+fetch('http://127.0.0.1:'+A.port+'/liquidate',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:cur,confirm:true})})
+.then(function(r){return r.json()}).then(function(d){$('pm-ask').hidden=true;$('pm-res').textContent=(d.ok?'✅ ':'⚠️ ')+d.message+(d.ok?' (표는 30초 안에 갱신됩니다)':'')})
+.catch(function(){$('pm-ask').hidden=true;$('pm-res').textContent='⚠️ 봇에 연결하지 못했습니다. 청산 여부를 주문 기록에서 확인하세요.'})}
+function show(m){var x=D[m];if(!x)return;var same=(cur===m&&!box.hidden);cur=m;if(!same)resetAct(x);
 document.getElementById('pm-title').textContent=x.name+' ('+m+')';
 document.getElementById('pm-sub').textContent=(x.inherited?'계좌 인수 보유분':'봇 신규 매수')+' · '+x.entered+(x.held_hours==null?'':' · 보유 '+n(x.held_hours,1)+'시간');
 document.getElementById('pm-body').textContent='';
@@ -102,6 +131,7 @@ function hide(){box.hidden=true;try{sessionStorage.removeItem('posOpen')}catch(e
 document.addEventListener('click',function(ev){
 if(ev.target.closest&&ev.target.closest('.pm-x'))return hide();
 if(ev.target===box)return hide();
+var id=ev.target.id;if(id==='pm-liq')return ask();if(id==='pm-no'){$('pm-ask').hidden=true;$('pm-liq').hidden=false;return}if(id==='pm-yes')return send();
 var tr=ev.target.closest&&ev.target.closest('tr.clk');if(tr)show(tr.getAttribute('data-m'))});
 document.addEventListener('keydown',function(ev){if(ev.key==='Escape')hide()});
 try{var o=sessionStorage.getItem('posOpen');if(o&&D[o])show(o)}catch(e){}

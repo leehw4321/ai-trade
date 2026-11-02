@@ -1,0 +1,158 @@
+"""화면의 '강제 청산' 요청을 받는 로컬 전용 소형 서버.
+
+이 서버는 주문을 내지 않는다. 검증을 통과한 요청을 큐에 넣고, 봇 메인 루프가 손절과 같은 경로로 실행한 결과를 기다려 돌려준다.
+방어: 127.0.0.1에만 바인딩 · Host 검사(DNS 재바인딩) · Origin은 file://('null')만 허용 · 봇을 시작할 때마다 새로 만드는 비밀 토큰 ·
+작은 본문·종목 형식 검사 · 같은 종목 30초 재요청 거부 · 한 번에 한 요청. 토큰은 로컬 status.html 안에만 있다.
+"""
+import hmac
+import json
+import queue
+import re
+import secrets
+import socket
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+DEFAULT_PORT = 8765
+MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
+MAX_BODY = 2048
+WAIT_SECONDS = 45
+REPEAT_SECONDS = 30
+
+
+class _ExclusiveServer(ThreadingHTTPServer):
+    """같은 포트를 다른 프로세스가 함께 열지 못하게 한다. Windows의 SO_REUSEADDR은 중복 바인딩을 허용해 요청(토큰 포함)을 가로챌 수 있다."""
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class Request:
+    def __init__(self, market):
+        self.market = market
+        self.event = threading.Event()
+        self.ok = False
+        self.message = '처리 시간 초과: 봇이 응답하지 않았습니다. 주문 기록에서 결과를 확인하세요.'
+
+    def finish(self, ok, message):
+        self.ok, self.message = bool(ok), str(message)
+        self.event.set()
+
+
+class ManualOrderServer:
+    def __init__(self, port=DEFAULT_PORT, token=None, clock=time.time):
+        self.port = int(port)
+        self.token = token or secrets.token_urlsafe(24)
+        self.clock = clock
+        self.queue = queue.Queue()
+        self.busy = threading.Lock()
+        self.recent = {}
+        self.httpd = None
+        self.thread = None
+
+    # ---------- 검증 (서버 없이 시험할 수 있게 분리) ----------
+    def check(self, host, origin, body):
+        """(상태코드, 종목 또는 오류문). 통과하면 (200, market)."""
+        if host not in (f'127.0.0.1:{self.port}', f'localhost:{self.port}'):
+            return 403, '허용되지 않은 호스트'
+        if origin not in (None, 'null'):
+            return 403, '허용되지 않은 출처'
+        if len(body) > MAX_BODY:
+            return 413, '요청이 너무 큼'
+        try:
+            doc = json.loads(body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            return 400, '요청 형식 오류'
+        if not isinstance(doc, dict) or not hmac.compare_digest(str(doc.get('token', '')), self.token):
+            return 403, '인증 실패: 화면을 새로고침한 뒤 다시 시도하세요'
+        market = doc.get('market')
+        if doc.get('confirm') is not True or not isinstance(market, str) or not MARKET.match(market):
+            return 400, '확인되지 않은 요청'
+        return 200, market
+
+    def submit(self, market):
+        """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
+        now = self.clock()
+        if now - self.recent.get(market, -1e9) < REPEAT_SECONDS:
+            return 429, {'ok': False, 'message': '같은 종목을 방금 요청했습니다. 잠시 뒤 결과를 확인하세요.'}
+        if not self.busy.acquire(blocking=False):
+            return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}
+        try:
+            self.recent[market] = now
+            req = Request(market)
+            self.queue.put(req)
+            req.event.wait(WAIT_SECONDS)
+            return 200, {'ok': req.ok, 'message': req.message}
+        finally:
+            self.busy.release()
+
+    def drain(self):
+        out = []
+        while True:
+            try:
+                out.append(self.queue.get_nowait())
+            except queue.Empty:
+                return out
+
+    # ---------- HTTP ----------
+    def start(self):
+        server = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _send(self, code, doc):
+                data = json.dumps(doc, ensure_ascii=False).encode('utf-8')
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(data)))
+                if self.headers.get('Origin') == 'null':
+                    self.send_header('Access-Control-Allow-Origin', 'null')
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                if self.headers.get('Origin') == 'null':
+                    self.send_header('Access-Control-Allow-Origin', 'null')
+                    self.send_header('Access-Control-Allow-Methods', 'POST')
+                    self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.end_headers()
+
+            def do_GET(self):
+                self._send(200, {'ok': True, 'service': 'v5-manual'} if self.path == '/ping' else {'ok': False})
+
+            def do_POST(self):
+                if self.path != '/liquidate':
+                    return self._send(404, {'ok': False, 'message': '없는 경로'})
+                try:
+                    length = int(self.headers.get('Content-Length') or 0)
+                except ValueError:
+                    length = MAX_BODY + 1
+                body = self.rfile.read(length) if 0 <= length <= MAX_BODY else b'x' * (MAX_BODY + 1)
+                code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body)
+                if code != 200:
+                    return self._send(code, {'ok': False, 'message': value})
+                code, doc = server.submit(value)
+                self._send(code, doc)
+
+        try:
+            self.httpd = _ExclusiveServer(('127.0.0.1', self.port), Handler)
+        except OSError:
+            return False
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        return True
+
+    def stop(self):
+        if self.httpd:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+            self.httpd = None

@@ -14,6 +14,7 @@ import sys
 import time
 import traceback
 
+import manual_orders
 import position_popup
 import strategy as st
 import upbit
@@ -268,7 +269,7 @@ class Bot:
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
 <div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
 <div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
-<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script>{position_popup.data_script(L['positions'], prices, L.get('last_sell'))}{position_popup.MODAL}</section>"""
+<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script>{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
 
     def real_block(self, prices):
         if (DATA / 'account_live.html').exists():
@@ -395,6 +396,14 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.align_timeframe(time.time())
         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
         last_snap = last_stop = last_live = last_display = 0
+        self.manual_server = None
+        if self.live.cfg['enabled'] and self.live.cfg.get('manual_ui'):
+            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT))
+            if srv.start():
+                self.manual_server = srv
+                self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
+            else:
+                self.log(f'화면 강제 청산 서버를 열지 못함(포트 {srv.port} 사용 중): 청산 버튼 비활성')
         while not (STOP.exists() or STOP_ASCII.exists()):
             guard = getattr(self, 'session_guard', None)
             if guard and guard.lost.is_set():
@@ -402,6 +411,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 break
             now = time.time()
             try:
+                self.handle_manual_requests()
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
@@ -446,7 +456,32 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 last_snap = 0 if now - last_snap >= 300 else last_snap
                 time.sleep(30)
             time.sleep(10)
+        if self.manual_server:
+            self.manual_server.stop()
         self.log('중지.txt 확인 · 봇 종료')
+
+    def manual_action(self):
+        """화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."""
+        srv = getattr(self, 'manual_server', None)
+        return {'port': srv.port, 'token': srv.token} if srv else None
+
+    def handle_manual_requests(self):
+        """화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."""
+        srv = getattr(self, 'manual_server', None)
+        if not srv:
+            return
+        for req in srv.drain():
+            try:
+                prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
+                ok, msg = self.live.liquidate_position(req.market, prices)
+                req.finish(ok, msg)
+                self.log(f'수동 강제 청산 {req.market}: {"성공" if ok else "보류"} · {msg}')
+            except SessionLost as ex:
+                req.finish(False, f'실행 권한 없음: {ex}')
+                raise
+            except Exception as ex:
+                req.finish(False, f'오류: {type(ex).__name__}: {str(ex)[:120]}')
+                self.log(f'수동 강제 청산 오류 {req.market}: {ex}')
 
     def check(self):
         universe, tick = self.candidates()

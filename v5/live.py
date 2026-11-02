@@ -44,7 +44,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'loss_daily': False,  # True면 손실 집계를 한국시간 하루 단위로 시작하고, 중단은 다음 날 0시에 자동 재개(D-46)
             'loss_stop_pct': 0.0,  # 0이면 loss_stop_krw(금액) 사용. 0보다 크면 '기준 총자산 대비 비율'로 신규 매수 중단(결정 D-37)
             'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
-            'partial_r': 2.0, 'partial_frac': 0.3333}
+            'partial_r': 2.0, 'partial_frac': 0.3333,
+            'manual_ui': False,  # True면 화면의 '강제 청산' 버튼을 받는 127.0.0.1 전용 서버를 연다. 사용자가 설정으로 켜야만 동작
+            'manual_port': 8765}
 
 
 def parse(text):
@@ -766,6 +768,39 @@ class Live:
                 raise
             except Exception as error:
                 self.record({'event': '부분 익절 대기', 'market': m, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+
+    def liquidate_position(self, market, prices, reason='수동 강제 청산'):
+        """사용자가 화면에서 확인한 종목 한 개를 전량 시장가 매도한다. (성공 여부, 안내문)을 돌려준다.
+
+        봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.
+        그래서 주문 식별자 선기록·실행권 검사·미확정 주문 대사·장부 반영이 손절과 동일하다.
+        """
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0: return False, '봇이 관리하는 보유 종목이 아님'
+        price = prices.get(market)
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
+            return False, '현재가를 확인할 수 없어 청산 보류'
+        if self.market_has_uncertain_order(market): return False, '미확정 주문 대사 중: 청산 보류'
+        balances = {r['currency']: r for r in upbit.accounts()}
+        volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
+        if volume * price < 5000:
+            return False, f'평가액 {volume * price:,.0f}원: 최소 주문금액 5,000원 미만이라 청산할 수 없음'
+        self.record({'event': '수동 청산 요청', 'market': market, 'reason': reason})
+        try:
+            o = self._trade('ask', market, volume, reason, risk=True)
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '수동 청산 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False, f'청산 실패: {type(error).__name__}: {str(error)[:120]}'
+        v, funds, fee = self._fill(o)
+        if v <= 0:
+            return False, f'매도 미체결 ({o.get("state")}): 보유는 그대로입니다'
+        left = self.d['positions'].get(market, {}).get('qty', 0)
+        msg = f'{market[4:]} 청산 {v:,.8g}개 → {funds - fee:,.0f}원' + (f' (일부 체결, 남은 수량 {left:,.8g})' if left > 0 else '')
+        self.share(f'{msg} (수동 강제 청산, 실현 누적 {self.d["realized"]:+,.0f}원)')
+        return True, msg
 
     def stop_check(self, prices):
         """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""

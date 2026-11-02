@@ -334,6 +334,11 @@ class Bot:
 
     def write_status(self, prices, next_4h):
         d, e, p = self.ledger.d, html.escape, self.p
+        if not self.markets:    # 재시작 직후 첫 판단 전에는 비어 있다
+            try:
+                self.markets = upbit.krw_markets()
+            except Exception:
+                pass
         warned = {m for m, info in (self.markets or {}).items() if info.get('warning')}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],

@@ -54,7 +54,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape):
         elif m in held:
             cls, tag = 'rk-held', '보유'
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
-            cls, tag = '', '과열'
+            cls, tag = 'rk-hot', '과열(매수 보류)'
         elif rank <= scan and rs > 0 and picked < want:
             cls, tag, picked = 'rk-target', '투자 대상(매수 후보)', picked + 1
         elif rank <= p.M and rs > 0:
@@ -355,8 +355,8 @@ class Bot:
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
 details>summary{{cursor:pointer;color:var(--muted);padding:8px 2px}}details[open]>summary{{margin-bottom:8px}}
-tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
-@media (prefers-color-scheme:dark){{tr.rk-held td{{background:#1d3647}} tr.rk-alert td{{background:#4a2a2d}} tr.rk-target td{{background:#22402a}} tr.rk-watch td{{background:#47401f}} .chip-held{{background:#1d3647;color:#e3e8eb}} .chip-alert{{background:#4a2a2d;color:#e3e8eb}} .chip-target{{background:#22402a;color:#e3e8eb}} .chip-watch{{background:#47401f;color:#e3e8eb}}}}
+tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} tr.rk-hot td{{background:#ffe6cc}} .chip-hot{{background:#ffe6cc;color:#17212b}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
+@media (prefers-color-scheme:dark){{tr.rk-held td{{background:#1d3647}} tr.rk-alert td{{background:#4a2a2d}} tr.rk-target td{{background:#22402a}} tr.rk-watch td{{background:#47401f}} tr.rk-hot td{{background:#4d3620}} .chip-hot{{background:#4d3620;color:#e3e8eb}} .chip-held{{background:#1d3647;color:#e3e8eb}} .chip-alert{{background:#4a2a2d;color:#e3e8eb}} .chip-target{{background:#22402a;color:#e3e8eb}} .chip-watch{{background:#47401f;color:#e3e8eb}}}}
 :root{{--bg:#f4f6f7;--card:#fff;--ink:#17212b;--muted:#5d6b77;--line:#dde3e7;--acc:#0f6e5c;--up:#c8322f;--dn:#2457b3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#11171c;--card:#182128;--ink:#e3e8eb;--muted:#9aa6af;--line:#2c3740;--acc:#4fc2a6;--up:#ff6b66;--dn:#6e9bff}}}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Malgun Gothic",sans-serif;padding:24px max(16px,3vw)}}
@@ -378,7 +378,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</div>
 {blocks}
 <div class=grid>
-<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>경보 종목(진입 불가)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> · 매수 후보는 상위 {p.entry_top}위 안·상승률 0~{p.chase_rs_cap:.0%}·보유/경보 아님</div></section>
+<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>경보 종목(진입 불가)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류)</span> · 매수 후보: 상승률 0~{p.chase_rs_cap:.0%}·보유/경보/재진입 대기 아님, {p.entry_scan or p.entry_top}위 안에서 {p.entry_want or p.entry_top}종목</div></section>
 <section><h2>운영 기록</h2><ul>{ev}</ul></section>
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>

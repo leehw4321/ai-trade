@@ -35,7 +35,7 @@ class History(unittest.TestCase):
     def test_summary_lists_sells_and_old_rows_excluded(self):
         th.sync(self.path, lambda: [order('a', 'bid'), order('b', 'ask', market='KRW-B', funds='28500'),
                                     order('old', 'ask', market='KRW-C', minutes_ago=60 * 24 * 3)])
-        text = th.summary(self.path, days=1)
+        text = th.summary(self.path, days=2)   # 자정 직후에도 5분 전 주문이 포함되게
         self.assertIn('KRW-B', text)
         self.assertNotIn('KRW-C', text)
         self.assertIn('출처 불명', text)

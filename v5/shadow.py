@@ -80,14 +80,20 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
             else:
                 picks.append(r)
     buys = []
+    # 전략 설계의 비율 한도: 종목당 coin_cap, 총투입 total_cap (계좌 평가액 기준). 고정 금액 한도를 풀어도 이 한도는 유지한다(D-29).
+    equity = sum(holdings.values()) + krw
+    invested = sum(v for m, v in holdings.items() if m not in sells)
+    total_room = max(0.0, base.total_cap * equity - invested)
     for i, r in enumerate(picks):
-        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i)) // 1000 * 1000)
+        coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
+        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room) // 1000 * 1000)
         if amt < 5000:
-            reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원)')
+            reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원, 종목 한도 잔여 {coin_room:,.0f}원, 총투입 한도 잔여 {total_room:,.0f}원)')
             continue
         buys.append((r['market'], amt))
         cash -= amt
         room -= amt
+        total_room -= amt
         reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}')
     parts = [f'매도 {m[4:]} 100%' for m in sells] or ['매도 없음']
     parts += [f'매수 {m[4:]} {a}원' for m, a in buys] or ['매수 없음']

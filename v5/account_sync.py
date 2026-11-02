@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
 
 
+DUST_KRW = 5000  # 평가금액이 이 값 미만인 보유(미평가 제외)는 기본으로 숨긴다
+
+
 def snapshot():
     balances = upbit.accounts()
     markets = upbit.krw_markets()
@@ -64,13 +67,15 @@ def render(data, error=''):
         if n is None: return '—'
         return f'{n:,.0f}' if n >= 1000 else f'{n:,.4f}'.rstrip('0').rstrip('.')
     rows = []
+    dust_n = sum(1 for a in coins if a['value'] is not None and a['value'] < DUST_KRW)
     for a in sorted(coins, key=lambda a: -(a['value'] or 0)):
         known = a['value'] is not None and a['avg'] > 0
         buy = a['quantity'] * a['avg'] if a['avg'] > 0 else None
         gain = a['value'] - buy if known else None
         rate = gain / buy * 100 if known and buy else None
         weight = a['value'] / total * 100 if a['value'] is not None and total else 0
-        rows.append(f'''<tr><td><div class="asset"><span class="coin">{esc(a['currency'][:2])}</span><div><strong>{esc(a['currency'])}</strong><small>{esc(a.get('name',a['currency']))}</small></div></div></td>
+        dust = a['value'] is not None and a['value'] < DUST_KRW
+        rows.append(f'''<tr{' class="dust"' if dust else ''}><td><div class="asset"><span class="coin">{esc(a['currency'][:2])}</span><div><strong>{esc(a['currency'])}</strong><small>{esc(a.get('name',a['currency']))}</small></div></div></td>
 <td>{a['quantity']:,.8g}<small>잠금 {a['locked']:,.8g}</small></td>
 <td>{price(a['avg']) if a['avg'] > 0 else '—'}<small>KRW</small></td>
 <td>{price(a['price'])}<small>KRW</small></td>
@@ -84,15 +89,15 @@ def render(data, error=''):
 <title>업비트 실시간 계좌</title><style>
 *{{box-sizing:border-box}}body{{font:14px/1.5 "Malgun Gothic",sans-serif;background:#f3f6fb;color:#1c2d47;margin:0;padding:20px}}
 .shell{{max-width:1400px;margin:auto}}header{{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}}h1{{font-size:23px;letter-spacing:-1px;margin:0}}.eyebrow{{font-size:11px;color:#62758e;letter-spacing:2px;font-weight:700}}.status{{background:#e6f5ee;color:#16805b;border:1px solid #c6e9d8;border-radius:20px;padding:6px 12px;font-size:12px}}.warn{{color:#ae3d31;background:#fff0eb}}.cards{{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:12px}}.card{{background:white;border:1px solid #e2e9f2;border-radius:14px;padding:18px 20px}}.card.primary{{background:#183250;color:white;border-color:#183250}}.label{{font-size:12px;color:#718198;margin-bottom:9px}}.primary .label,.primary small{{color:#b9cce2}}.amount{{font-size:25px;font-weight:700;letter-spacing:-.8px;font-variant-numeric:tabular-nums}}.unit{{font-size:12px;font-weight:400;margin-left:4px}}small{{display:block;font-size:11px;color:#7d8da1;margin-top:4px;font-weight:400}}.gain{{color:#d84b48}}.loss{{color:#3975ce}}.neutral{{color:#52637b}}.panel{{margin-top:18px;background:white;border:1px solid #e2e9f2;border-radius:14px;overflow:hidden}}.panelhead{{padding:17px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e9eef5}}h2{{font-size:15px;margin:0}}.count{{color:#77889c;font-size:12px}}.scroll{{overflow-x:auto}}table{{width:100%;border-collapse:collapse;white-space:nowrap;font-variant-numeric:tabular-nums}}th{{font-size:11px;font-weight:500;color:#7b8ba0;background:#fafbfd}}td,th{{padding:13px 16px;text-align:right;border-bottom:1px solid #eef2f7}}td:first-child,th:first-child{{text-align:left}}tbody tr:last-child td{{border:0}}tbody tr:hover{{background:#f8faff}}.asset{{display:flex;gap:10px;align-items:center}}.coin{{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:#edf2fa;color:#516f97;font-size:11px;font-weight:700}}.asset small{{margin:0}}.bar{{width:70px;height:4px;background:#eaf0f8;border-radius:4px;margin:7px 0 0 auto}}.bar i{{display:block;height:100%;background:#688fca;border-radius:4px}}footer{{font-size:11px;color:#7b8ba0;line-height:1.8;padding:13px 3px}}.stamp{{display:flex;justify-content:space-between;gap:12px;margin-top:12px;color:#7b8ba0;font-size:11px}}@media(max-width:850px){{.cards{{grid-template-columns:1fr 1fr}}body{{padding:12px}}.amount{{font-size:22px}}header{{align-items:flex-start}}h1{{font-size:20px}}.stamp{{display:block}}}}@media(max-width:430px){{.card{{padding:14px}}.amount{{font-size:19px}}}}
-</style><main class="shell"><header><div><div class="eyebrow">MY PORTFOLIO</div><h1>업비트 실시간 계좌</h1></div><span class="status {'warn' if error else ''}">{esc(status)}</span></header>
+html.hd .dust{{display:none}}.dustswitch{{font-size:12px;color:#62758e;margin-left:10px;cursor:pointer;white-space:nowrap}}.dustswitch input{{vertical-align:middle;margin-right:4px}}</style><script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><main class="shell"><header><div><div class="eyebrow">MY PORTFOLIO</div><h1>업비트 실시간 계좌</h1></div><span class="status {'warn' if error else ''}">{esc(status)}</span></header>
 <div class="cards"><div class="card primary"><div class="label">총 보유자산 · 평가 가능 기준</div><div class="amount">{total:,.0f}<span class="unit">원</span></div><small>현금 + 보유 코인 평가액</small></div>
 <div class="card"><div class="label">보유 코인 평가손익</div><div class="amount {tone(pnl)}">{f'{pnl:+,.0f}' if ret is not None else '—'}<span class="unit">원</span></div><small class="{tone(pnl)}">수익률 {f'{ret:+.2f}%' if ret is not None else '계산 불가'}</small></div>
 <div class="card"><div class="label">총 매입금액 · 계산 가능 보유분</div><div class="amount">{cost:,.0f}<span class="unit">원</span></div><small>코인 평가액 {total-cash:,.0f}원</small></div>
 <div class="card"><div class="label">보유 원화</div><div class="amount">{cash:,.0f}<span class="unit">원</span></div><small>주문 가능 {available:,.0f}원 · 비중 {(cash/total*100 if total else 0):.1f}%</small></div></div>
 <div class="stamp"><span>마지막 조회 {esc(data.get('time','아직 성공하지 않음').replace('T',' '))}</span><span id="fresh">5초 간격 자동 갱신</span></div>
-<section class="panel"><div class="panelhead"><h2>보유 코인</h2><span class="count">{len(coins)}개 자산 · 매입 대비 손익</span></div><div class="scroll"><table><thead><tr><th>자산</th><th>보유 수량</th><th>매입 평균가</th><th>현재가</th><th>매입금액</th><th>평가금액</th><th>평가손익 / 수익률</th><th>계좌 비중</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="8">계좌 조회를 기다리고 있습니다.</td></tr>'}</tbody></table></div></section>
+<section class="panel"><div class="panelhead"><h2>보유 코인</h2><span class="count"><span id="cnt">{len(coins)}개 자산</span> · 매입 대비 손익<label class="dustswitch"><input type="checkbox" id="hideDust">소액({DUST_KRW:,}원 미만) 숨기기</label></span></div><div class="scroll"><table><thead><tr><th>자산</th><th>보유 수량</th><th>매입 평균가</th><th>현재가</th><th>매입금액</th><th>평가금액</th><th>평가손익 / 수익률</th><th>계좌 비중</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="8">계좌 조회를 기다리고 있습니다.</td></tr>'}</tbody></table></div></section>
 <footer>수익률은 현재 보유분의 평균 매입가 대비 미실현 손익이며, 입출금을 반영한 계좌 누적 수익률이 아닙니다. 수수료·예상 매도 비용은 차감 전입니다.<br>시세 없는 자산 {unknown}개는 총 평가액에서 제외하고 수량을 보존합니다. 시세는 있으나 평균 매입가가 없는 {unknown_cost}개는 합산 손익·수익률 계산에서 제외합니다.</footer></main>
-<script>function freshness(){{const age=Math.max(0,Math.floor(Date.now()/1000-{float(data.get('epoch',0))}));const el=document.getElementById('fresh');el.textContent=age>20?'갱신 지연 · '+age+'초 경과':'5초 간격 자동 갱신 · 조회 후 '+age+'초';if(age>20)el.style.color='#c34b43';}}freshness();setInterval(freshness,1000);
+<script>(function(){{const box=document.getElementById('hideDust'),cnt=document.getElementById('cnt');function apply(){{const on=box.checked;document.documentElement.classList.toggle('hd',on);try{{localStorage.setItem('hideDust',on?'1':'0');}}catch(e){{}}cnt.textContent=on?'{len(coins)-dust_n}개 표시 · 소액 {dust_n}개 숨김':'전체 {len(coins)}개 자산';}}box.checked=document.documentElement.classList.contains('hd');box.addEventListener('change',apply);apply();}})();</script><script>function freshness(){{const age=Math.max(0,Math.floor(Date.now()/1000-{float(data.get('epoch',0))}));const el=document.getElementById('fresh');el.textContent=age>20?'갱신 지연 · '+age+'초 경과':'5초 간격 자동 갱신 · 조회 후 '+age+'초';if(age>20)el.style.color='#c34b43';}}freshness();setInterval(freshness,1000);
 try{{const k='account-scroll:'+location.pathname;const saved=JSON.parse(sessionStorage.getItem(k)||'null');if(saved){{window.scrollTo(0,saved.y);document.querySelector('.scroll').scrollLeft=saved.x;}}window.addEventListener('pagehide',()=>sessionStorage.setItem(k,JSON.stringify({{y:window.scrollY,x:document.querySelector('.scroll').scrollLeft}})));}}catch(e){{}}</script></html>'''
 
 

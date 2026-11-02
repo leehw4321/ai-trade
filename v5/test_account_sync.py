@@ -42,3 +42,27 @@ class AccountSyncTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DustHiding(unittest.TestCase):
+    def page(self):
+        assets = [dict(currency='BIG', name='큰', quantity=1, avg=9000, value=20000, price=20000, available=1, locked=0),
+                  dict(currency='TINY', name='작음', quantity=1, avg=10, value=3000, price=3000, available=1, locked=0),
+                  dict(currency='ZERO', name='영', quantity=1, avg=0, value=0.0, price=0, available=1, locked=0),
+                  dict(currency='NOPRICE', name='미평가', quantity=2, avg=5, value=None, price=None, available=2, locked=0)]
+        return sync.render(dict(assets=assets, priced_total=23000))
+
+    def test_small_rows_flagged_big_and_unpriced_not(self):
+        page = self.page()
+        self.assertEqual(page.count('<tr class="dust">'), 2)             # TINY(3,000원)·ZERO(0원)
+        big = page[page.index('BIG') - 80:page.index('BIG')]
+        self.assertNotIn('class="dust"', big)
+        nop = page[page.index('NOPRICE') - 80:page.index('NOPRICE')]
+        self.assertNotIn('class="dust"', nop)                          # 미평가 자산은 숨기지 않는다(경고 대상)
+
+    def test_toggle_default_hidden_and_remembered(self):
+        page = self.page()
+        self.assertIn('id="hideDust"', page)
+        self.assertIn("localStorage.getItem('hideDust')!=='0'", page)   # 저장값이 '0'(보이기)이 아니면 기본 숨김
+        self.assertIn('html.hd .dust{display:none}', page)
+        self.assertIn('소액 2개 숨김', page)

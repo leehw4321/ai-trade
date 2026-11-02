@@ -11,7 +11,7 @@ def r(m, rank, rs):
 
 
 class Proposal(unittest.TestCase):
-    p = st.Params(M=5, entry_top=3)
+    p = st.Params(M=5, entry_top=3, coin_cap=1.0, total_cap=1.0)  # 고정 금액 한도만 시험(비율 한도는 RatioCaps에서)
 
     def test_weak_holdings_sold_and_strong_bought(self):
         ranked = [r('KRW-A', 1, .2), r('KRW-B', 2, .1), r('KRW-C', 3, .05), r('KRW-BTC', 4, .01), r('KRW-ETH', 9, -.02)]
@@ -34,3 +34,23 @@ class Proposal(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RatioCaps(unittest.TestCase):
+    def test_fixed_caps_released_but_ratio_caps_hold(self):
+        big = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+        ranked = [r('KRW-A', 1, .10), r('KRW-B', 2, .08), r('KRW-C', 3, .05)]
+        p = st.Params(entry_top=3)  # coin_cap 25%, total_cap 50%
+        text, reasons = proposal({}, ranked, {}, {'KRW-A', 'KRW-B', 'KRW-C'}, p, big, 1_000_000, 0)
+        self.assertIn('매수 A 250000원', text)
+        self.assertIn('매수 B 250000원', text)
+        self.assertNotIn('매수 C', text)                       # 총투입 50% 도달: 세 번째는 금액 부족
+        self.assertTrue(any('C 매수 불가' in x for x in reasons))
+
+    def test_existing_holding_counts_toward_coin_cap(self):
+        big = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+        ranked = [r('KRW-A', 1, .10), r('KRW-B', 2, .05)]
+        p = st.Params(entry_top=3)
+        text, _ = proposal({'KRW-A': 200000}, ranked, {}, {'KRW-A', 'KRW-B'}, p, big, 800_000, 0)
+        # 이미 유지 중인 A는 신규 매수 후보가 아님(keep). B만 매수: 계좌 100만 → 종목 25% = 250,000
+        self.assertIn('매수 B 250000원', text)

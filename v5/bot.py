@@ -228,7 +228,7 @@ class Bot:
             return ''
         loss = -(L['realized'] + self.live.unrealized(prices) - L.get('risk_baseline_unrealized', 0.))
         rows = ''.join(
-            f"<tr><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
+            f"<tr{' class=dust' if p['qty'] * prices.get(m, 0) < 5000 else ''}><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
             f"<td class=n>{p['qty'] * prices.get(m, 0):,.0f}</td><td class=n>{p['stop']:,.4g}</td></tr>"
             for m, p in L['positions'].items()) or '<tr><td colspan=5 class=muted>위임된 실거래 보유 없음</td></tr>'
         orders = []
@@ -242,8 +242,8 @@ class Bot:
         adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원 · 손실 중단선 {c['loss_stop_krw']:,}원 (현재 손익 {-loss:+,.0f}원)</div>
-<div class=cols><div><h3>봇 실거래 보유</h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
-<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div></section>"""
+<div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
+<div><h3>실거래 기록</h3><ul>{ol}</ul></div></div><script>document.getElementById('hideDust2').checked=document.documentElement.classList.contains('hd')</script></section>"""
 
     def real_block(self, prices):
         if (DATA / 'account_live.html').exists():
@@ -315,7 +315,8 @@ class Bot:
             self.block(f"단독 전략 실험 · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
-<style>
+<script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
+html.hd .dust{{display:none}}
 :root{{--bg:#f4f6f7;--card:#fff;--ink:#17212b;--muted:#5d6b77;--line:#dde3e7;--acc:#0f6e5c;--up:#c8322f;--dn:#2457b3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#11171c;--card:#182128;--ink:#e3e8eb;--muted:#9aa6af;--line:#2c3740;--acc:#4fc2a6;--up:#ff6b66;--dn:#6e9bff}}}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Malgun Gothic",sans-serif;padding:24px max(16px,3vw)}}

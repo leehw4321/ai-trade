@@ -16,6 +16,7 @@ import traceback
 
 import strategy as st
 import upbit
+from session_guard import SessionGuard, SessionLost, notify
 from live import Live
 from paper import Ledger, KST, now_iso
 
@@ -352,6 +353,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.log('봇 실행 시작 (모의 운영)')
         last_snap = last_stop = last_live = last_display = 0
         while not (STOP.exists() or STOP_ASCII.exists()):
+            guard = getattr(self, 'session_guard', None)
+            if guard and guard.lost.is_set():
+                self.log('실행 연결 종료: ' + guard.reason)
+                break
             now = time.time()
             try:
                 TF = self.p.tf * 60
@@ -433,10 +438,24 @@ if __name__ == '__main__':
     if a.check:
         Bot().check()
     else:
-        STOP.unlink(missing_ok=True)
-        STOP_ASCII.unlink(missing_ok=True)
         single_instance()
+        guard = None
         try:
-            Bot().run()
+            _, cfg = load_params()
+            options = dict(cfg.get('session', {}), live_enabled=cfg.get('live', {}).get('enabled', False))
+            guard = SessionGuard(ROOT, options)
+            if not guard.acquire():
+                sys.exit(0)
+            upbit.ORDER_GUARD = guard.assert_owner
+            guard.start()
+            STOP.unlink(missing_ok=True)
+            STOP_ASCII.unlink(missing_ok=True)
+            runner = Bot()
+            runner.session_guard = guard
+            runner.run()
+        except Exception as ex:
+            notify(ex)
         finally:
+            if guard:
+                guard.release()
             LOCK.unlink(missing_ok=True)

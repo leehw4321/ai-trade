@@ -14,6 +14,7 @@ import uuid
 BASE = 'https://api.upbit.com'
 ROOT = Path(__file__).resolve().parent
 ENV_FILES = [ROOT / '.env', ROOT.parent / '.env']
+ORDER_GUARD = None
 
 
 def _get(path, params=None, headers=None, retries=3):
@@ -142,6 +143,8 @@ def market_sell(market, volume):
 
 
 def _post_order(params):
+    if ORDER_GUARD is not None:
+        ORDER_GUARD()
     req = urllib.request.Request(BASE + '/v1/orders', data=json.dumps(params).encode(), method='POST',
                                  headers={'Content-Type': 'application/json', **_auth(params)})
     try:

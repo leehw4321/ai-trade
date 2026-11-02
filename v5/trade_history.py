@@ -1,0 +1,129 @@
+"""업비트 종료 주문(체결 기록)을 읽기 전용으로 받아 data/exchange_orders.jsonl 에 누적 보관한다.
+
+주문을 내지 않는다(GET /v1/orders/closed 만 사용). 봇이 낸 주문뿐 아니라 수동 주문·다른 PC의 봇 주문도 거래소 기록이므로
+함께 보관하며, 주문 식별자가 `v5-` 로 시작하면 봇 주문으로, 아니면 '출처 불명(수동 또는 식별자 없는 봇)'으로 분류한다.
+
+  python trade_history.py                     한 번 받아 저장하고 오늘 요약을 출력
+  python trade_history.py --days 7            최근 7일 요약
+  python trade_history.py --loop 300          5분마다 받아 저장(별도 프로세스로 상시 실행)
+  python trade_history.py --data <data 폴더>  저장 위치 지정(기본: 이 폴더의 data)
+"""
+import argparse
+import collections
+import datetime as dt
+import json
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+KST = dt.timezone(dt.timedelta(hours=9))
+KEEP = ('uuid', 'created_at', 'market', 'side', 'ord_type', 'state', 'price', 'volume', 'executed_volume',
+        'executed_funds', 'paid_fee', 'trades_count', 'identifier')
+
+
+def fetch_closed(upbit):
+    """종료 주문(done, cancel)을 최근순으로 받는다."""
+    rows = []
+    for state in ('done', 'cancel'):
+        params = {'state': state, 'limit': 1000, 'order_by': 'desc'}
+        rows += upbit._get('/v1/orders/closed', params, headers=upbit._auth(params))
+    return rows
+
+
+def normalize(o):
+    row = {k: o.get(k) for k in KEEP}
+    ident = o.get('identifier') or ''
+    row['source'] = 'bot-v5' if ident.startswith('v5-') else 'unknown'
+    row['fetched_at'] = dt.datetime.now(KST).isoformat(timespec='seconds')
+    return row
+
+
+def load(path):
+    if not Path(path).exists():
+        return {}
+    out = {}
+    for line in Path(path).read_text(encoding='utf-8').splitlines():
+        if line.strip():
+            r = json.loads(line)
+            out[r['uuid']] = r
+    return out
+
+
+def sync(path, fetch):
+    """새 체결 주문만 덧붙인다(uuid 중복 제거). 반환: 새로 저장한 건수."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    seen = load(path)
+    new = [normalize(o) for o in fetch() if o.get('uuid') and o['uuid'] not in seen and float(o.get('executed_volume') or 0) > 0]
+    new.sort(key=lambda r: r['created_at'])
+    if new:
+        with path.open('a', encoding='utf-8') as f:
+            for r in new:
+                f.write(json.dumps(r, ensure_ascii=False) + '\n')
+    return len(new)
+
+
+def when(r):
+    return dt.datetime.fromisoformat(r['created_at']).astimezone(KST)
+
+
+def summary(path, days=1, now=None):
+    now = now or dt.datetime.now(KST)
+    start = (now - dt.timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = sorted((r for r in load(path).values() if when(r) >= start), key=when)
+    lines = [f'{start:%m-%d} 00:00 ~ 현재 KST · 체결 주문 {len(rows)}건 · 봇 식별자 {sum(r["source"] == "bot-v5" for r in rows)}건']
+    by = collections.defaultdict(lambda: {'bid': 0.0, 'ask': 0.0, 'bn': 0, 'an': 0})
+    for r in rows:
+        k, f = ('bid', 'bn') if r['side'] == 'bid' else ('ask', 'an')
+        by[r['market']][k] += float(r['executed_funds'] or 0)
+        by[r['market']][f] += 1
+    for m, d in sorted(by.items()):
+        lines.append(f'  {m:10s} 매수 {d["bn"]}건 {d["bid"]:>10,.0f}원 | 매도 {d["an"]}건 {d["ask"]:>10,.0f}원')
+    lines.append('  [매도]')
+    sells = [r for r in rows if r['side'] == 'ask']
+    for r in sells:
+        ev = float(r['executed_volume'] or 0)
+        fu = float(r['executed_funds'] or 0)
+        lines.append(f'  {when(r):%m-%d %H:%M:%S} {r["market"]} {r["ord_type"]} 수량 {ev:g} 평균가 {fu / ev:,.4g} 금액 {fu:,.0f}원 · {"봇" if r["source"] == "bot-v5" else "출처 불명"}')
+    if not sells:
+        lines.append('  없음')
+    return '\n'.join(lines)
+
+
+def find_keys(upbit):
+    """프로젝트 상위 폴더들의 .env를 키 검색 경로에 추가한다(실행 위치와 무관하게 동작)."""
+    for p in list(HERE.parents)[:4]:
+        f = p / '.env'
+        if f.exists() and f not in upbit.ENV_FILES:
+            upbit.ENV_FILES.append(f)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--data', default=str(HERE / 'data'))
+    ap.add_argument('--days', type=int, default=1)
+    ap.add_argument('--env', default='', help='키가 든 .env 경로(기본: 상위 폴더 탐색)')
+    ap.add_argument('--loop', type=int, default=0, help='초 단위 반복 간격(0이면 한 번)')
+    a = ap.parse_args(argv)
+    sys.path.insert(0, str(HERE))
+    import upbit
+    find_keys(upbit)
+    if a.env:
+        upbit.ENV_FILES.append(Path(a.env))
+    path = Path(a.data) / 'exchange_orders.jsonl'
+    while True:
+        try:
+            n = sync(path, lambda: fetch_closed(upbit))
+            print(f'[{dt.datetime.now(KST):%H:%M:%S}] 새 체결 {n}건 저장 → {path}')
+        except Exception as e:
+            print(f'[{dt.datetime.now(KST):%H:%M:%S}] 조회 실패: {type(e).__name__}: {str(e)[:100]}')
+        if not a.loop:
+            break
+        time.sleep(a.loop)
+    print(summary(path, a.days))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

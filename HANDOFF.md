@@ -16,6 +16,7 @@
 | 봇 코드·테스트 | `v5/` (`strategy.py` 전략, `live.py` 실주문, `paper.py` 모의, `shadow.py` 그림자 비교, `account_sync.py` 계좌 조회, `session_guard.py` PC 간 실행권, `adopt_account.py` 계좌 인수) |
 | 토론 규칙·근거·합의 표 | `debate_tools/` (실시간 파일). 진행기 `토론진행기.py --continuous-run`, 자동 재개 `자동재개감시.py` |
 | 이력 | `docs/ai-history/` — `내일_회사에서_다시.md`, `decision-log.md`, 날짜별 기록, `debates/`, `codex-session/` |
+| 거래 이력(로컬) | `v5-app/v5/data/exchange_orders.jsonl` — 거래소 체결 기록 영구 누적(`v5/trade_history.py --loop 300`, 읽기 전용). GitHub에는 없음 |
 | 도구 | `tools/ai_session.py`, `tools/sync_v5.py`, `tools/deploy_v5.py`(안전 배포: 승인 커밋만 자동 적용, 실패 시 롤백) |
 | 이전 버전(V3/V4) | 삭제됨. 태그 `legacy-v3-v4-2026-11-02` |
 | **GitHub에 없음(PC 로컬)** | `.env`, `v5/data/`(특히 `live/live.json`), 실행 PC의 `config.json`(live 켜짐), 토론 원시 기록 — '내일 회사에서 다시' §8 |

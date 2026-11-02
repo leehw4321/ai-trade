@@ -1,0 +1,10 @@
+*.json
+*.jsonl
+*.lock
+*.log
+*.txt
+__pycache__/
+자동진행기록/
+회차별/
+시간별보고서/
+*.html

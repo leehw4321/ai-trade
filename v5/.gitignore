@@ -1,0 +1,12 @@
+data/
+.env
+*.lock
+중지.txt
+__pycache__/
+stop.txt
+stop_shadow.txt
+
+.env.*
+!.env.example
+account_sync_stop.txt
+*.log

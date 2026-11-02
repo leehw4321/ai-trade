@@ -1,0 +1,30 @@
+{
+  "allocation_fraction": 0.1,
+  "strategy": {
+    "tf": 15,
+    "stop_seconds": 30,
+    "L": 72,
+    "M": 5,
+    "k": 3.0,
+    "slots": 3,
+    "entry_top": 3,
+    "universe": 30,
+    "risk": 0.002,
+    "coin_cap": 0.25,
+    "total_cap": 0.5,
+    "cost_major": 0.001,
+    "cost_other": 0.002,
+    "reentry_hours": 24,
+    "require_positive_rs": true
+  },
+  "live": {
+    "enabled": false,
+    "max_order_krw": 30000,
+    "max_total_buy_krw": 100000,
+    "max_sell_krw_per_plan": 300000,
+    "loss_stop_krw": 15000,
+    "max_spread": 0.01,
+    "stop_tf": 240,
+    "auto_proposal": false
+  }
+}

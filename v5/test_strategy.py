@@ -120,3 +120,24 @@ class Ratchet(unittest.TestCase):
                 break
         self.assertIsNotNone(reason)
         self.assertGreater(price, 104)
+
+
+class ChaseAndStopCap(unittest.TestCase):
+    def test_chase_block_at_cap_and_disabled(self):
+        p = st.Params()
+        self.assertIsNone(st.chase_block({'rs': 0.149}, p))
+        self.assertIn('과열', st.chase_block({'rs': 0.15}, p))
+        self.assertIsNone(st.chase_block({'rs': 0.9}, st.Params(chase_rs_cap=0)))
+
+    def test_plan_skips_overheated_but_keeps_next_candidate(self):
+        p = st.Params(slots=2, entry_top=3)
+        ranked = [{'market': 'KRW-A', 'rs': 0.30, 'rank': 1}, {'market': 'KRW-B', 'rs': 0.10, 'rank': 2},
+                  {'market': 'KRW-C', 'rs': 0.05, 'rank': 3}]
+        _, buys, _ = st.plan(ranked, [], {}, {'KRW-A', 'KRW-B', 'KRW-C'}, p)
+        self.assertEqual(buys, ['KRW-B', 'KRW-C'])
+
+    def test_cap_stop_only_raises(self):
+        p = st.Params()
+        self.assertAlmostEqual(st.cap_stop(100, 60, p), 92.0)      # 너무 먼 손절은 -8%로
+        self.assertEqual(st.cap_stop(100, 95, p), 95)               # 이미 가까우면 그대로
+        self.assertEqual(st.cap_stop(100, 60, st.Params(stop_max_pct=0)), 60)

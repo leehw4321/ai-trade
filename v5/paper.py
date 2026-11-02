@@ -3,7 +3,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from strategy import cost
+from strategy import cost, cap_stop
 
 KST = dt.timezone(dt.timedelta(hours=9))
 
@@ -64,7 +64,7 @@ class Ledger:
     def buy(self, market, ask, atr, qty_fn, p):
         """P=ask×(1+c), S=P−k×ATR 고정. qty_fn(P, S) -> 수량."""
         P = ask * (1 + cost(market, p))
-        S = P - p.k * atr
+        S = cap_stop(P, P - p.k * atr, p)
         qty = qty_fn(P, S)
         if qty <= 0:
             return None

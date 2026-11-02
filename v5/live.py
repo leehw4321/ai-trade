@@ -228,7 +228,7 @@ class Live:
                 old = self.d['positions'].get(m)
                 qty = (old['qty'] if old else 0.) + dv
                 cost = (old['cost'] if old else 0.) + df + dfee
-                stop = df / dv - self.p.k * pending['atr']
+                stop = st.cap_stop(df / dv, df / dv - self.p.k * pending['atr'], self.p)
                 new = {'qty': qty, 'cost': cost,
                     'stop': max(old['stop'], stop) if old else stop,
                     'time': old['time'] if old else pending['time']}
@@ -499,6 +499,24 @@ class Live:
             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} > {c["max_spread"]:.0%}'
         return ''
 
+    def rebase_adopted_stops(self, prices):
+        """인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음)."""
+        if not self.p.stop_max_pct > 0: return
+        changed = []
+        for m, pos in self.d['positions'].items():
+            px = prices.get(m)
+            if pos.get('stop_rebased') or type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
+            new = st.cap_stop(px, pos['stop'], self.p)
+            pos['stop_rebased'] = True
+            if new > pos['stop']:
+                changed.append((m, pos['stop'], new))
+                pos['stop'] = new
+        if changed:
+            for m, old, new in changed:
+                self.record({'event': '손절가 상한 적용', 'market': m, 'old_stop': old, 'new_stop': new,
+                             'rule': f'손절가는 현재가의 -{self.p.stop_max_pct:.0%}보다 멀 수 없음(결정 D-12)'})
+        if changed or self.d['positions']: self.save()
+
     def stop_limit(self, pos):
         """EXIT-T1 대상은 초기 고정 손절만 실시간 가격으로 보호하고, 상향된 손절가는 확정 1분봉에서 평가한다."""
         if self.cfg.get('trail_enabled') and pos.get('trail'):
@@ -542,6 +560,7 @@ class Live:
         """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""
         if not self.cfg['enabled']: return
         self.recover_all_pending()
+        self.rebase_adopted_stops(prices)
         candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
                       if m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
                       and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0

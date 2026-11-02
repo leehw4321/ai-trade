@@ -175,3 +175,17 @@ class TrailLive(unittest.TestCase):
         lv._apply_pending(order2, None)
         self.assertFalse(lv.d['positions']['KRW-N']['trail'])  # 추가 매수 lot은 제외(안건 27 미합의)
         self.assertEqual(lv.d['positions']['KRW-N']['entry'], 100.0)
+
+
+class AdoptedStopRebase(unittest.TestCase):
+    def test_far_stop_is_raised_once_to_cap_and_never_lowered(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True}, st.Params())
+        lv.d['positions']['KRW-FAR'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 65000.0, 'time': 't'}
+        lv.d['positions']['KRW-NEAR'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 97000.0, 'time': 't'}
+        lv.rebase_adopted_stops({'KRW-FAR': 100000.0, 'KRW-NEAR': 100000.0})
+        self.assertAlmostEqual(lv.d['positions']['KRW-FAR']['stop'], 92000.0)
+        self.assertEqual(lv.d['positions']['KRW-NEAR']['stop'], 97000.0)
+        lv.rebase_adopted_stops({'KRW-FAR': 50000.0})              # 한 번만 적용: 가격이 폭락해도 다시 당기지 않음
+        self.assertAlmostEqual(lv.d['positions']['KRW-FAR']['stop'], 92000.0)

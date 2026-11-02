@@ -27,6 +27,9 @@ class Params:
     cost_other: float = 0.0020  # 편도 가격 비용 c (기타)
     reentry_hours: float = 24.0
     require_positive_rs: bool = True  # 임시: 상대강도 0 이하 종목은 신규 진입하지 않음
+    # 과열 추격 방지와 손절 상한 (결정 D-12, 사용자 요청 21:50). 0이면 끔. 값은 탐색 분석에 근거한 미검증 가설이다.
+    chase_rs_cap: float = 0.15    # 기간 상승률이 이 값 이상이면 신규 매수 보류
+    stop_max_pct: float = 0.08    # 손절가는 진입가(또는 인수 시점 가격)보다 이 비율 이상 멀리 두지 않음
     # 익절·추적 손절 EXIT-T1 (토론 근거 3, 합의 전까지 꺼짐). 모의·그림자 전용이며 live.py에는 연결하지 않는다.
     trail_enabled: bool = False
     trail_lock_r: float = 1.0     # 이 R배수 이익 도달 시 손절가를 본전(비용 포함)으로
@@ -76,6 +79,20 @@ def rank(bars_by_market, p):
     return rows
 
 
+def chase_block(r, p):
+    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None."""
+    if p.chase_rs_cap > 0 and r['rs'] >= p.chase_rs_cap:
+        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {p.chase_rs_cap:.0%}'
+    return None
+
+
+def cap_stop(entry, stop, p):
+    """손절가가 기준가에서 stop_max_pct보다 멀면 그 거리로 당긴다(올리기만 함)."""
+    if p.stop_max_pct > 0:
+        return max(stop, entry * (1 - p.stop_max_pct))
+    return stop
+
+
 def plan(ranked, held, banned, entry_ok, p):
     """15번 교체 규칙. held: 보유 종목, banned: 재진입 금지, entry_ok: 신규 진입 가능한 종목 집합.
 
@@ -98,6 +115,8 @@ def plan(ranked, held, banned, entry_ok, p):
         if m in held or m in banned or m not in entry_ok:
             continue
         if p.require_positive_rs and r['rs'] <= 0:
+            continue
+        if chase_block(r, p):
             continue
         buys.append(m)
     return sells, buys, unknown

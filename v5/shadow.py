@@ -71,7 +71,14 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
     cash = (krw + sold * 0.997) * 0.98
     room = max(0.0, caps['max_total_buy_krw'] - bought)
     keep = set(holdings) - set(sells)
-    picks = [r for r in ranked[:base.entry_top] if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep]
+    picks = []
+    for r in ranked[:base.entry_top]:
+        if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep:
+            why = st.chase_block(r, base)
+            if why:
+                reasons.append(f'{r["market"][4:]} 매수 보류(과열 추격 방지): {why}')
+            else:
+                picks.append(r)
     buys = []
     for i, r in enumerate(picks):
         amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i)) // 1000 * 1000)

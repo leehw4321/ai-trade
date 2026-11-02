@@ -15,9 +15,11 @@ class Proposal(unittest.TestCase):
 
     def test_weak_holdings_sold_and_strong_bought(self):
         ranked = [r('KRW-A', 1, .2), r('KRW-B', 2, .1), r('KRW-C', 3, .05), r('KRW-BTC', 4, .01), r('KRW-ETH', 9, -.02)]
-        text, _ = proposal({'KRW-BTC': 400000, 'KRW-ETH': 100000, 'KRW-ONG': 170000}, ranked, {'KRW-ONG': -.05},
-                           {'KRW-A', 'KRW-B', 'KRW-C'}, self.p, CAPS, 38000, 0)
-        self.assertEqual(text, '실행 주문안: 매도 ONG 100%; 매도 ETH 100%; 매수 A 30000원; 매수 B 30000원; 매수 C 30000원')
+        text, reasons = proposal({'KRW-BTC': 400000, 'KRW-ETH': 100000, 'KRW-ONG': 170000}, ranked, {'KRW-ONG': -.05},
+                                 {'KRW-A', 'KRW-B', 'KRW-C'}, self.p, CAPS, 38000, 0)
+        # A(상승 +20%)는 과열 추격 방지(15% 이상)로 보류, 다음 후보 B·C가 매수된다
+        self.assertEqual(text, '실행 주문안: 매도 ONG 100%; 매도 ETH 100%; 매수 B 30000원; 매수 C 30000원')
+        self.assertTrue(any('A 매수 보류(과열 추격 방지)' in x for x in reasons))
 
     def test_sell_cap_keeps_strongest_of_the_weak(self):
         ranked = [r('KRW-X', 10, -.01), r('KRW-Y', 11, -.03)]

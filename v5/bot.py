@@ -463,7 +463,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
     def manual_action(self):
         """화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."""
         srv = getattr(self, 'manual_server', None)
-        return {'port': srv.port, 'token': srv.token} if srv else None
+        cap = min(self.live.cfg.get('manual_buy_max_krw', 100000), self.live.cfg['max_order_krw'])
+        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv else None
 
     def handle_manual_requests(self):
         """화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."""
@@ -472,10 +473,15 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             return
         for req in srv.drain():
             try:
-                prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
-                ok, msg = self.live.liquidate_position(req.market, prices)
+                if req.kind == 'buy':
+                    ok, msg = self.live.add_to_position(req.market, req.krw, self.markets or upbit.krw_markets())
+                    label = f'수동 추가 매수 {req.krw:,}원'
+                else:
+                    prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
+                    ok, msg = self.live.liquidate_position(req.market, prices)
+                    label = '수동 강제 청산'
                 req.finish(ok, msg)
-                self.log(f'수동 강제 청산 {req.market}: {"성공" if ok else "보류"} · {msg}')
+                self.log(f'{label} {req.market}: {"성공" if ok else "보류"} · {msg}')
             except SessionLost as ex:
                 req.finish(False, f'실행 권한 없음: {ex}')
                 raise

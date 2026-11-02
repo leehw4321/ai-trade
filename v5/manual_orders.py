@@ -1,4 +1,4 @@
-"""화면의 '강제 청산' 요청을 받는 로컬 전용 소형 서버.
+"""화면의 '강제 청산'·'추가 매수' 요청을 받는 로컬 전용 소형 서버.
 
 이 서버는 주문을 내지 않는다. 검증을 통과한 요청을 큐에 넣고, 봇 메인 루프가 손절과 같은 경로로 실행한 결과를 기다려 돌려준다.
 방어: 127.0.0.1에만 바인딩 · Host 검사(DNS 재바인딩) · Origin은 file://('null')만 허용 · 봇을 시작할 때마다 새로 만드는 비밀 토큰 ·
@@ -17,6 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy'}
+MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
 
@@ -33,8 +35,8 @@ class _ExclusiveServer(ThreadingHTTPServer):
 
 
 class Request:
-    def __init__(self, market):
-        self.market = market
+    def __init__(self, market, kind='liquidate', krw=None):
+        self.market, self.kind, self.krw = market, kind, krw
         self.event = threading.Event()
         self.ok = False
         self.message = '처리 시간 초과: 봇이 응답하지 않았습니다. 주문 기록에서 결과를 확인하세요.'
@@ -56,8 +58,8 @@ class ManualOrderServer:
         self.thread = None
 
     # ---------- 검증 (서버 없이 시험할 수 있게 분리) ----------
-    def check(self, host, origin, body):
-        """(상태코드, 종목 또는 오류문). 통과하면 (200, market)."""
+    def check(self, host, origin, body, kind='liquidate'):
+        """(상태코드, (종목, 금액) 또는 오류문). 통과하면 (200, (market, krw)). 청산은 금액이 None이다."""
         if host not in (f'127.0.0.1:{self.port}', f'localhost:{self.port}'):
             return 403, '허용되지 않은 호스트'
         if origin not in (None, 'null'):
@@ -73,18 +75,24 @@ class ManualOrderServer:
         market = doc.get('market')
         if doc.get('confirm') is not True or not isinstance(market, str) or not MARKET.match(market):
             return 400, '확인되지 않은 요청'
-        return 200, market
+        krw = None
+        if kind == 'buy':
+            krw = doc.get('krw')
+            if type(krw) is not int or not MIN_KRW <= krw <= MAX_KRW:
+                return 400, '매수 금액이 올바르지 않음'
+        return 200, (market, krw)
 
-    def submit(self, market):
+    def submit(self, market, kind='liquidate', krw=None):
         """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
         now = self.clock()
-        if now - self.recent.get(market, -1e9) < REPEAT_SECONDS:
+        key = (kind, market)
+        if now - self.recent.get(key, -1e9) < REPEAT_SECONDS:
             return 429, {'ok': False, 'message': '같은 종목을 방금 요청했습니다. 잠시 뒤 결과를 확인하세요.'}
         if not self.busy.acquire(blocking=False):
             return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}
         try:
-            self.recent[market] = now
-            req = Request(market)
+            self.recent[key] = now
+            req = Request(market, kind, krw)
             self.queue.put(req)
             req.event.wait(WAIT_SECONDS)
             return 200, {'ok': req.ok, 'message': req.message}
@@ -130,17 +138,18 @@ class ManualOrderServer:
                 self._send(200, {'ok': True, 'service': 'v5-manual'} if self.path == '/ping' else {'ok': False})
 
             def do_POST(self):
-                if self.path != '/liquidate':
+                kind = KINDS.get(self.path)
+                if not kind:
                     return self._send(404, {'ok': False, 'message': '없는 경로'})
                 try:
                     length = int(self.headers.get('Content-Length') or 0)
                 except ValueError:
                     length = MAX_BODY + 1
                 body = self.rfile.read(length) if 0 <= length <= MAX_BODY else b'x' * (MAX_BODY + 1)
-                code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body)
+                code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body, kind)
                 if code != 200:
                     return self._send(code, {'ok': False, 'message': value})
-                code, doc = server.submit(value)
+                code, doc = server.submit(value[0], kind, value[1])
                 self._send(code, doc)
 
         try:

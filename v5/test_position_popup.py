@@ -56,21 +56,24 @@ class PositionPopupTest(unittest.TestCase):
 
     def test_modal_only_talks_to_the_local_server_and_never_injects_html(self):
         self.assertEqual(pp.MODAL.count('fetch('), 1)
-        self.assertIn("'http://127.0.0.1:'+A.port+'/liquidate'", pp.MODAL)
+        self.assertIn("'http://127.0.0.1:'+A.port+(buy?'/buy':'/liquidate')", pp.MODAL)
         self.assertNotIn('XMLHttpRequest', pp.MODAL)
         self.assertNotIn('<form', pp.MODAL)
         self.assertNotIn('innerHTML', pp.MODAL)  # 값은 textContent로만 넣어 주입을 막는다
         self.assertIn('청산을 원하십니까?', pp.MODAL)
+        self.assertIn('추가 매수를 원하십니까?', pp.MODAL)
+        self.assertIn('이익 보호가 꺼집니다', pp.MODAL)  # 추가 매수의 부작용을 확인 질문에 밝힌다
 
     def test_liquidation_needs_a_separate_yes_click(self):
         # 강제 청산 버튼은 확인 창만 열고, 요청은 '예' 버튼 핸들러에서만 보낸다.
-        self.assertIn("if(id==='pm-liq')return ask()", pp.MODAL)
+        self.assertIn("if(id==='pm-liq')return ask('liq')", pp.MODAL)
+        self.assertIn("if(id==='pm-buy')return ask('buy')", pp.MODAL)
         self.assertIn("if(id==='pm-yes')return send()", pp.MODAL)
         self.assertEqual(pp.MODAL.count('send()'), 2)  # 정의 1 + 호출 1
 
     def test_action_tag_only_when_server_is_on(self):
         self.assertNotIn('posaction', pp.data_script({'KRW-A': POS}, {'KRW-A': 1.0}))
-        tag = pp.data_script({'KRW-A': POS}, {'KRW-A': 1.0}, action={'port': 8765, 'token': 'abc'})
+        tag = pp.data_script({'KRW-A': POS}, {'KRW-A': 1.0}, action={'port': 8765, 'token': 'abc', 'buy_max': 100000})
         self.assertIn('id="posaction"', tag)
         self.assertIn('"token": "abc"', tag)
 

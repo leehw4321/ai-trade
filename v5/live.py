@@ -46,7 +46,8 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
             'partial_r': 2.0, 'partial_frac': 0.3333,
             'manual_ui': False,  # True면 화면의 '강제 청산' 버튼을 받는 127.0.0.1 전용 서버를 연다. 사용자가 설정으로 켜야만 동작
-            'manual_port': 8765}
+            'manual_port': 8765,
+            'manual_buy_max_krw': 100000}  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
 
 
 def parse(text):
@@ -800,6 +801,35 @@ class Live:
         left = self.d['positions'].get(market, {}).get('qty', 0)
         msg = f'{market[4:]} 청산 {v:,.8g}개 → {funds - fee:,.0f}원' + (f' (일부 체결, 남은 수량 {left:,.8g})' if left > 0 else '')
         self.share(f'{msg} (수동 강제 청산, 실현 누적 {self.d["realized"]:+,.0f}원)')
+        return True, msg
+
+    def add_to_position(self, market, krw, markets, reason='수동 추가 매수'):
+        """사용자가 화면에서 확인한 금액만큼 이미 관리 중인 종목을 시장가로 더 산다. (성공 여부, 안내문)을 돌려준다.
+
+        자동 매수와 같은 검사(buy_block: 손실 중단·미확정 주문·한도·가용 원화·호가 차이)를 모두 통과해야 한다.
+        기존 규칙상 추가 매수한 종목은 추적 손절·이익 보호 대상에서 빠진다(_apply_pending, 안건 27 미합의).
+        """
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        if market not in self.d['positions']: return False, '봇이 관리하는 보유 종목이 아님: 새 종목 매수는 지원하지 않음'
+        cap = min(self.cfg.get('manual_buy_max_krw', 100000), self.cfg['max_order_krw'])
+        if type(krw) is not int or krw < 5000: return False, '매수 금액은 5,000원 이상의 정수여야 함'
+        if krw > cap: return False, f'1회 추가 매수 상한 {cap:,}원 초과'
+        why = self.buy_block(market, krw, markets)
+        if why: return False, f'매수 보류: {why}'
+        self.record({'event': '수동 추가 매수 요청', 'market': market, 'krw': krw})
+        try:
+            o = self._trade('bid', market, krw, reason)
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '수동 추가 매수 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False, f'매수 실패: {type(error).__name__}: {str(error)[:120]}'
+        v, funds, fee = self._fill(o)
+        if v <= 0:
+            return False, f'매수 미체결 ({o.get("state")}): 보유는 그대로입니다'
+        pos = self.d['positions'][market]
+        msg = f'{market[4:]} 추가 매수 {funds + fee:,.0f}원 · 손절가 {pos["stop"]:,.4g} · 보유 평가 매수금액 {pos["cost"]:,.0f}원'
+        self.share(f'{msg} (수동 추가 매수)')
         return True, msg
 
     def stop_check(self, prices):

@@ -34,7 +34,7 @@ def differences():
 
 def bot_running():
     r = subprocess.run(['powershell', '-NoProfile', '-Command',
-                        "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'v5-app.*(bot|shadow)\.py' }).Count"],
+                        "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'v5-app.*(bot|shadow)[.]py' }).Count"],
                        capture_output=True, text=True)
     return int((r.stdout or '0').strip() or 0) > 0
 

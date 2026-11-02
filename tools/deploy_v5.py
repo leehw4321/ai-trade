@@ -100,7 +100,7 @@ def run_tests(src):
 def backup(app):
     dst = app / '_backup' / dt.datetime.now().strftime('%Y%m%d_%H%M%S')
     dst.mkdir(parents=True)
-    for f in list(app.glob('*.py')) + [app / 'README.md']:
+    for f in list(app.glob('*.py')) + [app / 'README.md', app / 'config.json']:
         if f.exists():
             shutil.copyfile(f, dst / f.name)
     return dst
@@ -109,6 +109,15 @@ def backup(app):
 def restore(app, backup_dir):
     for f in backup_dir.iterdir():
         shutil.copyfile(f, app / f.name)
+
+
+def patch_config(app, patch):
+    """config.json에 중첩 dict를 덮어쓴다(예: {'live': {'trail_enabled': True}}). 호출자가 허용 키를 이미 검사한다."""
+    f = app / 'config.json'
+    cfg = json.loads(f.read_text(encoding='utf-8-sig'))
+    for section, values in patch.items():
+        cfg.setdefault(section, {}).update(values)
+    f.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def request_stop(app):
@@ -155,11 +164,11 @@ def preflight(app=None, src=None, with_tests=True):
     return out
 
 
-def deploy(approved_by, app=None, src=None, launch=None):
+def deploy(approved_by, app=None, src=None, launch=None, config_patch=None):
     app, src = app or APP, src or SRC
     pre = preflight(app, src)
     log(f'배포 요청({approved_by}): 다른 파일 {pre["diff"]} · 실행 중 {pre["alive"]} · 미확정 주문 {pre["pending"] or "없음"} · 테스트 {"통과" if pre["tests_ok"] else "실패 " + str(pre["tests_failed"])}', app)
-    if not pre['diff']:
+    if not pre['diff'] and not config_patch:
         log('적용할 변경 없음', app)
         return 0
     if not pre['tests_ok']:
@@ -187,7 +196,10 @@ def deploy(approved_by, app=None, src=None, launch=None):
     started = time.time()
     for name in pre['diff']:
         shutil.copyfile(src / name, app / name)
-    log(f'코드 {len(pre["diff"])}개 적용 (config.json·data·.env 그대로)', app)
+    if config_patch:
+        patch_config(app, config_patch)
+        log(f'설정 변경 적용: {config_patch}', app)
+    log(f'코드 {len(pre["diff"])}개 적용 (data·.env 그대로' + ('' if config_patch else ', config.json 그대로') + ')', app)
     ok, why = start_bot(launch) if was_running else (True, '')
     err = start_errors(app, started) if was_running else ''
     if was_running and (not ok or err):

@@ -1,0 +1,27 @@
+{
+  "D-12": {
+    "commit": "e3ac707d1c791e49d82142834cb50896793e839b",
+    "config": {},
+    "note": "과열 추격 방지(18시간 상승 15% 이상 보류)·손절 상한 8%·인수 보유분 손절 재설정. 코드 기본값으로 적용되므로 설정 변경 없음"
+  },
+  "D-05": {
+    "commit": "f73e6a313a2ff0e630a8f097ff0f8074df7d4453",
+    "config": {
+      "live": {
+        "trail_enabled": true
+      }
+    },
+    "note": "EXIT-T1 실거래(봇이 새로 산 포지션만)"
+  },
+  "D-22": {
+    "commit": "f8b77aacdbe3359ac05c9475b0cefb0ecb313f68",
+    "config": {
+      "live": {
+        "trail_enabled": true,
+        "trail_adopted": true,
+        "adopted_trail_start_r": 1.0
+      }
+    },
+    "note": "인수 보유분에도 1R부터 추적"
+  }
+}

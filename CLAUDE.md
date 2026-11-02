@@ -8,6 +8,7 @@
 4. 작업을 마치면 HANDOFF.md의 '현재 상태'와 오늘 날짜 기록(`docs/ai-history/YYYY-MM-DD.md`)에 추가한 뒤 `python tools/ai_session.py end -m "요약"` 을 실행한다. 커밋과 푸시까지 한다.
 
 지킬 것
+- **사용자가 두 AI에게 부여한 권한과 한계는 [docs/ai-history/permissions.md](docs/ai-history/permissions.md)에 있다.** 행동 전에 확인한다(Claude와 ChatGPT에 동일 적용).
 - 기록은 추가만 한다. 지우거나 덮어쓰지 않고 정정은 새 항목으로 남긴다.
 - 실제 응답을 받은 발언만 그 AI의 발언으로 적는다. 단독 검토를 합의로 쓰지 않는다. 원문·요약·재구성을 구분해 표시한다.
 - 실거래에 영향을 주는 변경(주문·청산 로직, 매도 권한, 한도, 손실 중단선, 위임)은 사용자의 명시적 승인 없이 켜지 않는다. 기본값은 꺼짐이다.

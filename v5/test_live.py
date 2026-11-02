@@ -267,3 +267,40 @@ class PartialProfit(TrailLive):
                 mock.patch('upbit.completed_candles', return_value=[self.bar(1, 107000)]):
             lv.trail_check()
         t.assert_not_called()
+
+
+class LossStopPercent(unittest.TestCase):
+    def make(self, pct):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True, 'loss_stop_krw': 15000, 'loss_stop_pct': pct}, st.Params())
+        lv.d['positions']['KRW-A'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 1.0, 'time': 't'}
+        return lv
+
+    def test_amount_mode_unchanged_when_pct_zero(self):
+        lv = self.make(0.0)
+        self.assertEqual(lv.loss_limit({}), 15000.0)
+        lv.d['realized'] = -15000
+        lv.check_loss({'KRW-A': 100000 / (1 - 0.0005)})
+        self.assertIn('중단선 15,000원', lv.d['halted'])
+
+    def test_pct_uses_base_equity_once_and_halts_at_limit(self):
+        lv = self.make(0.01)
+        with mock.patch.object(lv, 'equity_total', return_value=2_000_000.0) as eq:
+            self.assertEqual(lv.loss_limit({}), 20000.0)
+            self.assertEqual(lv.loss_limit({}), 20000.0)       # 두 번째는 저장된 기준 사용
+            eq.assert_called_once()
+        self.assertEqual(lv.d['risk_base_equity'], 2_000_000.0)
+        lv.d['realized'] = -19000.0
+        px = {'KRW-A': 100000 / (1 - 0.0005)}
+        lv.check_loss(px)
+        self.assertEqual(lv.d['halted'], '')                       # 19,000 < 20,000
+        lv.d['realized'] = -20500.0
+        lv.check_loss(px)
+        self.assertIn('총자산의 1.00%', lv.d['halted'])
+
+    def test_falls_back_to_amount_when_equity_unavailable(self):
+        lv = self.make(0.01)
+        with mock.patch.object(lv, 'equity_total', return_value=None):
+            self.assertEqual(lv.loss_limit({}), 15000.0)
+        self.assertNotIn('risk_base_equity', lv.d)

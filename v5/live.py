@@ -40,6 +40,7 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'trail_enabled': False,  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
             'trail_adopted': False,  # 인수 보유분에도 추적 적용(거래소 평균 매수가=E, 15분 ATR로 R 정의). 결정 D-22, 승인 전까지 꺼짐
             'adopted_trail_start_r': 1.0,
+            'loss_stop_pct': 0.0,  # 0이면 loss_stop_krw(금액) 사용. 0보다 크면 '기준 총자산 대비 비율'로 신규 매수 중단(결정 D-37)
             'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
             'partial_r': 2.0, 'partial_frac': 0.3333}
 
@@ -147,6 +148,35 @@ class Live:
                 if m not in prices or type(prices[m]) not in (int, float)
                 or not math.isfinite(prices[m]) or prices[m] <= 0]
 
+    def equity_total(self, prices=None):
+        """계좌 총자산(원화 잔고+잠금+코인 평가). 조회 실패·가격 누락이 있으면 None."""
+        try:
+            rows = upbit.accounts()
+            coins = {'KRW-' + r['currency']: float(r['balance']) + float(r['locked']) for r in rows
+                     if r['currency'] != 'KRW' and float(r['balance']) + float(r['locked']) > 0}
+            krw = sum(float(r['balance']) + float(r['locked']) for r in rows if r['currency'] == 'KRW')
+            tick = upbit.tickers(list(coins)) if coins else {}
+        except Exception:
+            return None
+        total = krw
+        for m, q in coins.items():
+            px = (prices or {}).get(m) or (tick.get(m) or {}).get('trade_price')
+            if px: total += q * px  # 시세 없는 먼지 자산은 총자산에서 제외
+        return total
+
+    def loss_limit(self, prices=None):
+        """신규 매수 중단선(원). loss_stop_pct>0이면 기준 총자산 × 비율(기준은 처음 한 번 저장), 아니면 loss_stop_krw."""
+        pct = float(self.cfg.get('loss_stop_pct') or 0)
+        if pct <= 0: return float(self.cfg['loss_stop_krw'])
+        base = self.d.get('risk_base_equity')
+        if not base:
+            base = self.equity_total(prices)
+            if not base: return float(self.cfg['loss_stop_krw'])  # 총자산을 못 구하면 금액 한도로 대체
+            self.d['risk_base_equity'] = base
+            self.save()
+            self.record({'event': '손실 중단선 기준 총자산 확정', 'base': base, 'pct': pct, 'limit': base * pct})
+        return base * pct
+
     def check_loss(self, prices):
         missing = self.missing_valuations(prices)
         if missing:
@@ -157,8 +187,10 @@ class Live:
             return None
         self.d.pop('valuation_incomplete', None)
         loss = -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
-        if loss >= self.cfg['loss_stop_krw'] and not self.d['halted']:
-            self.d['halted'] = f'{now_iso()} 실거래 누적 손실 {loss:,.0f}원 ≥ 중단선 {self.cfg["loss_stop_krw"]:,}원'
+        limit = self.loss_limit(prices)
+        if loss >= limit and not self.d['halted']:
+            pct = float(self.cfg.get('loss_stop_pct') or 0)
+            self.d['halted'] = f'{now_iso()} 실거래 누적 손실 {loss:,.0f}원 ≥ 중단선 {limit:,.0f}원' + (f'(기준 총자산의 {pct:.2%})' if pct > 0 else '')
             self.save()
             self.record({'event': '신규 매수 중단', 'reason': self.d['halted']})
             self.share(f'손실 중단선 도달로 신규 매수를 중단함. {self.d["halted"]}. 기존 실거래 보유의 손절 감시는 계속. 사용자 검토 필요.')

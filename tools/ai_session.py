@@ -66,6 +66,39 @@ def running():
     return [l.strip() for l in r.stdout.splitlines() if re.search(r'토론진행기|bot\.py|shadow\.py|account_sync|run\.py|launch_', l)]
 
 
+def v5_dirs():
+    cands = [ROOT / 'v5', ROOT.parent / '코인 트레이딩' / 'v5-app' / 'v5']
+    return [c for c in cands if (c / 'config.json').exists()]
+
+
+def status(_):
+    """지금 이 PC의 실제 운용 상태. 상태를 말하기 전에 항상 이 결과로 확인한다. 금액·키는 출력하지 않는다."""
+    import json
+    print(f'== 운용 상태 {dt.datetime.now(KST):%Y-%m-%d %H:%M:%S} KST / PC {os.environ.get("COMPUTERNAME", "?")} ==')
+    for d in v5_dirs():
+        cfg = json.loads((d / 'config.json').read_text(encoding='utf-8'))
+        live = cfg.get('live', {})
+        print(f'\n[{d}]')
+        print(f'  실거래 live.enabled={live.get("enabled")} · auto_proposal={live.get("auto_proposal")} · 한도 1건 {live.get("max_order_krw")} / 누적 {live.get("max_total_buy_krw")} / 1회 매도 {live.get("max_sell_krw_per_plan")} / 손실 중단 {live.get("loss_stop_krw")}')
+        lj = d / 'data' / 'live' / 'live.json'
+        if lj.exists():
+            x = json.loads(lj.read_text(encoding='utf-8'))
+            print(f'  실거래 장부: 관리 종목 {len(x.get("positions", {}))}개 · 체결 주문 {len(x.get("executed") or {})}건 · 중단 사유 {x.get("halted") or "없음"} · 갱신 {dt.datetime.fromtimestamp(lj.stat().st_mtime, KST):%H:%M:%S}')
+        else:
+            print('  실거래 장부(data/live/live.json) 없음')
+        ar = d / 'data' / 'adoption-result.json'
+        if ar.exists():
+            a = json.loads(ar.read_text(encoding='utf-8'))
+            print(f'  계좌 인수: {a.get("adopted_at")} · 범위 {a.get("scope")} · 이력 복원 {a.get("past_history_restored")}')
+        for f in ('bot.stdout.log',):
+            lf = d / 'data' / f
+            if lf.exists():
+                print('  봇 최근 로그:', lf.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1][:160])
+    procs = running()
+    print('\n[실행 중인 프로세스]', '없음 (봇 꺼짐)' if not procs else '\n  ' + '\n  '.join(procs))
+    print('\n주의: 같은 PC의 다른 AI 세션이 설정을 바꿀 수 있다. 상태를 단정하기 전에 이 명령을 다시 실행한다.')
+
+
 def start(_):
     print(f'== PC {os.environ.get("COMPUTERNAME", "?")} / {dt.datetime.now(KST):%Y-%m-%d %H:%M} KST ==')
     r = git('pull', '--ff-only')
@@ -125,6 +158,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('start').set_defaults(fn=start)
+    sub.add_parser('status').set_defaults(fn=status)
     e = sub.add_parser('end')
     e.add_argument('-m')
     e.add_argument('--no-push', action='store_true')

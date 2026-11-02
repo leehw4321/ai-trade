@@ -107,3 +107,11 @@ class RiskSizing(unittest.TestCase):
 
     def test_risk_sizing_limits_to_risk_over_stop(self):
         self.assertIn('50000', self.amount(size_by_risk=True).replace(',', ''))   # 0.002×2,000,000/0.08
+
+
+class EntryRisk(unittest.TestCase):
+    def test_entry_risk_overrides_risk_for_live_size(self):
+        p = st.Params(coin_cap=0.25, total_cap=0.5, risk=0.002, entry_risk=0.004, stop_max_pct=0.08, size_by_risk=True)
+        big = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+        text = proposal({}, [{'market': 'KRW-B', 'rank': 1, 'rs': .05}], {}, {'KRW-B'}, p, big, 2_000_000, 0)[0]
+        self.assertIn('100000', text.replace(',', ''))        # 0.004×2,000,000/0.08

@@ -35,7 +35,7 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝 
 GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
 
 
-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
+def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -74,9 +74,10 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought):
     picks = []
     for r in ranked[:base.entry_top]:
         if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep:
-            why = st.chase_block(r, base)
+            last = (last_sells or {}).get(r['market'])
+            why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)
             if why:
-                reasons.append(f'{r["market"][4:]} 매수 보류(과열 추격 방지): {why}')
+                reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
             else:
                 picks.append(r)
     buys = []
@@ -261,7 +262,7 @@ class Shadow:
         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
-        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought)
+        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'))
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons, **provenance}

@@ -141,3 +141,28 @@ class ChaseAndStopCap(unittest.TestCase):
         self.assertAlmostEqual(st.cap_stop(100, 60, p), 92.0)      # 너무 먼 손절은 -8%로
         self.assertEqual(st.cap_stop(100, 95, p), 95)               # 이미 가까우면 그대로
         self.assertEqual(st.cap_stop(100, 60, st.Params(stop_max_pct=0)), 60)
+
+
+class ReentryRule(unittest.TestCase):
+    P = st.Params()
+    def row(self, close, atr=2.0):
+        return {'market': 'KRW-A', 'close': close, 'atr': atr, 'rs': .05, 'rank': 1}
+
+    def test_no_record_no_block(self):
+        self.assertIsNone(st.reentry_block(self.row(100), None, 1000.0, self.P))
+
+    def test_profit_exit_waits_then_needs_pullback(self):
+        last = {'time': 0.0, 'price': 100.0, 'profit': True}
+        self.assertIn('대기', st.reentry_block(self.row(90), last, 3600.0, self.P))            # 1시간: 아직
+        self.assertIn('눌려야', st.reentry_block(self.row(100), last, 3 * 3600.0, self.P))     # 2시간 뒤여도 매도가 근처면 거부
+        self.assertIn('눌려야', st.reentry_block(self.row(99), last, 3 * 3600.0, self.P))      # ATR 2%: 98 아래여야
+        self.assertIsNone(st.reentry_block(self.row(97.5), last, 3 * 3600.0, self.P))          # 1ATR(2%) 이상 눌림 → 허용
+
+    def test_loss_exit_waits_6h_only(self):
+        last = {'time': 0.0, 'price': 100.0, 'profit': False}
+        self.assertIn('손실', st.reentry_block(self.row(110), last, 5 * 3600.0, self.P))
+        self.assertIsNone(st.reentry_block(self.row(110), last, 6.1 * 3600.0, self.P))
+
+    def test_after_window_normal_rules_only(self):
+        last = {'time': 0.0, 'price': 100.0, 'profit': True}
+        self.assertIsNone(st.reentry_block(self.row(100), last, 25 * 3600.0, self.P))

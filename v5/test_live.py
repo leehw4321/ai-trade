@@ -304,3 +304,20 @@ class LossStopPercent(unittest.TestCase):
         with mock.patch.object(lv, 'equity_total', return_value=None):
             self.assertEqual(lv.loss_limit({}), 15000.0)
         self.assertNotIn('risk_base_equity', lv.d)
+
+
+class LastSellRecord(unittest.TestCase):
+    def test_full_close_records_last_sell_with_profit_flag(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True}, st.Params())
+        lv.d['positions']['KRW-A'] = {'qty': 1.0, 'cost': 100000.0, 'stop': 1.0, 'time': 't'}
+        pending = {'identifier': 'i', 'side': 'ask', 'market': 'KRW-A', 'amount': 1.0, 'reason': '추적 손절', 'time': 't', 'uuid': 'u'}
+        lv.d['pending_order'] = pending
+        order = {'identifier': 'i', 'side': 'ask', 'state': 'done', 'executed_volume': '1', 'uuid': 'u',
+                 'trades': [{'volume': '1', 'funds': '110000'}], 'paid_fee': '50'}
+        lv._apply_pending(order, None)
+        ls = lv.d['last_sell']['KRW-A']
+        self.assertTrue(ls['profit'])
+        self.assertAlmostEqual(ls['price'], 110000.0)
+        self.assertIn('추적', ls['reason'])

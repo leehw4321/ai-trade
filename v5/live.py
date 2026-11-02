@@ -293,6 +293,9 @@ class Live:
                     pos['qty'] = max(0., pos['qty'] - dv)
                     pos['cost'] -= basis
                     if pos['qty'] <= 1e-8:
+                        # 재진입 규칙(D-38)을 위해 전량 청산 기록을 남긴다
+                        self.d.setdefault('last_sell', {})[m] = {'time': time.time(), 'price': df / dv, 'profit': (df - dfee - basis) > 0,
+                                                                  'reason': str(pending.get('reason', ''))[:40]}
                         del self.d['positions'][m]
         elif dfee > 0:
             if pending['side'] == 'bid':

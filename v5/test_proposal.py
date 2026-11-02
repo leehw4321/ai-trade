@@ -19,7 +19,7 @@ class Proposal(unittest.TestCase):
                                  {'KRW-A', 'KRW-B', 'KRW-C'}, self.p, CAPS, 38000, 0)
         # A(상승 +20%)는 과열 추격 방지(15% 이상)로 보류, 다음 후보 B·C가 매수된다
         self.assertEqual(text, '실행 주문안: 매도 ONG 100%; 매도 ETH 100%; 매수 B 30000원; 매수 C 30000원')
-        self.assertTrue(any('A 매수 보류(과열 추격 방지)' in x for x in reasons))
+        self.assertTrue(any('A 매수 보류' in x and '과열' in x for x in reasons))
 
     def test_sell_cap_keeps_strongest_of_the_weak(self):
         ranked = [r('KRW-X', 10, -.01), r('KRW-Y', 11, -.03)]
@@ -54,3 +54,16 @@ class RatioCaps(unittest.TestCase):
         text, _ = proposal({'KRW-A': 200000}, ranked, {}, {'KRW-A', 'KRW-B'}, p, big, 800_000, 0)
         # 이미 유지 중인 A는 신규 매수 후보가 아님(keep). B만 매수: 계좌 100만 → 종목 25% = 250,000
         self.assertIn('매수 B 250000원', text)
+
+
+class ReentryInProposal(unittest.TestCase):
+    def test_recent_loss_exit_blocks_buy_and_explains(self):
+        import time as _t
+        big = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .10, 'close': 100.0, 'atr': 2.0}]
+        last = {'KRW-A': {'time': _t.time() - 3600, 'price': 100.0, 'profit': False}}
+        text, reasons = proposal({}, ranked, {}, {'KRW-A'}, st.Params(entry_top=3), big, 1_000_000, 0, last)
+        self.assertIn('매수 없음', text)
+        self.assertTrue(any('A 매수 보류' in x and '재진입' in x for x in reasons))
+        text2, _ = proposal({}, ranked, {}, {'KRW-A'}, st.Params(entry_top=3), big, 1_000_000, 0, None)
+        self.assertIn('매수 A', text2)

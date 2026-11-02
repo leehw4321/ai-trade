@@ -30,6 +30,11 @@ class Params:
     # 과열 추격 방지와 손절 상한 (결정 D-12, 사용자 요청 21:50). 0이면 끔. 값은 탐색 분석에 근거한 미검증 가설이다.
     chase_rs_cap: float = 0.15    # 기간 상승률이 이 값 이상이면 신규 매수 보류
     stop_max_pct: float = 0.08    # 손절가는 진입가(또는 인수 시점 가격)보다 이 비율 이상 멀리 두지 않음
+    # 실거래 재진입 규칙(결정 D-38): 직전 매도 뒤 대기 시간과 조건. 0이면 해당 대기 없음.
+    reentry_profit_hours: float = 2.0    # 수익으로 청산한 종목은 이 시간 뒤부터, 단 아래 눌림 조건 충족 시
+    reentry_loss_hours: float = 6.0      # 손실로 청산한 종목은 이 시간 뒤부터
+    reentry_dip_atr: float = 1.0         # 수익 청산 후 재진입: 현재가가 매도가보다 이 ATR 배수 이상 낮아야 함
+    reentry_window_hours: float = 24.0   # 이 시간이 지나면 일반 매수 조건만 본다
     # 익절·추적 손절 EXIT-T1 (토론 근거 3, 합의 전까지 꺼짐). 모의·그림자 전용이며 live.py에는 연결하지 않는다.
     trail_enabled: bool = False
     trail_lock_r: float = 1.0     # 이 R배수 이익 도달 시 손절가를 본전(비용 포함)으로
@@ -91,6 +96,28 @@ def cap_stop(entry, stop, p):
     if p.stop_max_pct > 0:
         return max(stop, entry * (1 - p.stop_max_pct))
     return stop
+
+
+def reentry_block(r, last, now, p):
+    """직전 매도 기록 last={'time','price','profit'}가 있으면 재진입을 더 까다롭게 본다. 막으면 사유 문자열, 아니면 None.
+    수익 청산: reentry_profit_hours 뒤부터, 그리고 reentry_window_hours 안에서는 현재가가 매도가보다 reentry_dip_atr×ATR 이상 낮을 때만(고점에서 팔고 눌리면 다시 잡기).
+    손실 청산: reentry_loss_hours 뒤부터."""
+    if not last:
+        return None
+    hours = (now - last['time']) / 3600
+    if hours >= p.reentry_window_hours:
+        return None
+    if last.get('profit'):
+        if hours < p.reentry_profit_hours:
+            return f'수익 청산 후 재진입 대기 {hours:.1f}/{p.reentry_profit_hours:g}시간'
+        atr_pct = r.get('atr', 0) / r['close'] if r.get('close') else 0
+        limit = last['price'] * (1 - p.reentry_dip_atr * atr_pct)
+        if p.reentry_dip_atr > 0 and r.get('close', 0) > limit:
+            return f'수익 청산 후 재진입은 매도가 {last["price"]:,.4g}보다 {p.reentry_dip_atr:g}ATR 이상 눌려야 함(현재 {r["close"]:,.4g} > {limit:,.4g})'
+        return None
+    if hours < p.reentry_loss_hours:
+        return f'손실 청산 후 재진입 대기 {hours:.1f}/{p.reentry_loss_hours:g}시간'
+    return None
 
 
 def plan(ranked, held, banned, entry_ok, p):

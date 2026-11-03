@@ -125,12 +125,29 @@ def status(_):
     print('\n주의: 같은 PC의 다른 AI 세션이 설정을 바꿀 수 있다. 상태를 단정하기 전에 이 명령을 다시 실행한다.')
 
 
-def start(_):
+LATEST = HIST / 'LATEST.md'
+
+
+def start(a):
     print(f'== PC {os.environ.get("COMPUTERNAME", "?")} / {dt.datetime.now(KST):%Y-%m-%d %H:%M} KST ==')
     r = git('pull', '--ff-only')
     print('[git pull]', (r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr).strip() else 'ok')
     dirty = git('status', '--short').stdout.strip()
     print('[미커밋 변경]', '없음' if not dirty else '\n' + dirty)
+    if LATEST.exists() and not getattr(a, 'full', False):
+        # 한 장 요약만 보여 주고 긴 문서는 목록(크기)만 알린다. 전부 보려면 `start --full`.
+        print('\n===== LATEST.md (한 장 인계, 가장 먼저 읽는다) =====\n' + LATEST.read_text(encoding='utf-8'))
+        print('\n===== 더 읽을 곳(필요할 때만; 지금은 읽지 않아도 된다) =====')
+        for rel in ('HANDOFF.md', 'docs/ai-history/집에서_이어서_2026-11-03.md', 'docs/ai-history/permissions.md',
+                    'docs/ai-history/decision-log.md', 'docs/ai-history/2026-11-03-claude-verification.md'):
+            f = ROOT / rel
+            if f.exists():
+                print(f'  {rel} ({len(f.read_text(encoding="utf-8", errors="replace").splitlines())}줄)')
+        procs = running()
+        print('\n[실행 중인 관련 프로세스]', '없음' if not procs else '\n  ' + '\n  '.join(procs))
+        print('\n상태를 말하기 전에 `python tools/ai_session.py status`. 끝낼 때: LATEST.md 갱신 → '
+              '`python tools/handoff_digest.py check` → `python tools/ai_session.py end -m "요약"`')
+        return
     home = HIST / '집에서_이어서_2026-11-03.md'
     if home.exists():
         print('\n===== 최신 집 PC 인계 (역사 기록보다 우선) =====\n' + home.read_text(encoding='utf-8'))
@@ -187,7 +204,9 @@ def end(a):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    sub.add_parser('start').set_defaults(fn=start)
+    s = sub.add_parser('start')
+    s.add_argument('--full', action='store_true', help='LATEST.md 대신 긴 인계 문서 전체를 출력')
+    s.set_defaults(fn=start)
     sub.add_parser('status').set_defaults(fn=status)
     e = sub.add_parser('end')
     e.add_argument('-m')

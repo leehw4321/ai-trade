@@ -1,4 +1,6 @@
-> **양 AI 공통 시작점:** 사용자께서 집에서 다시 부르면 [공통 재개 문서](docs/ai-history/집에서_이어서_2026-11-03.md)를 끝까지 읽고 바로 이어서 작업한다. ChatGPT와 Claude 모두 동일 문서 사용. 사용자에게 이전 토론 재설명을 요구하지 않는다.
+> **가장 먼저 [LATEST.md](docs/ai-history/LATEST.md) 한 장(약 2분)만 읽고 시작한다.** `python tools/ai_session.py start`가 그 한 장을 출력한다. 아래 긴 문서는 LATEST.md가 가리킬 때만 읽는다(전부 보려면 `start --full`). 세션 끝에 LATEST.md를 새로 쓰고 `python tools/handoff_digest.py check`를 통과시킨다.
+
+> **양 AI 공통 시작점(상세, 필요할 때만):** 사용자께서 집에서 다시 부르면 [공통 재개 문서](docs/ai-history/집에서_이어서_2026-11-03.md)를 끝까지 읽고 바로 이어서 작업한다. ChatGPT와 Claude 모두 동일 문서 사용. 사용자에게 이전 토론 재설명을 요구하지 않는다.
 
 > **사용자 보호: DOGE는 명시 해제 전까지 봇 주문·손절·익절에서 제외. 집 재개 시에도 보호 목록부터 확인.**
 

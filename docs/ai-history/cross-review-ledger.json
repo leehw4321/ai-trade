@@ -35,6 +35,21 @@
       "time": "2026-11-03T11:37:09+09:00",
       "remote_session_changed": false,
       "live_deployment": "hold"
+    },
+    {
+      "issue": "W1-warning-metadata",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "execution": "211 V5 tests and 299 public market compatibility passed",
+      "live_deployment": "not_deployed; original trading policy unchanged"
+    },
+    {
+      "issue": "W2-read-only-warning-report",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "execution": "approved hashes verified; read-only once and watch started",
+      "live_deployment": "independent report only",
+      "review_source": "2026-11-03-warning-policy.md"
     }
   ],
   "pending": [

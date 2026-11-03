@@ -1,0 +1,44 @@
+{
+  "created_utc": "2026-10-30T03:15:24.478079+00:00",
+  "period_start": "2026-01-01T00:00:00+09:00",
+  "period_end": "2026-10-30T12:11:00+09:00",
+  "markets": [
+    "KRW-BTC",
+    "KRW-ETH",
+    "KRW-XRP",
+    "KRW-SOL",
+    "KRW-DOGE",
+    "KRW-SUI",
+    "KRW-ADA",
+    "KRW-HBAR",
+    "KRW-LINK",
+    "KRW-AVAX"
+  ],
+  "initial_krw": 1000000,
+  "allocation": {
+    "max_position": 0.25,
+    "max_total": 0.5,
+    "max_positions": 2,
+    "risk": 0.0025,
+    "max_open_risk": 0.005,
+    "volatility_target": 0.005
+  },
+  "source_sha256": {
+    "scalping_strategy.py": "c9f63da6340057bca6922f55fe0cb4a5ffe7e782a1f9e7c2a19a6a0a63c21b39",
+    "breakout_strategy.py": "a5e8823de58bdde7383291cd546ea40c9576ebcd19153e47324736c5d33b09bc",
+    "auto_trader.py": "42fc51216c6b71089efb3ec9eb5e538f476a7e3e6ec62069a35f21fe3d64084a",
+    "research_v4.py": "2202330095383692305483c15f345ea151438b0a4540bd8d0d073cec738c8b88",
+    "allocation_settings.py": "b3259a72ffd31a4c05a4f0ddb3b505ff2127b5c1d9bec3d820a622f6ae24c0d6",
+    "scalp_universe.py": "cd1797749b54699d01d5c72109aea0ceb5915fdd9372d5719a5dad92160538e2",
+    "investment_profiles.py": "ef38ad627e7fae78b30e1113030c67a51c6c24c58b6ee96e44eeb0d4d565b764"
+  },
+  "signal_model": "unchanged evaluate_intraday; exact finite rolling windows; missing candles not filled",
+  "execution_model": "synthetic-book OHLC touch-fill proxy, not historical order-book replay",
+  "excluded": [
+    "tick-based breakout",
+    "historical universe membership/warnings/rotation",
+    "real order queue/latency/depth"
+  ],
+  "selection": "fixed representative ten currently listed KRW pairs; not selected by backtest result, not full299, survivorship bias remains",
+  "tuning": "No tuning to results; scenarios differ only in execution assumptions."
+}

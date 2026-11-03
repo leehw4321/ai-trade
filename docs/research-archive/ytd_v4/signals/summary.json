@@ -1,0 +1,106 @@
+{
+  "status": "complete_10_market_candle_census",
+  "start_kst": "2026-01-01T00:00:00+09:00",
+  "end_kst": "2026-10-30T12:11:00+09:00",
+  "market_count": 10,
+  "total_candle_signals": 521,
+  "market_minutes": 4356120,
+  "valid_market_minutes": 1551219,
+  "monthly_signal_counts": {
+    "2026-01": 66,
+    "2026-02": 45,
+    "2026-03": 64,
+    "2026-04": 52,
+    "2026-05": 59,
+    "2026-06": 25,
+    "2026-07": 36,
+    "2026-08": 59,
+    "2026-09": 76,
+    "2026-10": 39
+  },
+  "markets": [
+    {
+      "market": "KRW-ADA",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 10946,
+      "data_invalid_minutes": 424666,
+      "candle_signal_count": 4,
+      "cheap_necessary_conditions_survived": 19
+    },
+    {
+      "market": "KRW-AVAX",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 1960,
+      "data_invalid_minutes": 433652,
+      "candle_signal_count": 1,
+      "cheap_necessary_conditions_survived": 10
+    },
+    {
+      "market": "KRW-BTC",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 411896,
+      "data_invalid_minutes": 23716,
+      "candle_signal_count": 171,
+      "cheap_necessary_conditions_survived": 2018
+    },
+    {
+      "market": "KRW-DOGE",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 66471,
+      "data_invalid_minutes": 369141,
+      "candle_signal_count": 4,
+      "cheap_necessary_conditions_survived": 26
+    },
+    {
+      "market": "KRW-ETH",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 376716,
+      "data_invalid_minutes": 58896,
+      "candle_signal_count": 104,
+      "cheap_necessary_conditions_survived": 1197
+    },
+    {
+      "market": "KRW-HBAR",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 487,
+      "data_invalid_minutes": 435125,
+      "candle_signal_count": 0,
+      "cheap_necessary_conditions_survived": 0
+    },
+    {
+      "market": "KRW-LINK",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 1884,
+      "data_invalid_minutes": 433728,
+      "candle_signal_count": 1,
+      "cheap_necessary_conditions_survived": 7
+    },
+    {
+      "market": "KRW-SOL",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 232087,
+      "data_invalid_minutes": 203525,
+      "candle_signal_count": 54,
+      "cheap_necessary_conditions_survived": 641
+    },
+    {
+      "market": "KRW-SUI",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 30577,
+      "data_invalid_minutes": 405035,
+      "candle_signal_count": 17,
+      "cheap_necessary_conditions_survived": 156
+    },
+    {
+      "market": "KRW-XRP",
+      "minute_slots": 435612,
+      "valid_candle_minutes": 418195,
+      "data_invalid_minutes": 17417,
+      "candle_signal_count": 165,
+      "cheap_necessary_conditions_survived": 1592
+    }
+  ],
+  "expected_return": null,
+  "real_orders": 0,
+  "scope": "Fixed10currentliquidsymbols;nohistoricuniverse/rotation/orderbooks/tickbreakout;notwholeKRWmarket"
+}

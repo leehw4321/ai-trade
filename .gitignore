@@ -21,3 +21,11 @@ debate_tools/*.json
 debate_tools/*.jsonl
 debate_tools/*.txt
 debate_tools/*.html
+
+# Raw/private historical material; reviewed reports and documents are archived in docs/.
+/analysis_runs/
+/trend_data/
+/document_work/
+/가상자산_거래모델_토론정리와_방향선택.docx
+/코인봇_재설계_노트.html
+/v5/pnl_baseline.json

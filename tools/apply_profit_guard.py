@@ -104,13 +104,17 @@ def apply(app, manifest):
         if digest(app / 'config.json') != manifest['app_config_sha256']:
             raise ValueError('app config changed')
     verify()
-    if not all(deploy.lock_alive(app, n) for n in ('bot.lock', 'shadow.lock')):
-        raise RuntimeError('expected running bot and shadow required')
+    alive = [deploy.lock_alive(app, n) for n in ('bot.lock', 'shadow.lock')]
+    if not all(alive) and not (manifest.get('allow_stopped') is True and not any(alive)):
+        raise RuntimeError('expected running bot/shadow or explicitly approved fully stopped target')
     if pending(app):
         raise RuntimeError('pending order; deployment held')
     backup = deploy.backup(app)
     print('Backup created; requesting normal shutdown', flush=True)
     if not stop(app):
+        if manifest.get('rollback_restart') is False:
+            # Keep stop requests in place; never revive an unprotected version.
+            raise RuntimeError('shutdown still pending; unsafe automatic restart disabled')
         restored = start(app)  # Restore components that stopped before the other timed out.
         raise RuntimeError('normal shutdown timeout; no files changed; restart_ok=' + str(restored))
     changed = False
@@ -150,9 +154,12 @@ def apply(app, manifest):
                     atomic_copy(backup / name, app / name)
                     if digest(backup / name) != digest(app / name):
                         raise RuntimeError('rollback hash mismatch: ' + name)
-            if not start(app):
-                raise RuntimeError('rollback restart failed')
-            print('ROLLED_BACK', flush=True)
+            if manifest.get('rollback_restart') is False:
+                print('ROLLED_BACK_STOPPED: previous version must not submit orders', flush=True)
+            else:
+                if not start(app):
+                    raise RuntimeError('rollback restart failed')
+                print('ROLLED_BACK', flush=True)
         except BaseException as rollback_error:
             raise RuntimeError('rollback failed: ' + type(rollback_error).__name__) from original
         raise

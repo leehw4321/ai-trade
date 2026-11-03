@@ -36,6 +36,18 @@ LIMIT_KEYS = {'1건': 'max_order_krw', '누적': 'max_total_buy_krw', '1회매�
 LIMIT_ITEM = re.compile(r'^(1건|누적|1회매도|손실중단)\s+([\d,]+)\s*원$')
 _NO_ASK = object()
 
+
+class ProtectedAssetError(RuntimeError):
+    """User-managed assets must never reach automated order submission."""
+
+
+def normalize_protected_market(value):
+    if not isinstance(value, str): raise ValueError('종목 코드는 문자열이어야 합니다')
+    value = value.strip().upper()
+    value = value if value.startswith('KRW-') else 'KRW-' + value
+    if not re.fullmatch(r'KRW-[A-Z0-9]{1,20}', value): raise ValueError('원화 종목 코드 무효')
+    return value
+
 DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'max_total_buy_krw': 100000,
             'max_sell_krw_per_plan': 300000, 'loss_stop_krw': 15000, 'max_spread': 0.01, 'stop_tf': 240,
             'trail_enabled': False,  # EXIT-T1 실거래 적용: 사용자 승인 전까지 꺼짐
@@ -49,7 +61,8 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'manual_port': 8765,
             'manual_buy_max_krw': 100000,  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
-            'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4}
+            'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
+            'protected_markets': []}  # 사용자 지정 종목 전체를 자동 매매에서 제외
 
 
 def parse(text):
@@ -131,6 +144,31 @@ class Live:
         tmp = self.file.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.d, ensure_ascii=False, indent=1), encoding='utf-8')
         tmp.replace(self.file)
+
+    @property
+    def protection_file(self):
+        return self.folder.parent / 'user_protected_assets.json'
+
+    def protected_markets(self):
+        """Reload at each decision/submission; malformed state blocks submissions."""
+        try:
+            configured = self.cfg.get('protected_markets', [])
+            if not isinstance(configured, list): raise ValueError('config protection list invalid')
+            if self.cfg.get('user_protection_required') and not self.protection_file.exists():
+                raise ValueError('required protection file missing')
+            saved = json.loads(self.protection_file.read_text(encoding='utf-8')) if self.protection_file.exists() else {'markets': []}
+            markets = saved['markets']
+            if not isinstance(markets, list): raise ValueError('saved protection list invalid')
+            return {normalize_protected_market(m) for m in configured + markets}
+        except (OSError, ValueError, KeyError, TypeError) as ex:
+            raise ProtectedAssetError('사용자 보호 목록 확인 실패: 주문 보류 (' + type(ex).__name__ + ')') from None
+
+    def is_protected(self, market):
+        return normalize_protected_market(market) in self.protected_markets()
+
+    def assert_unprotected(self, market):
+        if self.is_protected(market):
+            raise ProtectedAssetError(market + ' 사용자 보호 종목: 봇 주문 금지')
 
     def record(self, row):
         row = {'time': now_iso(), **row}
@@ -391,6 +429,7 @@ class Live:
         return not self.has_uncertain_orders()
 
     def _trade(self, side, market, amount, reason, risk=False, entry_context=None, validate_entry=False):
+        self.assert_unprotected(market)
         if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
         if risk:
             if side != 'ask': raise ValueError('위험 청산은 매도만 허용')
@@ -411,15 +450,17 @@ class Live:
                 book = upbit.orderbooks([market]).get(market, {})
                 why = self.entry_chase_block(market, entry_context, book.get('ask'))
                 if why: raise ValueError(why)
+        self.assert_unprotected(market)  # ATR/quote requests may have taken time.
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
         risk_market = market if risk else None
         self._set_pending(pending, risk_market)
         self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
         try:
+            self.assert_unprotected(market)  # Do not transmit a newly protected asset.
             order = (upbit.market_buy(market, amount, identifier=pending['identifier']) if side == 'bid'
                      else upbit.market_sell(market, amount, identifier=pending['identifier']))
-        except (upbit.OrderRejected, SessionLost) as error:
+        except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
             # Rejected submission or failed lease check happened before acceptance; do not create a phantom order.
             self._set_pending(None, risk_market)
             self.save()
@@ -535,13 +576,16 @@ class Live:
     def execute(self, plan, markets, entry_context=None, automatic=False):
         if self.has_uncertain_orders(): return '미확정 주문 대사 중: 새 주문안 보류'
         orders = parse(plan[1])
+        protected = self.protected_markets()
+        protected_orders = [m for _, m, _ in orders if m in protected]
+        orders = [(side, m, amount) for side, m, amount in orders if m not in protected]
         sold_markets = {m for side, m, _ in orders if side == 'sell'}
         bought_markets = {m for side, m, _ in orders if side == 'buy'}
         if sold_markets & bought_markets:
             # Reject before the first account request or order; old generators cannot sell then rebuy.
             return '실행 거부: 동일 주문안 매도·매수 종목 충돌 ' + ', '.join(sorted(sold_markets & bought_markets))
         if not orders:
-            return '주문 없음 (매도 없음·매수 없음)'
+            return ('사용자 보호 종목 주문 제외: ' + ', '.join(sorted(set(protected_orders)))) if protected_orders else '주문 없음 (매도 없음·매수 없음)'
         acc = {r['currency']: r for r in upbit.accounts()}
         tick = upbit.tickers([m for _, m, _ in orders])
         done = []
@@ -620,6 +664,7 @@ class Live:
         return None
 
     def buy_block(self, m, krw, markets, entry_context=None, validate_entry=False):
+        if self.is_protected(m): return '사용자 보호 종목: 자동·추가 매수 금지'
         c = self.cfg
         if self.d['halted']:
             return '손실 중단선 도달로 신규 매수 중단 상태'
@@ -676,6 +721,7 @@ class Live:
         changed, changed0 = [], []
         for m, pos in self.d['positions'].items():
             px = prices.get(m)
+            if self.is_protected(m): continue
             if type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
             if not pos.get('stop_rebased'):
                 new = st.cap_stop(px, pos['stop'], self.p)
@@ -723,6 +769,7 @@ class Live:
         changed = False
         for m, pos in self.d['positions'].items():
             px, entry, q = prices.get(m), pos.get('entry'), pos.get('qty')
+            if self.is_protected(m): continue
             if ok(q) and ok(pos.get('cost')): entry = pos['cost'] / q
             if not (ok(px) and ok(entry) and ok(q)): continue
             try: c = float(st.cost(m, self.p))
@@ -753,6 +800,7 @@ class Live:
         초기 고정 손절 stop0는 현재 손절가 그대로 쓴다. 진입 시점을 모르므로 편입 시각 이후 봉만 쓰고 R은 3×ATR15로 정의한다(D-22)."""
         done = False
         for m, pos in self.d['positions'].items():
+            if self.is_protected(m): continue
             if 'entry' in pos or pos.get('adopted_trail_failed') or pos['qty'] <= 0: continue
             try:
                 bars = upbit.completed_candles(m, 15, 100)
@@ -780,6 +828,7 @@ class Live:
         exits, parts, changed = [], [], False
         if self.cfg.get('trail_adopted') and self.adopt_trail_init(): changed = True
         for m, pos in list(self.d['positions'].items()):
+            if self.is_protected(m): continue
             if not pos.get('trail') or pos['qty'] <= 0 or 'entry' not in pos: continue
             p_pos = replace(p, trail_start_r=float(self.cfg.get('adopted_trail_start_r', 1.0))) if pos.get('adopted_trail') else p
             try: bars = upbit.completed_candles(m, 1, 3)
@@ -833,6 +882,7 @@ class Live:
         봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.
         그래서 주문 식별자 선기록·실행권 검사·미확정 주문 대사·장부 반영이 손절과 동일하다.
         """
+        if self.is_protected(market): return False, '사용자 보호 종목: 해제 전에는 봇 화면 주문도 금지'
         if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
         pos = self.d['positions'].get(market)
         if not pos or not pos.get('qty', 0) > 0: return False, '봇이 관리하는 보유 종목이 아님'
@@ -866,6 +916,7 @@ class Live:
         자동 매수와 같은 검사(buy_block: 손실 중단·미확정 주문·한도·가용 원화·호가 차이)를 모두 통과해야 한다.
         기존 규칙상 추가 매수한 종목은 추적 손절·이익 보호 대상에서 빠진다(_apply_pending, 안건 27 미합의).
         """
+        if self.is_protected(market): return False, '사용자 보호 종목: 해제 전에는 봇 화면 주문도 금지'
         if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
         if market not in self.d['positions']: return False, '봇이 관리하는 보유 종목이 아님: 새 종목 매수는 지원하지 않음'
         cap = min(self.cfg.get('manual_buy_max_krw', 100000), self.cfg['max_order_krw'])
@@ -896,7 +947,7 @@ class Live:
         self.rebase_adopted_stops(prices)
         self.update_profit_guard(prices)
         candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
-                      if m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
+                      if not self.is_protected(m) and m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
                       and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0
                       and not self.market_has_uncertain_order(m)]
         if not candidates: return

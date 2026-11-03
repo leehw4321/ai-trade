@@ -1,0 +1,75 @@
+{
+  "market": "KRW-HBAR",
+  "status": "evaluated",
+  "requested_start_kst": "2026-01-01T00:00:00+09:00",
+  "requested_end_kst": "2026-10-30T12:11:00+09:00",
+  "coverage": {
+    "1": {
+      "rows": 251903,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:11:00+09:00",
+      "notional_rows": 251903
+    },
+    "5": {
+      "rows": 81912,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:15:00+09:00",
+      "notional_rows": 81912
+    },
+    "15": {
+      "rows": 29130,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:15:00+09:00",
+      "notional_rows": 29130
+    }
+  },
+  "minute_slots": 435612,
+  "valid_candle_minutes": 487,
+  "data_invalid_minutes": 435125,
+  "cheap_necessary_conditions_survived": 0,
+  "exact_reference_evaluations": 0,
+  "candle_signal_count": 0,
+  "signals_with_approximate_vwap": 0,
+  "monthly_signal_count": {},
+  "data_failures": {
+    "primary_5m_gap_duplicate_or_reverse": 202742,
+    "any_5m_gap_duplicate_or_reverse": 385427,
+    "any_1m_stale_or_unclosed_bar": 186666,
+    "any_1m_gap_duplicate_or_reverse": 247429,
+    "primary_5m_stale_or_unclosed_bar": 10035,
+    "any_5m_stale_or_unclosed_bar": 31030,
+    "primary_15m_stale_or_unclosed_bar": 3870,
+    "any_15m_stale_or_unclosed_bar": 3870,
+    "primary_15m_gap_duplicate_or_reverse": 200430,
+    "any_15m_gap_duplicate_or_reverse": 200430,
+    "primary_1m_gap_duplicate_or_reverse": 15025,
+    "primary_1m_stale_or_unclosed_bar": 3023
+  },
+  "cheap_condition_independent_failures_among_valid_minutes": {
+    "1분 상승 확인 필요조건(직전 고가 돌파)": 445,
+    "1분 거래량 1.3배": 375,
+    "5분 거래량 돌파 존재(눌림 필요조건)": 486,
+    "최근 거래대금": 132,
+    "급등 추격 차단": 1
+  },
+  "cheap_condition_cumulative_survivors_in_listed_order": {
+    "1분 상승 확인 필요조건(직전 고가 돌파)": 42,
+    "1분 거래량 1.3배": 11,
+    "최근 거래대금": 11,
+    "급등 추격 차단": 10
+  },
+  "reference_condition_failures_among_cheap_survivors_only": {},
+  "sampled_reference_evaluations": [],
+  "signals": [],
+  "elapsed_seconds": 3.433,
+  "execution_trades": null,
+  "expected_return": null,
+  "limitations": [
+    "Counts current pullback candle conditions; a signal is not an order or fill.",
+    "Historical universe warnings, ranking rotation and scanner delivery latency are not reproduced.",
+    "No historical order books: spread/depth, 30-second passive fill and repricing are unverified.",
+    "Tick-based early breakout route cannot be reconstructed from candles and is excluded.",
+    "A zero count is valid only within the reported evaluable data coverage; missing coverage is not zero trades.",
+    "No expected future return is inferred from this historical signal census."
+  ]
+}

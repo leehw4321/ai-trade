@@ -265,7 +265,11 @@ class Bot:
                      for o in orders) or '<li class=muted>아직 새 체결 없음 · 현재 전략의 새 주문안을 대기 중</li>'
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])}</div>" if L['halted'] else ''
         adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
+        protected = self.live.protected_markets()
+        protection = ('<div class=warn><b>사용자 보호 종목: ' + e(', '.join(sorted(m[4:] for m in protected)))
+                      + '</b> · 자동 매수·매도·손절·익절 및 봇 화면 주문 제외 · 거래소 직접 주문은 유지</div>') if protected else ''
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
+{protection}
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
 <div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
 <div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
@@ -385,7 +389,23 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>
 </main></html>"""
-        (DATA / 'status.html').write_text(page, encoding='utf-8')
+        # Browsers/antivirus may briefly hold the destination on Windows.
+        # Keep the last good page; a display write must not suspend protection.
+        temporary = DATA / f'status.{os.getpid()}.tmp'
+        try:
+            temporary.write_text(page, encoding='utf-8')
+            for attempt in range(5):
+                try:
+                    os.replace(temporary, DATA / 'status.html')
+                    break
+                except OSError:
+                    if attempt == 4: raise
+                    time.sleep(.2)
+        except OSError as ex:
+            self.log('현황 화면 저장 대기: ' + type(ex).__name__)
+        finally:
+            try: temporary.unlink(missing_ok=True)
+            except OSError: pass
 
     # ---------- 반복 ----------
     def run(self):

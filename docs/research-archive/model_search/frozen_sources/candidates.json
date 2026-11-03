@@ -1,0 +1,195 @@
+{
+  "schema": 1,
+  "candidates": [
+    {
+      "id": "breakout_5m_20",
+      "family": "breakout",
+      "timeframe_s": 300,
+      "stop_atr": 1.5,
+      "target_r": 2.0,
+      "max_hold_s": 7200,
+      "lookback": 20,
+      "reclaim_ema": null,
+      "volume_ratio": 1.2
+    },
+    {
+      "id": "breakout_5m_48",
+      "family": "breakout",
+      "timeframe_s": 300,
+      "stop_atr": 2.0,
+      "target_r": 2.5,
+      "max_hold_s": 21600,
+      "lookback": 48,
+      "reclaim_ema": null,
+      "volume_ratio": 1.2
+    },
+    {
+      "id": "breakout_15m_20",
+      "family": "breakout",
+      "timeframe_s": 900,
+      "stop_atr": 1.5,
+      "target_r": 2.0,
+      "max_hold_s": 21600,
+      "lookback": 20,
+      "reclaim_ema": null,
+      "volume_ratio": 1.2
+    },
+    {
+      "id": "breakout_15m_48",
+      "family": "breakout",
+      "timeframe_s": 900,
+      "stop_atr": 2.0,
+      "target_r": 2.5,
+      "max_hold_s": 43200,
+      "lookback": 48,
+      "reclaim_ema": null,
+      "volume_ratio": 1.2
+    },
+    {
+      "id": "pullback_5m_ema20",
+      "family": "pullback",
+      "timeframe_s": 300,
+      "stop_atr": 1.5,
+      "target_r": 2.0,
+      "max_hold_s": 7200,
+      "lookback": null,
+      "reclaim_ema": 20,
+      "volume_ratio": null
+    },
+    {
+      "id": "pullback_5m_ema50",
+      "family": "pullback",
+      "timeframe_s": 300,
+      "stop_atr": 2.0,
+      "target_r": 2.0,
+      "max_hold_s": 14400,
+      "lookback": null,
+      "reclaim_ema": 50,
+      "volume_ratio": null
+    },
+    {
+      "id": "pullback_15m_ema20",
+      "family": "pullback",
+      "timeframe_s": 900,
+      "stop_atr": 1.5,
+      "target_r": 2.0,
+      "max_hold_s": 28800,
+      "lookback": null,
+      "reclaim_ema": 20,
+      "volume_ratio": null
+    },
+    {
+      "id": "pullback_15m_ema50",
+      "family": "pullback",
+      "timeframe_s": 900,
+      "stop_atr": 2.0,
+      "target_r": 2.0,
+      "max_hold_s": 43200,
+      "lookback": null,
+      "reclaim_ema": 50,
+      "volume_ratio": null
+    },
+    {
+      "id": "revert_5m_bbands",
+      "family": "bb_recovery",
+      "timeframe_s": 300,
+      "stop_atr": 1.5,
+      "target_r": 1.5,
+      "max_hold_s": 3600,
+      "lookback": null,
+      "reclaim_ema": null,
+      "volume_ratio": null
+    },
+    {
+      "id": "revert_15m_bbands",
+      "family": "bb_recovery",
+      "timeframe_s": 900,
+      "stop_atr": 1.5,
+      "target_r": 1.5,
+      "max_hold_s": 14400,
+      "lookback": null,
+      "reclaim_ema": null,
+      "volume_ratio": null
+    },
+    {
+      "id": "revert_5m_rsi",
+      "family": "rsi_recovery",
+      "timeframe_s": 300,
+      "stop_atr": 1.5,
+      "target_r": 1.5,
+      "max_hold_s": 3600,
+      "lookback": null,
+      "reclaim_ema": null,
+      "volume_ratio": null
+    },
+    {
+      "id": "revert_15m_rsi",
+      "family": "rsi_recovery",
+      "timeframe_s": 900,
+      "stop_atr": 1.5,
+      "target_r": 1.5,
+      "max_hold_s": 14400,
+      "lookback": null,
+      "reclaim_ema": null,
+      "volume_ratio": null
+    },
+    {
+      "id": "breakout_1h_24",
+      "family": "breakout",
+      "timeframe_s": 3600,
+      "stop_atr": 2.0,
+      "target_r": 3.0,
+      "max_hold_s": 172800,
+      "lookback": 24,
+      "reclaim_ema": null,
+      "volume_ratio": 1.0
+    },
+    {
+      "id": "breakout_1h_48",
+      "family": "breakout",
+      "timeframe_s": 3600,
+      "stop_atr": 2.5,
+      "target_r": 3.0,
+      "max_hold_s": 259200,
+      "lookback": 48,
+      "reclaim_ema": null,
+      "volume_ratio": 1.0
+    },
+    {
+      "id": "pullback_1h_ema20",
+      "family": "pullback",
+      "timeframe_s": 3600,
+      "stop_atr": 2.0,
+      "target_r": 2.5,
+      "max_hold_s": 172800,
+      "lookback": null,
+      "reclaim_ema": 20,
+      "volume_ratio": null
+    },
+    {
+      "id": "revert_1h_rsi",
+      "family": "rsi_recovery",
+      "timeframe_s": 3600,
+      "stop_atr": 2.0,
+      "target_r": 1.5,
+      "max_hold_s": 86400,
+      "lookback": null,
+      "reclaim_ema": null,
+      "volume_ratio": null
+    }
+  ],
+  "shared_rules": {
+    "indicator_warmup_bars": 200,
+    "ema_seed": "first observed close; require 200 contiguous bars",
+    "atr_rsi": "Wilder 14, seeded by first 14 true ranges / close changes",
+    "bbands": "20 completed closes, 2 population standard deviations",
+    "breakout": "close above preceding N highs; close>EMA200; EMA20>EMA50; EMA50 above value 3 bars earlier; current volume >= configured multiple of preceding 20 volumes",
+    "pullback": "prior close<=prior EMA20/50, current close>current EMA20/50; EMA50>EMA200 and EMA50 rising over 3 bars; RSI14 in [45,70]",
+    "bb_recovery": "prior close below prior lower band, current close recovers current lower band; RSI14<=45; EMA200 nonfalling over 3 bars OR close>=0.97*EMA200",
+    "rsi_recovery": "RSI14 crosses from below 30 to >=30, prior 3 RSI minimum<=25; EMA200 nonfalling over 3 bars OR close>=0.97*EMA200",
+    "entry": "next 5-minute open, no current-close fill",
+    "exit": "fixed ATR stop / fixed R target / time exit, whichever occurs first",
+    "signal_volume": "current completed candle volume must be positive",
+    "optimization": "none inside candidate definitions; fixed candidate selection only"
+  }
+}

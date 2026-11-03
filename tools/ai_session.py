@@ -131,6 +131,9 @@ def start(_):
     print('[git pull]', (r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr).strip() else 'ok')
     dirty = git('status', '--short').stdout.strip()
     print('[미커밋 변경]', '없음' if not dirty else '\n' + dirty)
+    home = HIST / '집에서_이어서_2026-11-03.md'
+    if home.exists():
+        print('\n===== 최신 집 PC 인계 (역사 기록보다 우선) =====\n' + home.read_text(encoding='utf-8'))
     h = ROOT / 'HANDOFF.md'
     print('\n===== HANDOFF.md =====\n' + (h.read_text(encoding='utf-8') if h.exists() else '(없음: 인계 문서를 먼저 만드세요)'))
     logs = sorted(HIST.glob('20??-??-??.md'))
@@ -171,7 +174,8 @@ def end(a):
         print('커밋할 변경이 없습니다.')
         return 0
     msg = a.m or f'AI 이력 갱신 {today()}'
-    git('commit', '-m', msg + '\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>', check=True)
+    # Authorship/review evidence belongs in the handoff; never fabricate a co-author.
+    git('commit', '-m', msg, check=True)
     print('커밋:', git('log', '-1', '--format=%h %s').stdout.strip())
     if a.no_push:
         return 0

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 STAGED = Path(__file__).resolve().parent
-sys.path.insert(0, 'C:/Users/User/Desktop/ai-trade/v5')
+sys.path.insert(0, str(STAGED))
 spec = importlib.util.spec_from_file_location('staged_live_entry_review', STAGED / 'live.py')
 live = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(live)

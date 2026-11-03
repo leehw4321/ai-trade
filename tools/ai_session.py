@@ -61,14 +61,26 @@ def running():
     if os.name != 'nt':
         return []
     r = subprocess.run(['powershell', '-NoProfile', '-Command',
-                        "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.CommandLine }"],
+                        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); "
+                        "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
+                        "ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.CommandLine }"],
                        capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode:
+        return ['조회 실패: 실행 여부를 확인할 수 없음']
     return [l.strip() for l in r.stdout.splitlines() if re.search(r'토론진행기|bot\.py|shadow\.py|account_sync|run\.py|launch_', l)]
 
 
 def v5_dirs():
-    cands = [ROOT / 'v5', ROOT.parent / '코인 트레이딩' / 'v5-app' / 'v5']
-    return [c for c in cands if (c / 'config.json').exists()]
+    cands = [ROOT / 'v5', ROOT.parent / '코인 트레이딩' / 'v5-app' / 'v5',
+             ROOT.parent / '자동거래 v5', Path.home() / 'Desktop' / '코인 트레이딩' / 'v5-app' / 'v5']
+    if os.environ.get('V5_APP_DIR'):
+        cands.append(Path(os.environ['V5_APP_DIR']))
+    found, seen = [], set()
+    for c in cands:
+        key = os.path.normcase(str(c.resolve()))
+        if key not in seen and (c / 'config.json').exists():
+            found.append(c); seen.add(key)
+    return found
 
 
 def status(_):
@@ -95,12 +107,19 @@ def status(_):
             if lf.exists():
                 print('  봇 최근 로그:', lf.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1][:160])
     dirs = v5_dirs()
-    if len(dirs) == 2:
+    if len(dirs) >= 2:
         import hashlib
         h = lambda f: hashlib.sha256(f.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
-        diff = [f.name for f in sorted(dirs[0].glob('*.py')) if (dirs[1] / f.name).exists() and h(f) != h(dirs[1] / f.name)]
-        only = [f.name for f in sorted(dirs[1].glob('*.py')) if not (dirs[0] / f.name).exists()]
-        print('\n[코드 어긋남]', '없음(두 사본 동일)' if not diff and not only else f'다름 {diff} / v5-app에만 있음 {only}  -> HANDOFF의 동기화 절차 참고')
+        for app in dirs[1:]:
+            source = {f.name: f for f in dirs[0].glob('*.py')}
+            target = {f.name: f for f in app.glob('*.py')}
+            diff = [n for n in sorted(source.keys() & target.keys()) if h(source[n]) != h(target[n])]
+            missing = sorted(source.keys() - target.keys())
+            extra = sorted(target.keys() - source.keys())
+            print(f'\n[코드 어긋남: {app}]', '없음(정본과 동일)' if not diff and not missing and not extra
+                  else f'다름 {diff} / 실행 후보에 없음 {missing} / 실행 후보에만 있음 {extra} -> 배포 전 확인')
+    else:
+        print(f'\n[코드 대조 불가] 설정이 있는 후보 {len(dirs)}개. 실행 사본이 없거나 경로를 찾지 못했습니다. V5_APP_DIR을 확인하세요.')
     procs = running()
     print('\n[실행 중인 프로세스]', '없음 (봇 꺼짐)' if not procs else '\n  ' + '\n  '.join(procs))
     print('\n주의: 같은 PC의 다른 AI 세션이 설정을 바꿀 수 있다. 상태를 단정하기 전에 이 명령을 다시 실행한다.')
@@ -175,4 +194,8 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
+    # Windows' legacy console encoding must not abort an otherwise read-only status check.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
     sys.exit(main())

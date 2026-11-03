@@ -1,0 +1,215 @@
+# A/B 확인
+
+**A (손실 중단 상태): 이번 실제 복구에 대해 조건 충족으로 봅니다.**
+
+- 제시된 `check_loss`를 보면 중단 판정은 매 poll마다 `raw_loss - offset`을 다시 계산합니다.
+- 현재 값은 -9957.25로, 중단선 15097.63보다 훨씬 아래입니다. `missing_valuations` 0, `halted` 비어 있음, baseline/offset 변경 없음, 새 halt 해제 없음도 확인했습니다. 따라서 복원된 상태가 현재 공식으로 중단을 놓치고 있지는 않습니다.
+- **남는 한계:** `halted`는 KST 날짜가 바뀔 때까지 유지됩니다. 13:43~15:45 사이에 미실현 손실이 일시적으로 중단선을 넘었다면 원래 봇은 지금도 halted였을 수 있고, 이것은 복원할 수 없는 정보입니다.
+- 이 기간 체결은 수익 매도(IRYS) 하나뿐이었으므로, 그 사이 실제 행동은 halted 여부와 관계없이 같았습니다. 다만 오늘 남은 시간 동안 신규 매수가 원래보다 덜 보수적으로 허용될 수 있습니다. 이 한계를 기록에 남기는 조건으로 승인합니다.
+
+**B (체결 목록 완전성): 해소됐습니다.**
+
+- `closed_orders`는 다음을 모두 코드로 구현하고 있습니다: 7일 이하 창 분할, `done`+`cancel` 포함(부분 체결 후 취소도 포함), 1000건 포화 시 재귀 분할, 1초 이하 창에서 포화되면 fail-closed, UUID 기준 중복 제거.
+- 41건(1000건 미만)은 전체 UUID를 다시 받아 41건 상세를 모두 재조회했습니다. 가정이 아니라 구현된 조건으로 인정합니다.
+- 최초 동료 답변은 무조건 승인이 아닌 채로 보관하는 처리에 동의합니다.
+
+# 패치 (Claude 작성, ChatGPT 검증/적용)
+
+아래 hunk 줄 번호는 손으로 계산했습니다. 적용 전에 `git apply --check`로 먼저 확인해 주세요.
+
+```diff
+--- a/tools/handoff_cli.py
++++ b/tools/handoff_cli.py
+@@ -79,17 +79,27 @@ def _alive_from_lock(path):
+     try: return kernel.WaitForSingleObject(handle, 0) == 258
+     finally: kernel.CloseHandle(handle)
+ 
+ 
++def require_stopped(app, checker=None):
++    """Read-only preflight; must precede any transition marker, download or seal."""
++    checker = checker or _alive_from_lock
++    for name in ('bot.lock', 'shadow.lock'):
++        if checker(Path(app) / name):
++            raise sh.HandoffError(name + ' process is running; stop it normally before handoff')
++
++
+ @contextlib.contextmanager
+-def transition_lock(app, retain_on_success=False):
++def transition_lock(app, retain_on_success=False, keep_on_error=True):
+     path = Path(app) / 'data/handoff-transition.lock'
+     path.parent.mkdir(parents=True, exist_ok=True)
+     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+     success = False
+     try:
+         os.write(fd, str(os.getpid()).encode()); os.close(fd)
+         yield
+         success = True
+     finally:
+         # Crash/exception marker is deliberately persistent. SessionGuard must refuse startup.
+-        if success and not retain_on_success: path.unlink(missing_ok=True)
++        # keep_on_error=False is only for operations that never change active files (receive dry-run).
++        if (success and not retain_on_success) or (not success and not keep_on_error):
++            path.unlink(missing_ok=True)
+ 
+ 
+@@ -167,7 +177,9 @@ def publish_final(args, root):
+     stopped = None
+     if getattr(args, 'stop_source', False):
+         # Stop first: installing the Guard's transition marker while trading would interrupt it.
+         stopped = request_graceful_stop(args.app, getattr(args, 'stop_timeout', 180))
++    # Without --stop-source a running worker refuses here, before any marker, export or seal.
++    require_stopped(args.app)
+     with transition_lock(args.app):
+         if not args.package:
+             if not args.export_tool: raise sh.HandoffError('Existing final ZIP or explicit approved exporter required')
+@@ -211,7 +223,25 @@ def download_encrypted(remote, branch, destination, runner=subprocess.run):
+         (destination / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+     return path, receipt
+ 
+ 
++def receive_final(args, root):
++    identities = (root / 'identities').resolve()
++    if not args.private_key.resolve().is_relative_to(identities):
++        raise sh.HandoffError('Private key must remain inside the selected private_handoff/identities')
++    # Refuse before download or marker: the Guard would otherwise stop a running receiver.
++    require_stopped(args.app)
++    incoming = root / 'incoming' / str(time.time_ns())
++    envelope, receipt = download_encrypted(args.remote, args.branch, incoming)
++    if receipt['recipient_certificate_sha256'] != args.recipient_pin.lower():
++        raise sh.HandoffError('Transport recipient differs from trusted local identity')
++    package = incoming / 'final.zip'
++    sh.decrypt_package(envelope, args.recipient_cert, args.recipient_pin, args.private_key, package, args.openssl)
++    # Dry-run never changes active files, so its own marker is removed even on validation failure.
++    with transition_lock(args.app, keep_on_error=bool(args.apply)):
++        return sh.restore_state(package, args.app, observer(args.app, args.credentials_file),
++                                root / 'restore-backups' / str(time.time_ns()), args.apply)
++
++
+ def main():
+     parser = argparse.ArgumentParser()
+     parser.add_argument('--private-root', type=Path, required=True,
+@@ -247,16 +277,5 @@ def main():
+     elif args.command == 'publish':
+         result = publish_final(args, root)
+     else:
+-        identities = (root / 'identities').resolve()
+-        if not args.private_key.resolve().is_relative_to(identities):
+-            raise sh.HandoffError('Private key must remain inside the selected private_handoff/identities')
+-        incoming = root / 'incoming' / str(time.time_ns())
+-        envelope, receipt = download_encrypted(args.remote, args.branch, incoming)
+-        if receipt['recipient_certificate_sha256'] != args.recipient_pin.lower():
+-            raise sh.HandoffError('Transport recipient differs from trusted local identity')
+-        package = incoming / 'final.zip'
+-        sh.decrypt_package(envelope, args.recipient_cert, args.recipient_pin, args.private_key, package, args.openssl)
+-        with transition_lock(args.app):
+-            result = sh.restore_state(package, args.app, observer(args.app, args.credentials_file),
+-                                     root / 'restore-backups' / str(time.time_ns()), args.apply)
++        result = receive_final(args, root)
+     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+--- a/tools/test_handoff_cli.py
++++ b/tools/test_handoff_cli.py
+@@ -109,7 +109,75 @@ class TransitionTests(unittest.TestCase):
+             self.assertTrue((app / 'data/handoff-transition.lock').exists())
+             with self.assertRaises(FileExistsError):
+                 with cli.transition_lock(app): pass
+ 
++    def receive_args(self, folder, apply=False):
++        root = Path(folder) / 'private_handoff'; (root / 'identities/me').mkdir(parents=True)
++        app = Path(folder) / 'app'; app.mkdir()
++        args = types.SimpleNamespace(app=app, apply=apply, remote='https://github.com/example/repo.git',
++            branch='private-handoff/' + 'a' * 12 + '/' + 'b' * 64, recipient_pin='pin', recipient_cert='public.pem',
++            private_key=root / 'identities/me/private-key.pem', credentials_file=None, openssl='openssl')
++        return args, root
++
++    def test_active_publish_without_stop_never_marks_or_seals(self):
++        with tempfile.TemporaryDirectory() as folder:
++            app = self.source(folder)
++            args = types.SimpleNamespace(publish=True, stop_source=False, app=app, package=Path(folder) / 'final.zip')
++            with patch.object(cli, '_alive_from_lock', side_effect=lambda p: p.name == 'bot.lock'), \
++                    patch.object(cli, 'request_graceful_stop', side_effect=AssertionError('no stop without --stop-source')), \
++                    patch.object(cli, 'transition_lock', side_effect=AssertionError('no marker while running')), \
++                    patch.object(cli.sh, 'seal_and_transmit', side_effect=AssertionError('no seal while running')):
++                with self.assertRaises(cli.sh.HandoffError):
++                    cli.publish_final(args, Path(folder) / 'private_handoff')
++            self.assertFalse((app / 'data/handoff-transition.lock').exists())
++            self.assertFalse((app / 'stop.txt').exists())
++
++    def test_active_receive_dryrun_never_downloads_or_marks(self):
++        with tempfile.TemporaryDirectory() as folder:
++            args, root = self.receive_args(folder)
++            with patch.object(cli, '_alive_from_lock', side_effect=lambda p: p.name == 'shadow.lock'), \
++                    patch.object(cli, 'download_encrypted', side_effect=AssertionError('no download while running')), \
++                    patch.object(cli, 'transition_lock', side_effect=AssertionError('no marker while running')):
++                with self.assertRaises(cli.sh.HandoffError):
++                    cli.receive_final(args, root)
++            self.assertFalse((args.app / 'data/handoff-transition.lock').exists())
++            self.assertFalse((root / 'incoming').exists())
++
++    def restore_failure(self, args, root):
++        marker = args.app / 'data/handoff-transition.lock'
++        def restore(*a, **k):
++            self.assertTrue(marker.exists())
++            raise cli.sh.HandoffError('validation failed')
++        with patch.object(cli, '_alive_from_lock', return_value=False), \
++                patch.object(cli, 'download_encrypted', return_value=(root / 'handoff.cms', {'recipient_certificate_sha256': 'pin'})), \
++                patch.object(cli.sh, 'decrypt_package'), patch.object(cli, 'observer', return_value=lambda: {}), \
++                patch.object(cli.sh, 'restore_state', side_effect=restore):
++            with self.assertRaises(cli.sh.HandoffError):
++                cli.receive_final(args, root)
++        return marker
++
++    def test_receive_dryrun_validation_failure_removes_own_marker(self):
++        with tempfile.TemporaryDirectory() as folder:
++            args, root = self.receive_args(folder)
++            self.assertFalse(self.restore_failure(args, root).exists())
++            with cli.transition_lock(args.app): pass
++
++    def test_receive_apply_failure_retains_marker(self):
++        with tempfile.TemporaryDirectory() as folder:
++            args, root = self.receive_args(folder, apply=True)
++            self.assertTrue(self.restore_failure(args, root).exists())
++
++    def test_receive_dryrun_never_removes_foreign_marker(self):
++        with tempfile.TemporaryDirectory() as folder:
++            args, root = self.receive_args(folder)
++            marker = args.app / 'data/handoff-transition.lock'; marker.parent.mkdir(); marker.write_text('1')
++            with patch.object(cli, '_alive_from_lock', return_value=False), \
++                    patch.object(cli, 'download_encrypted', return_value=(root / 'handoff.cms', {'recipient_certificate_sha256': 'pin'})), \
++                    patch.object(cli.sh, 'decrypt_package'), \
++                    patch.object(cli.sh, 'restore_state', side_effect=AssertionError('must not restore under foreign marker')):
++                with self.assertRaises(FileExistsError):
++                    cli.receive_final(args, root)
++            self.assertEqual(marker.read_text(), '1')
++
+     def test_recipient_names_cannot_escape_identity_root(self):
+         with tempfile.TemporaryDirectory() as folder:
+             with self.assertRaises(cli.sh.HandoffError):
+```
+
+# 설계 요점
+
+**사전 점검 위치**
+- `publish`: `--stop-source`가 있으면 정상 종료를 먼저 요청한 뒤 `require_stopped`로 다시 확인합니다. 없으면 바로 확인하고, 실행 중이면 마커·export·seal 전에 거부합니다.
+- publish dry-run은 기존처럼 그 전에 반환하므로 아무것도 바꾸지 않습니다.
+- `receive`: 다운로드 전에 확인합니다.
+
+**마커 정리 규칙**
+- `keep_on_error=False`는 receive dry-run에서만 씁니다. 실패 시 지우는 대상은 자기가 `O_EXCL`로 만든 마커뿐입니다.
+- 이미 있던 마커는 `os.open`이 `try` 이전에 실패하므로 지우지 않습니다. 마지막 테스트가 이를 고정합니다.
+- 기본값과 apply/publish 경로는 실패 시 마커를 유지하는 기존 동작 그대로입니다.
+
+**테스트 엄격성**
+- 금지된 호출은 `AssertionError`로 mock했습니다. `HandoffError`가 아니므로, 금지 호출이 일어나면 테스트가 통과하지 못하고 오류로 드러납니다.
+- dry-run 실패 테스트는 `restore_state` 시점에 마커가 실제로 있었는지도 확인합니다. 즉 "만들어졌다가 지워졌다"를 검증합니다.
+
+# 범위 수용
+
+이 패치의 좁은 범위를 수용합니다.
+- 바뀌는 것: 도구 전용 handoff CLI의 사전 점검, dry-run 마커 정리, `receive_final` 추출.
+- 바뀌지 않는 것: 라이브 봇 재시작, 주문, 설정, 암호화, recipient pin, source checkpoint, PnL baseline, protection union 검사.
+
+**남는 한계 (이 패치 범위 밖)**
+- 사전 점검과 마커 생성 사이의 짧은 TOCTOU 구간은 남습니다. 그 사이 봇이 시작되면 마커가 그 봇을 멈출 수 있습니다.
+- apply 경로에서는 기존 `observer`의 `bot_stopped`/`shadow_stopped` 검증이 추가 방어선입니다.
+
+도구가 꺼져 있어 이 패치는 적용하거나 실행하지 않았습니다. 테스트했다고 주장하지 않습니다. ChatGPT 측에서 적용 후 `python -m unittest tools/test_handoff_cli.py` 결과로 검증해 주세요.

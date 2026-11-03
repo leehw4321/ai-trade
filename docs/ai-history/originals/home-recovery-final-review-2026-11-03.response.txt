@@ -1,0 +1,47 @@
+# 피어 리뷰: 보존 기준 거래소 대사 복구 (d357b03)
+
+**판정:** 첨부된 범위에서 장부를 오염시키는 **확정 BLOCKING 결함은 찾지 못했습니다.** 복구 계약과 코드는 조건부로 수용합니다. 다만 아래 확인 A·B는 봇이 이미 실거래 중이므로 **즉시 확인이 필요하고, 결과에 따라 차단 사유가 됩니다.** 저는 코드를 실행하거나 테스트하지 않았고, 정적 검토만 했습니다.
+
+## 즉시 확인 (조건부 차단)
+
+**A. 일일 리스크와 halt 상태가 재생되지 않음**
+- 11:04~14:05 사이 회사 봇의 손실이 `realized`에는 반영됩니다. 하지만 `risk_day`, `risk_loss_offset`, `halted`는 홈 11:04 값으로 보존됩니다.
+- 실패 시나리오: 회사 구간에서 당일 손실 한도에 도달해 halt됐어야 했는데, 현재 봇은 `halted=False`로 매매를 재개합니다. 일일 매수 횟수 한도도 같은 문제가 있습니다.
+- 손실 판정이 `현재 계좌 평가액 - risk_base_equity` 방식이면 자연히 다시 반영되므로 문제없습니다.
+- 반면 `realized`/offset 기반이거나, halt가 한 번 걸리면 유지되는 방식이면 결함입니다.
+- 최소 수정안 (reconcile, 보고 직전에 추가):
+  ```python
+  kst = timezone(timedelta(hours=9))
+  if any(datetime.fromtimestamp(j['end'], kst).date().isoformat() == str(state.get('risk_day'))
+         for j in jobs) and realized < realized_before:
+      unresolved.append({'market': '*', 'reason': 'same-risk-day replayed loss needs limit/halt review'})
+  ```
+- 확인 방법: 실제 `realized_delta`와 일일 한도를 현재 리스크 계산식에 대입해 보면 됩니다.
+
+**B. 체결 목록의 완전성**
+- 매수 후 전량 매도까지 끝난 왕복 캠페인이 목록에서 빠지면, 계좌 수량 1e-8 대조로는 **탐지되지 않습니다.** 수량은 맞지만 손익만 누락됩니다.
+- 증거 수집과 `fresh_check`가 같은 `closed_orders`를 쓰므로, 둘 다 같은 방식으로 잘린 목록을 받으면 서로 일치해 버립니다.
+- `client.closed_orders`가 다음을 모두 만족하는지 확인이 필요합니다.
+  - 업비트 조회 창 제한(최대 7일)을 넘으면 구간을 나눠 조회
+  - `limit`을 넘는 결과를 끝까지 페이지 순회
+  - `done`과 `cancel`(부분 체결) 상태를 모두 포함
+
+## 비차단 권장 사항
+
+1. **guard가 금융 필드만 비교함:** guard는 `FINANCIAL_KEYS`만 replay 결과와 비교합니다. 그 외 필드가 바뀐 target도 통과합니다. replay는 결정적이므로 전체 비교가 가능합니다.
+   ```python
+   require(target_hash == canonical_sha256(expected), 'target_not_replay_result')
+   ```
+2. **독립 검증이 아님:** `_independent_replay`는 같은 `reconcile.py`를 다시 실행합니다. 파일 변조는 잡아내지만 로직 오류는 잡지 못합니다.
+3. **봇 시작 시 계좌 재확인 없음:** `acquire`는 계좌를 실시간으로 다시 확인하지 않고 최대 600초 된 증거를 씁니다. 그 사이 사용자가 수동 거래하면 탐지되지 않습니다. 봇 기동 시 수량 대조가 있는지 확인하세요.
+4. **`executed` 맵 미갱신:** 회사 봇의 신규 식별자가 `executed`에 추가되지 않습니다. 같은 신호/봉 재진입 방지에 `executed`를 쓴다면 `last_sell` 쿨다운에만 의존하게 됩니다.
+5. **`last_sell` time 타입:** 기존 `last_sell.time`이 문자열이면 TypeError가 납니다. 결과적으로 실패-폐쇄라 안전하지만 진단이 어렵습니다.
+6. **takeover 경로 미지원:** guard가 `request` 값이 비어 있기를 요구하므로, 대기 루프를 거친 인계 경로에서는 이 bridge가 항상 실패합니다. 현재 사례(원격 idle)와는 무관합니다.
+7. **잔여 핀 정리:** 기동 성공 후 config 핀과 sidecar가 남아 있습니다. 600초 만료와 target 해시 고정으로 재사용은 막히지만, 다음 정상 체크포인트 이후 정리를 권장합니다.
+
+## 명시적 잔여 한계 (수용)
+
+- 회사 측 peak/trailing 메모리와 별도 손익 기준은 미복원이며, 미복원으로 정직하게 표기되어 있습니다.
+- manualBTC의 손절선은 기존 설정 규칙으로 새로 산출한 값이며, 원래 회사 손절선이 아닙니다.
+- `realized`/`bought_krw`는 체결 재생 결과일 뿐 수익 주장의 근거가 아닙니다.
+- DOGE는 제외 및 보호가 유지되고 있습니다.

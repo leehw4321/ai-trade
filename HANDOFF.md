@@ -206,3 +206,6 @@
 - 다음이전은 tools/handoff_cli.py의 정상종료→최종ZIP→암호화송신/검증수신을 사용한다. 집 공개수신프로필 handoff/recipients/home.json,개인키는집Git제외폴더에만보관. 원장원문·키는공개Git에올리지않는다.
 - 새복구/전송코드:V5전체289검사,관련도구52검사,실제OpenSSL가짜자료왕복/변조거부통과. Claude는15:40사용량차단으로신규승인응답없었고 사용자임시단독위임으로수행. 원본없는회사내부고점/추적상태·별도pnl기초는완전복원미확보.
 - 상세: [집 실행 복구와 전송 기능](docs/ai-history/2026-11-03-home-exchange-recovery.md).
+
+## 15:40 이후 실제 공동 검토 및 다음 담당
+Claude가 실제 소스를 정적 검토하고 현재 손실/완전성 A·B 확인 뒤 이번 복구를 수용했다. 미확인 회사 구간의 일시 손실 중단 래치·과거 고점/추적 상태·별도 PnL기초는 완전 복원되지 않은 한계로 남긴다. 새 인계 CLI 보완은 Claude작성/ChatGPT검증으로 반영했으며 관련도구57검사통과. 실행 중인 거래 봇은 재시작하지 않았다. 다음 신규 작성자는 ChatGPT, 검증자는 Claude. 자세한 원문/범위는 2026-11-03-home-exchange-recovery.md와 cross-review-ledger.json.

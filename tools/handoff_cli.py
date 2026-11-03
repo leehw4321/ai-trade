@@ -80,8 +80,16 @@ def _alive_from_lock(path):
     finally: kernel.CloseHandle(handle)
 
 
+def require_stopped(app, checker=None):
+    """Read-only preflight; must precede any transition marker, download or seal."""
+    checker = checker or _alive_from_lock
+    for name in ('bot.lock', 'shadow.lock'):
+        if checker(Path(app) / name):
+            raise sh.HandoffError(name + ' process is running; stop it normally before handoff')
+
+
 @contextlib.contextmanager
-def transition_lock(app, retain_on_success=False):
+def transition_lock(app, retain_on_success=False, keep_on_error=True):
     path = Path(app) / 'data/handoff-transition.lock'
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -92,7 +100,9 @@ def transition_lock(app, retain_on_success=False):
         success = True
     finally:
         # Crash/exception marker is deliberately persistent. SessionGuard must refuse startup.
-        if success and not retain_on_success: path.unlink(missing_ok=True)
+        # keep_on_error=False is only for operations that never change active files (receive dry-run).
+        if (success and not retain_on_success) or (not success and not keep_on_error):
+            path.unlink(missing_ok=True)
 
 
 def observer(app, credentials_file=None):
@@ -168,6 +178,8 @@ def publish_final(args, root):
     if getattr(args, 'stop_source', False):
         # Stop first: installing the Guard's transition marker while trading would interrupt it.
         stopped = request_graceful_stop(args.app, getattr(args, 'stop_timeout', 180))
+    # Without --stop-source a running worker refuses here, before any marker, export or seal.
+    require_stopped(args.app)
     with transition_lock(args.app):
         if not args.package:
             if not args.export_tool: raise sh.HandoffError('Existing final ZIP or explicit approved exporter required')
@@ -212,6 +224,24 @@ def download_encrypted(remote, branch, destination, runner=subprocess.run):
     return path, receipt
 
 
+def receive_final(args, root):
+    identities = (root / 'identities').resolve()
+    if not args.private_key.resolve().is_relative_to(identities):
+        raise sh.HandoffError('Private key must remain inside the selected private_handoff/identities')
+    # Refuse before download or marker: the Guard would otherwise stop a running receiver.
+    require_stopped(args.app)
+    incoming = root / 'incoming' / str(time.time_ns())
+    envelope, receipt = download_encrypted(args.remote, args.branch, incoming)
+    if receipt['recipient_certificate_sha256'] != args.recipient_pin.lower():
+        raise sh.HandoffError('Transport recipient differs from trusted local identity')
+    package = incoming / 'final.zip'
+    sh.decrypt_package(envelope, args.recipient_cert, args.recipient_pin, args.private_key, package, args.openssl)
+    # Dry-run never changes active files, so its own marker is removed even on validation failure.
+    with transition_lock(args.app, keep_on_error=bool(args.apply)):
+        return sh.restore_state(package, args.app, observer(args.app, args.credentials_file),
+                                root / 'restore-backups' / str(time.time_ns()), args.apply)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--private-root', type=Path, required=True,
@@ -247,18 +277,7 @@ def main():
     elif args.command == 'publish':
         result = publish_final(args, root)
     else:
-        identities = (root / 'identities').resolve()
-        if not args.private_key.resolve().is_relative_to(identities):
-            raise sh.HandoffError('Private key must remain inside the selected private_handoff/identities')
-        incoming = root / 'incoming' / str(time.time_ns())
-        envelope, receipt = download_encrypted(args.remote, args.branch, incoming)
-        if receipt['recipient_certificate_sha256'] != args.recipient_pin.lower():
-            raise sh.HandoffError('Transport recipient differs from trusted local identity')
-        package = incoming / 'final.zip'
-        sh.decrypt_package(envelope, args.recipient_cert, args.recipient_pin, args.private_key, package, args.openssl)
-        with transition_lock(args.app):
-            result = sh.restore_state(package, args.app, observer(args.app, args.credentials_file),
-                                     root / 'restore-backups' / str(time.time_ns()), args.apply)
+        result = receive_final(args, root)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 

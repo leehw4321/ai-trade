@@ -110,6 +110,74 @@ class TransitionTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 with cli.transition_lock(app): pass
 
+    def receive_args(self, folder, apply=False):
+        root = Path(folder) / 'private_handoff'; (root / 'identities/me').mkdir(parents=True)
+        app = Path(folder) / 'app'; app.mkdir()
+        args = types.SimpleNamespace(app=app, apply=apply, remote='https://github.com/example/repo.git',
+            branch='private-handoff/' + 'a' * 12 + '/' + 'b' * 64, recipient_pin='pin', recipient_cert='public.pem',
+            private_key=root / 'identities/me/private-key.pem', credentials_file=None, openssl='openssl')
+        return args, root
+
+    def test_active_publish_without_stop_never_marks_or_seals(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = self.source(folder)
+            args = types.SimpleNamespace(publish=True, stop_source=False, app=app, package=Path(folder) / 'final.zip')
+            with patch.object(cli, '_alive_from_lock', side_effect=lambda p: p.name == 'bot.lock'), \
+                    patch.object(cli, 'request_graceful_stop', side_effect=AssertionError('no stop without --stop-source')), \
+                    patch.object(cli, 'transition_lock', side_effect=AssertionError('no marker while running')), \
+                    patch.object(cli.sh, 'seal_and_transmit', side_effect=AssertionError('no seal while running')):
+                with self.assertRaises(cli.sh.HandoffError):
+                    cli.publish_final(args, Path(folder) / 'private_handoff')
+            self.assertFalse((app / 'data/handoff-transition.lock').exists())
+            self.assertFalse((app / 'stop.txt').exists())
+
+    def test_active_receive_dryrun_never_downloads_or_marks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args, root = self.receive_args(folder)
+            with patch.object(cli, '_alive_from_lock', side_effect=lambda p: p.name == 'shadow.lock'), \
+                    patch.object(cli, 'download_encrypted', side_effect=AssertionError('no download while running')), \
+                    patch.object(cli, 'transition_lock', side_effect=AssertionError('no marker while running')):
+                with self.assertRaises(cli.sh.HandoffError):
+                    cli.receive_final(args, root)
+            self.assertFalse((args.app / 'data/handoff-transition.lock').exists())
+            self.assertFalse((root / 'incoming').exists())
+
+    def restore_failure(self, args, root):
+        marker = args.app / 'data/handoff-transition.lock'
+        def restore(*a, **k):
+            self.assertTrue(marker.exists())
+            raise cli.sh.HandoffError('validation failed')
+        with patch.object(cli, '_alive_from_lock', return_value=False), \
+                patch.object(cli, 'download_encrypted', return_value=(root / 'handoff.cms', {'recipient_certificate_sha256': 'pin'})), \
+                patch.object(cli.sh, 'decrypt_package'), patch.object(cli, 'observer', return_value=lambda: {}), \
+                patch.object(cli.sh, 'restore_state', side_effect=restore):
+            with self.assertRaises(cli.sh.HandoffError):
+                cli.receive_final(args, root)
+        return marker
+
+    def test_receive_dryrun_validation_failure_removes_own_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args, root = self.receive_args(folder)
+            self.assertFalse(self.restore_failure(args, root).exists())
+            with cli.transition_lock(args.app): pass
+
+    def test_receive_apply_failure_retains_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args, root = self.receive_args(folder, apply=True)
+            self.assertTrue(self.restore_failure(args, root).exists())
+
+    def test_receive_dryrun_never_removes_foreign_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args, root = self.receive_args(folder)
+            marker = args.app / 'data/handoff-transition.lock'; marker.parent.mkdir(); marker.write_text('1')
+            with patch.object(cli, '_alive_from_lock', return_value=False), \
+                    patch.object(cli, 'download_encrypted', return_value=(root / 'handoff.cms', {'recipient_certificate_sha256': 'pin'})), \
+                    patch.object(cli.sh, 'decrypt_package'), \
+                    patch.object(cli.sh, 'restore_state', side_effect=AssertionError('must not restore under foreign marker')):
+                with self.assertRaises(FileExistsError):
+                    cli.receive_final(args, root)
+            self.assertEqual(marker.read_text(), '1')
+
     def test_recipient_names_cannot_escape_identity_root(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(cli.sh.HandoffError):

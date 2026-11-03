@@ -1,9 +1,9 @@
 {
-  "updated_kst": "2026-11-03T12:24:00+09:00",
+  "updated_kst": "2026-11-03T15:59:15+09:00",
   "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
-  "previous_author": "ChatGPT",
-  "next_author": "Claude",
-  "next_reviewer": "ChatGPT",
+  "previous_author": "Claude",
+  "next_author": "ChatGPT",
+  "next_reviewer": "Claude",
   "items": [
     {
       "issue": "A-sync-process-guard",
@@ -74,6 +74,38 @@
       "execution": "six checks and public collection passed; observer running",
       "live_deployment": "none; public read-only observer only",
       "handoff_after_kst": "2026-11-03T15:40:00+09:00"
+    },
+    {
+      "issue": "HOME-recovery-and-cli-review",
+      "author": "ChatGPT (temporary sole implementation)",
+      "reviewer": "Claude (actual post-deployment static responses)",
+      "status": "accepted_for_actual_recovery_with_recorded_historical_state_limits",
+      "reviewed_commit": "d357b03",
+      "review_type": "post_deployment_static_not_retroactive_preapproval",
+      "approved_hashes": {
+        "v5/reconcile.py": "4d8f889c51379bb4239cf2124823eea339bfa4003709c0562f0366f860db50c6",
+        "v5/reconciliation_guard.py": "bb49de3337e0d86f6de10c13f01e0562e230f427862b2d91759390e6c615537e",
+        "v5/session_guard.py": "7e059e53e1a87c6ba091179bfb3179062b48c25e0070ccf28c4fb0e3819321a2",
+        "tools/reconcile_runtime.py": "e33ee74fce41d9827bc8d968349287b746fc8a99dfd9943cfd4fce1d490187c6"
+      },
+      "host_tests": "289 V5 passed; 57 related tool tests passed after CLI patch",
+      "limitations": [
+        "unseen transient company halt latch not exactly restorable",
+        "unseen company peak/trailing and separate PnL baseline missing",
+        "same algorithm replay is not an independent algorithm"
+      ]
+    },
+    {
+      "issue": "HOME-nonmutating-handoff-preflight",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved_applied_tools_only",
+      "approved_hashes": {
+        "tools/handoff_cli.py": "61a0de236c21e693039fca9eba0854c7937b4ab644e5b0a5af26c4bf3346f5c8",
+        "tools/test_handoff_cli.py": "a430c332deb5ff62fda06ab11d797bd101b8513f0a18ead4d7a9fa29a25f4119"
+      },
+      "execution": "14 focused CLI tests, 57 related tool tests passed; no trader restart/config/order changes",
+      "patch_adaptation": "format only; 5 exact-once old-context hunks; original and regenerated diff preserved locally"
     }
   ],
   "pending": [

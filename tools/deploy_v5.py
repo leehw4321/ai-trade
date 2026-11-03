@@ -54,9 +54,10 @@ def log(msg, app=None):
 
 
 def pid_alive(pid):
+    # tasklist는 OEM 코드 페이지로 출력한다. 해석 못 하는 바이트가 있어도 stdout이 None이 되지 않게 replace로 읽는다.
     r = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'], capture_output=True, text=True,
-                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    return f'"{pid}"' in r.stdout
+                       errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    return f'"{pid}"' in (r.stdout or '')
 
 
 def lock_alive(app, name):

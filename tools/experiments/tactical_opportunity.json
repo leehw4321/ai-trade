@@ -31,5 +31,7 @@
   ],
   "no_lookahead": true,
   "era_today_excluded_from_final_test": true,
-  "evidence": "docs/ai-history/2026-11-03-era-opportunity.md"
+  "evidence": "docs/ai-history/2026-11-03-era-opportunity.md",
+  "latest_review_evidence": "docs/ai-history/2026-11-03-warning-conditional-trading.md",
+  "latest_review_status": "proposal_pending_claude_limit"
 }

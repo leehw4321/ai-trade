@@ -1,0 +1,73 @@
+{
+  "id": "CADENCE-20261103",
+  "status": "spec_registered_not_running",
+  "spec_author": "Claude",
+  "reviewer": "ChatGPT",
+  "user_standing_authorization": true,
+  "live_interval_change_now": false,
+  "implementation_owner": "Claude",
+  "validation_owner": "ChatGPT",
+  "arms": [
+    {
+      "id": "A",
+      "tf_minutes": 15,
+      "proposal_minutes": 60,
+      "lookback_hours_nominal": 18,
+      "L": 72
+    },
+    {
+      "id": "B",
+      "tf_minutes": 15,
+      "proposal_minutes": 30,
+      "lookback_hours_nominal": 18,
+      "L": 72
+    },
+    {
+      "id": "C",
+      "tf_minutes": 5,
+      "proposal_minutes": 30,
+      "lookback_hours_nominal": 18,
+      "L": 216,
+      "requires": "pagination_or_separate_15m_ranking"
+    },
+    {
+      "id": "D",
+      "tf_minutes": 5,
+      "proposal_minutes": 30,
+      "lookback_hours_nominal": 6,
+      "L": 72
+    }
+  ],
+  "invariants": [
+    "same_data_period_and_point_in_time_universe",
+    "same_frozen_starting_portfolio",
+    "same_risk_and_exposure_caps",
+    "same_fee_and_slippage_assumptions",
+    "retain_each_arms_60_or_30_minute_schedule",
+    "live_style_stop_tf_240_and_saved_position_ATR",
+    "no_real_order_submission",
+    "no_live_bot_restart"
+  ],
+  "metrics": [
+    "net_return",
+    "maximum_drawdown",
+    "trade_count",
+    "turnover",
+    "net_expectancy",
+    "same_coin_reentry",
+    "stale_signal_rejection",
+    "sell_then_buy_rejection",
+    "MAE",
+    "MFE",
+    "coverage_and_missing_data",
+    "regime_stability"
+  ],
+  "deployment_prerequisites": [
+    "actual_peer_review_and_hash_match",
+    "sufficient_independent_evidence",
+    "no_pending_orders",
+    "valid_single_execution_ownership",
+    "verified_launcher_backup_and_rollback"
+  ],
+  "note": "This file is an agreed study specification; it does not start a study or activate live settings."
+}

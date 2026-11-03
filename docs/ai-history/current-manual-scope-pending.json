@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-04T00:41:18+09:00",
-  "status": "scheduled_peer_review_new_mode_NOT_DEPLOYED",
+  "at": "2026-11-04T00:51:01+09:00",
+  "status": "cancelled_by_user_topic_only_NOT_DEPLOYED",
   "current_protected": [
     "KRW-DOGE"
   ],
@@ -12,5 +12,10 @@
   "local_status": "private_handoff/current-manual/deferred/state.json",
   "stop_marker": "private_handoff/current-manual/deferred/stop.txt",
   "condition": "Actual strict full-hash Claude approval, no blockers/conditions, tests/source/user-choice/running-bot/pending/health gates pass. Otherwise record and stop.",
-  "pc_requirement": "Home PC awake and original bot/shadow still running; never revive a stopped or handed-off bot."
+  "pc_requirement": "Home PC awake and original bot/shadow still running; never revive a stopped or handed-off bot.",
+  "previous_status": "scheduled_peer_review_new_mode_NOT_DEPLOYED",
+  "cancellation_reason": "User stopped automatic debates; only user-commanded topics may be discussed.",
+  "worker_status": "cancelled",
+  "worker_cancelled_at": "2026-11-04T00:50:13+09:00",
+  "automatic_review_enabled": false
 }

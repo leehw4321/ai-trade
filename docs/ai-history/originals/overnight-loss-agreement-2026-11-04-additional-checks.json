@@ -1,0 +1,47 @@
+{
+  "fixed_window": {
+    "from": "2026-11-03T18:00:00+09:00",
+    "through": "2026-11-04T07:31:41+09:00"
+  },
+  "reason_groups": {
+    "proposal": {
+      "n": 9,
+      "wins": 2,
+      "net_realized_after_fees": -2082.8687853677548
+    },
+    "stop": {
+      "n": 1,
+      "wins": 0,
+      "net_realized_after_fees": -4689.527173845199
+    },
+    "profit_guard": {
+      "n": 1,
+      "wins": 1,
+      "net_realized_after_fees": 1257.5924854013283
+    }
+  },
+  "setting_switch_at": "2026-11-03T23:47:22+09:00",
+  "entry_exit_regime_groups": {
+    "entry_before": {
+      "n": 5,
+      "wins": 0,
+      "net_realized_after_fees": -7519.302308696395
+    },
+    "exit_before": {
+      "n": 1,
+      "wins": 0,
+      "net_realized_after_fees": -338.1869109407271
+    },
+    "exit_after": {
+      "n": 10,
+      "wins": 3,
+      "net_realized_after_fees": -5176.616562870899
+    },
+    "entry_after": {
+      "n": 6,
+      "wins": 3,
+      "net_realized_after_fees": 2004.4988348847692
+    }
+  },
+  "caution": "Descriptive, not causal; positions entered earlier and still-open new buys are separate. Proposal wording is not a fill. Startup target delay is not a guaranteed execution delay."
+}

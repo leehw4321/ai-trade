@@ -35,11 +35,16 @@
   "latest_review_evidence": "docs/ai-history/2026-11-03-warning-conditional-trading.md",
   "latest_review_status": "proposal_pending_claude_limit",
   "observation": {
-    "status": "public_feature_observer_running_not_paper_trading",
-    "source": "tools/tactical_observer.py",
+    "status": "removed_by_user_not_running",
     "version": "public-features-v1",
     "path": "data/tactical_observer",
     "review": "ChatGPT solo under user authorization until 2026-11-03T15:40:00+09:00",
-    "orders_enabled": false
+    "orders_enabled": false,
+    "previous_status": "public_feature_observer_running_not_paper_trading",
+    "former_source": "tools/tactical_observer.py",
+    "removed_at": "2026-11-04T07:55:25+09:00",
+    "removal_reason": "관측기는 삭제해",
+    "automatic_restart_allowed": false,
+    "historical_data_preserved": true
   }
 }

@@ -57,6 +57,7 @@ def export(app, destination, final=False, with_history=False):
     for file in (app / 'data').rglob('*'):
         if include(file) and file != ledger:
             sources.append((file, 'runtime/data/' + file.relative_to(app / 'data').as_posix()))
+    # Legacy observer data is archive-only; the collector was removed on 2026-11-04.
     for name in ('tactical_observer', 'warning_policy'):
         folder = ROOT / 'data' / name
         for file in folder.rglob('*') if folder.exists() else []:

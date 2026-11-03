@@ -77,3 +77,4 @@
 - 실거래 장부는 PC 밖으로 보내지 않는다(암호화해 GitHub에 올리는 안은 데이터 유출 위험으로 폐기). 그래서 PC를 옮기면 손절가는 현재가 기준으로 다시 잡히고 손실 집계도 그때부터 다시 센다.
 - `tools/patches/limits_unlocked.json`: 고정 금액 한도 해제(10억)를 두 PC 공통 설정으로 넣었다(사용자 지시, D-08).
 - `adopt_account.py`: `코인 트레이딩/launch_v5.py`가 없는 PC에서는 자동 시작을 건너뛴다(take_over가 시작).
+- **설정 변경 규칙 (11:16, 사용자 지시 "권한을 항상 같이 넘겨"):** 실행본 `config.json`은 PC마다 따로 있고 GitHub에 없다. 그래서 두 PC가 같아야 하는 설정은 반드시 `tools/patches/*.json` 조각으로 만든다. `take_over.py`가 시작할 때마다 모든 조각을 덮어 적용한다. 화면 강제 청산·추가 매수 버튼(`manual_ui`)도 `manual_ui.json` 조각으로 넣었다. 실행본 config만 손으로 바꾸면 다른 PC로 넘어가지 않는다.

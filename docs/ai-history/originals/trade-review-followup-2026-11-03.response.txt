@@ -1,0 +1,50 @@
+# Verdict: **APPROVE** all four SHA values for the read-only descriptive activation. No blockers.
+
+## Limits of this approval
+
+- **I cannot compute SHA-256 here.** I am approving the content as pasted. The binding from that content to the four hashes rests on your host verification.
+- **I only saw a diff for `debate_tools/토론진행기.py`** (`692b6220…`). I approve that hash on the condition that every line outside the shown hunks is identical to the previously reviewed version.
+- **I have not checked your test counts** (122 / 8 / 19 / 316). I am relying on your report for those.
+
+## B1–B3: confirmed fixed
+
+**B1 (receipt binding).** `prompt_for` returns `(prompt, meta)` on both branches. `invoke` receives exactly that prompt string. `record_trade_receipt` runs only after `tmp.replace(DOC)`, and it uses the captured `meta`, never a re-read. The regression mutates the packet during `invoke`, checks that DOC already contains the reply when the receipt is written, and checks the sent version is recorded. The `None`/`unavailable` receipt path is explicit and tested.
+
+**B2 (module loading).** The broker loads the module once via `spec_from_file_location` with an explicit path and no `sys.path` mutation. Any load failure is caught by the broad `except` and degrades to an unavailable status. The `-I` subprocess test with a real temp layout and the separate missing-module test cover what was claimed.
+
+**B3 (accounting disclosures).** The following are all present in both the EN `limits` and the Korean allowlist:
+- mixed-lot misattribution
+- file-order inversion
+- the summary-vs-last-80 scope
+- zero-qty settlement rows
+
+Also confirmed:
+- `non_monotonic_rows` and `unassigned_fee_rows` are counted separately from unknown-basis sells.
+- `source_version` hashes only complete fill rows, and a test proves partial or non-fill appends don't change it.
+- `InvalidOperation` is normalized to `ValueError`.
+
+## Pre-activation checks (operational, not code blockers)
+
+1. **Search for other `prompt_for(` call sites** in the full broker file. Any unchanged caller would now pass a tuple to `invoke`. The diff shows only one site.
+2. **Set `V5_TRADE_REVIEW_PACKET`** in the broker's environment. Without it, the debate silently runs on "자료 아직 없음". Confirm one receipt line with `status: acknowledged` after the first round.
+3. **Start the watcher before the broker, or restart the broker after deploying `tools/trade_review.py`.** `TRADE_LOAD_ATTEMPTED` latches, so a module missing at first call stays unavailable until the broker process restarts.
+4. **Update the role/quota files before activation, as you stated.** The prompt still contains the older "ROLE OVERRIDE: … Claude is the sole active reviewer/lead" line. It is conditional on the role file, so it is only harmless if that file no longer marks ChatGPT as paused.
+
+## Non-blocking notes (fix later if convenient)
+
+- **`stat()` is outside the `try`** in `debate_context`. A file vanishing between `exists()` and `stat()` raises `FileNotFoundError`. Similarly, a top-level non-dict JSON raises an uncaught `AttributeError` on `.get`. The broker's outer `except Exception` contains both, so the claim "catches OSError too" is only true at the broker layer. Moving `stat()` inside the `try` and adding `AttributeError` would make the function self-contained.
+- **`os.replace` can fail on Windows** with `PermissionError` while a reader has `latest.json` open. The watcher catches it, writes an `ok:false` health file, and retries in 15 s. That is self-healing, but expect occasional transient health failures in the logs.
+- **One malformed closed journal line stops the watcher permanently.** Every cycle raises, so `latest.json` goes stale and the debate correctly reports "갱신 지연". This is fail-closed, which is right, but someone needs to watch `health.json` or it can stay stuck indefinitely.
+- **Zero-qty buy rows with `fee > 0` are not counted in `unassigned_fee_rows`.** Their fee is added to `pos['cost']` and silently carried into the next recorded lot's basis. This is rare, but it is a small misattribution. Counting them like the sell-side late fees would be more consistent.
+- **Identical duplicate journal lines share a fingerprint.** They are archived once but counted twice in the summary. This is fine if order identifiers are always present in rows; just be aware of it.
+- **The "new fills since the opponent's last acknowledged version" instruction is hard to follow precisely.** The hash isn't diffable, so models must compare by `index`/`time` across turns. Expect approximate rather than exact incremental analysis.
+
+## On ChatGPT's E1 response
+
+I agree. E1 stays an unfrozen proposal. Before any scoring, it needs:
+- exchange-time provenance,
+- a complete record of accepted and rejected signals,
+- a portfolio-level capital and action path,
+- a properly justified sequential design if early looks are used.
+
+No live cooldown should come from n=34. The current activation is descriptive evidence plus two-sided discussion only, and it is consistent with that position.

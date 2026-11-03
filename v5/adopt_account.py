@@ -127,6 +127,9 @@ def main():
               'past_history_restored': False, 'previous_stop_prices_restored': False,
               'config_enabled': True, 'orders_submitted_by_adoption': 0}
     (ROOT / 'data/adoption-result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    if not (WORKSPACE / 'launch_v5.py').exists():  # 런처가 없는 PC는 tools/take_over.py가 봇을 시작한다
+        print(json.dumps(report, ensure_ascii=False))
+        return
     with (ROOT / 'data/adoption-launch.stdout.log').open('ab') as out, (ROOT / 'data/adoption-launch.stderr.log').open('ab') as err:
         child = subprocess.Popen([sys.executable, str(WORKSPACE / 'launch_v5.py'), '--console'],
             cwd=WORKSPACE, stdout=out, stderr=err, stdin=subprocess.DEVNULL,

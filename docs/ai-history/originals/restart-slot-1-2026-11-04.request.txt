@@ -1,0 +1,166 @@
+﻿당신은 업비트 자동거래 봇 V5의 동등한 검토자(ChatGPT)입니다. 도구 없음, 아래 자료만 있습니다. 한국어, 단발 코드 검증입니다. 동의/수정요구/반대를 구분하고 근거를 쓰세요.
+
+[합의 B 문장(당신의 수정 문장을 내가 수용한 것)] 봇 재시작/배포 직후에는 실행권·잔고·미확정 주문 대사를 먼저 하고, 재시작 자체로 새 진입/순위청산 판단을 만들지 않는다. 대사 완료 후 다음 정규 시간 슬롯(시각당 1회)을 기다리며 놓친 슬롯을 소급 실행하지 않는다. 위험 청산과 미확정 주문 대사는 유지. 슬롯 ID와 주문 의도를 주문 전 영속 기록하고 단일 실행권·거래소 조회와 결합해 장애 후에도 같은 슬롯의 판단과 주문이 중복되지 않게 한다. 상태가 불명확하면 신규 진입을 보류. 작성·시험 실행은 Claude, 제공 코드·결과 검토는 ChatGPT. 재시작 중복·부분체결·미확정 주문·접수 후 기록 전 장애·다중 프로세스 시나리오 검증 전에는 배포하지 않는다.
+
+[원인] shadow.run()이 시작 60초 뒤 첫 주문안을 만들고 이후 3600초 간격이라, 재시작마다 위상이 바뀌고 추가 주문안이 생겼다(11-03 23:49 ERA·META2 14분 재매매).
+[구현] (아래 diff) 설정 live.slot_plans가 켜지면: 주문안은 매시 정각+90초~+600초 안에서만, 그 슬롯이 영속 기록(plan_slot.json)보다 새로울 때만 만든다. 기록은 생성 전에 원자적으로(tmp→replace) 먼저 쓴다(at-most-once: 생성 중 장애면 그 슬롯은 건너뜀). 파일이 없거나 손상되면 현재 슬롯을 처리한 것으로 간주(첫 가동·손상 시 즉시 주문안 없음). 재시작 때 decide()로 순위만 다시 계산하고 주문안은 만들지 않는다. 기본값은 꺼짐(기존 동작).
+[기존 수신측 안전장치(코드에 이미 있음, 이번 변경 아님)] live.poll_proposal: 주문안 시각이 계좌 인수 이후·120초 이내·신호 마감 시각 일치 검사, 해시 키를 executed에 '처리 중'으로 먼저 저장한 뒤 실행(재실행 방지), _trade는 주문 식별자를 pending에 먼저 기록하고 미확정 주문은 거래소 조회로 대사, 한 프로세스 단일 실행권. 다중 shadow는 shadow.lock으로 차단.
+[검사] 신규 7개 포함 V5 전체 352개 통과. (이 시험은 슬롯 계산·영속·손상 처리·재시작 중간 시각 무주문안·늦은 슬롯 건너뜀을 다룬다. 실제 프로세스 재시작·부분체결·거래소 장애 통합 시험은 하지 않았다.)
+[diff]diff --git a/v5/shadow.py b/v5/shadow.py
+index e448580..f498445 100644
+--- a/v5/shadow.py
++++ b/v5/shadow.py
+@@ -35,6 +35,45 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝
+ GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
+ 
+ 
++# 고정 시간 슬롯 주문안(2026-11-04 합의 B): 재시작은 새 판단을 만들지 않고 다음 정규 슬롯(매시 정각 뒤)을 기다린다.
++SLOT_SECONDS = 3600
++SLOT_DELAY = 90        # 슬롯 시작 뒤 이 시간이 지나 마감 봉 판단이 끝난 다음에 만든다
++SLOT_MAX_LATE = 600    # 이 시간이 지난 슬롯은 소급해서 만들지 않는다(사전 정한 허용 지연)
++SLOT_FILE = DATA / 'plan_slot.json'
++
++
++def current_slot(now):
++    return int(now // SLOT_SECONDS) * SLOT_SECONDS
++
++
++def slot_due(now, last_slot):
++    """지금 만들어야 할 슬롯 시작 시각. 이미 처리했거나 시작 전·허용 지연 밖이면 None."""
++    slot = current_slot(now)
++    if slot > last_slot and SLOT_DELAY <= now - slot <= SLOT_MAX_LATE:
++        return slot
++    return None
++
++
++def load_last_slot(now, path=None):
++    """영속 기록된 마지막 슬롯. 파일이 없거나 손상됐으면 현재 슬롯을 처리한 것으로 간주한다(중복 주문안보다 한 슬롯 건너뛰는 쪽이 안전)."""
++    path = path or SLOT_FILE
++    try:
++        value = json.loads(path.read_text(encoding='utf-8'))['slot']
++        if type(value) in (int, float) and math.isfinite(value) and value >= 0:
++            return int(value)
++    except (OSError, ValueError, KeyError, TypeError):
++        pass
++    return current_slot(now)
++
++
++def claim_slot(slot, path=None):
++    """주문안을 만들기 전에 슬롯을 먼저 기록한다. 기록 뒤 장애가 나도 같은 슬롯의 주문안이 두 번 만들어지지 않는다."""
++    path = path or SLOT_FILE
++    tmp = path.with_name(path.name + '.tmp')
++    tmp.write_text(json.dumps({'slot': int(slot), 'claimed_at': now_iso()}), encoding='utf-8')
++    tmp.replace(path)
++
++
+ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None):
+     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
+ 
+@@ -433,6 +472,8 @@ class Shadow:
+             self.decide(boundary(time.time() - SETTLE, self.base.tf * 60))
+         last_stop = last_snap = 0
+         next_report = time.time() + 60
++        slot_mode = bool(self.cfg.get('live', {}).get('slot_plans'))
++        last_slot = load_last_slot(time.time()) if slot_mode else None
+         while not STOP.exists():
+             now = time.time()
+             try:
+@@ -445,7 +486,17 @@ class Shadow:
+                 if now - last_snap >= 300:
+                     self.snapshot()
+                     last_snap = now
+-                if now >= next_report and self.base_ranked:
++                if slot_mode:
++                    slot = slot_due(now, last_slot)
++                    if slot is not None and self.base_ranked:
++                        claim_slot(slot)  # 먼저 기록: 이후 어떤 장애가 나도 이 슬롯은 한 번만
++                        last_slot = slot
++                        try:
++                            self.make_proposal()
++                        except Exception:
++                            traceback.print_exc()
++                        report(self.base, self.prop)
++                elif now >= next_report and self.base_ranked:
+                     try:
+                         self.make_proposal()
+                     except Exception:
+
+[신규 시험 코드]import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import shadow as sh
+
+H = 3600
+BASE = 1_794_000_000 // H * H  # 어떤 정각
+
+
+class SlotDue(unittest.TestCase):
+    def test_waits_for_delay_after_the_top_of_the_hour(self):
+        self.assertIsNone(sh.slot_due(BASE + 10, BASE - H))
+        self.assertIsNone(sh.slot_due(BASE + sh.SLOT_DELAY - 1, BASE - H))
+        self.assertEqual(sh.slot_due(BASE + sh.SLOT_DELAY, BASE - H), BASE)
+
+    def test_same_slot_is_never_due_twice(self):
+        self.assertIsNone(sh.slot_due(BASE + 120, BASE))
+
+    def test_late_slot_is_skipped_not_replayed(self):
+        # 재시작이 슬롯 시작 뒤 허용 지연보다 늦으면 놓친 슬롯을 소급 실행하지 않는다.
+        self.assertEqual(sh.slot_due(BASE + sh.SLOT_MAX_LATE, BASE - H), BASE)
+        self.assertIsNone(sh.slot_due(BASE + sh.SLOT_MAX_LATE + 1, BASE - H))
+        self.assertIsNone(sh.slot_due(BASE + 1200, BASE - H))
+
+    def test_restart_in_the_middle_of_an_hour_creates_no_plan(self):
+        for minutes in (5, 20, 37, 49, 59):
+            now = BASE + minutes * 60
+            last = sh.current_slot(now)  # 첫 가동: 현재 슬롯을 처리한 것으로 간주
+            self.assertIsNone(sh.slot_due(now, last))
+            self.assertIsNone(sh.slot_due(now + 30, last))
+
+
+class SlotPersistence(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'plan_slot.json'
+
+    def test_missing_or_corrupt_file_counts_as_current_slot_done(self):
+        now = BASE + 200
+        self.assertEqual(sh.load_last_slot(now, self.path), BASE)
+        for text in ('', '{', '[]', '{"slot": "x"}', '{"slot": -5}', '{"slot": NaN}'):
+            self.path.write_text(text, encoding='utf-8')
+            self.assertEqual(sh.load_last_slot(now, self.path), BASE, text)
+        self.assertIsNone(sh.slot_due(now, sh.load_last_slot(now, self.path)))
+
+    def test_claim_is_durable_and_blocks_a_second_plan_after_restart(self):
+        now = BASE + 120
+        last = BASE - H
+        slot = sh.slot_due(now, last)
+        self.assertEqual(slot, BASE)
+        sh.claim_slot(slot, self.path)
+        self.assertEqual(json.loads(self.path.read_text(encoding='utf-8'))['slot'], BASE)
+        # 프로세스가 죽었다 다시 떠도(메모리 상태 소실) 기록으로 같은 슬롯은 다시 만들어지지 않는다.
+        restarted_last = sh.load_last_slot(now + 30, self.path)
+        self.assertIsNone(sh.slot_due(now + 30, restarted_last))
+        self.assertEqual(sh.slot_due(BASE + H + 120, restarted_last), BASE + H)
+
+    def test_claim_happens_before_generation_so_a_crash_cannot_duplicate(self):
+        # 생성기 흐름과 같은 순서를 흉내: claim -> (장애) -> 재시작 -> 같은 슬롯 재생성 시도
+        slot = sh.slot_due(BASE + 100, BASE - H)
+        sh.claim_slot(slot, self.path)
+        generated = []
+        try:
+            raise RuntimeError('생성 중 장애')
+        except RuntimeError:
+            pass
+        last = sh.load_last_slot(BASE + 130, self.path)
+        if sh.slot_due(BASE + 130, last) is not None:
+            generated.append('again')
+        self.assertEqual(generated, [])
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+[질문] (1) 위 구현이 합의 B 문장을 충족하는지 항목별로(재시작 무판단, 소급 금지, 영속 기록 순서, 손상 시 보수적 처리, 중복 방지) 판정. (2) 허점: 예) 슬롯 경계에서 bot의 15분 decide와의 경쟁, 시계 이동, 기록 후 생성 실패로 한 슬롯 손실, 위험 청산 경로 영향, 첫 가동 시 위상 전환, 다중 프로세스. (3) 통합 시험이 없는 점이 배포 조건으로 부족한가? 배포 전 필요한 최소 시험을 제시. (4) 마지막 줄 '판정: 동의|수정 후 동의|반대'. 14줄 이내.

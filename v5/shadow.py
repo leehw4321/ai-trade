@@ -35,6 +35,64 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝 
 GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
 
 
+# 고정 시간 슬롯 주문안(2026-11-04 합의 B): 재시작은 새 판단을 만들지 않고 다음 정규 슬롯(매시 정각 뒤)을 기다린다.
+SLOT_SECONDS = 3600
+SLOT_DELAY = 90        # 슬롯 시작 뒤 이 시간이 지나 마감 봉 판단이 끝난 다음에 만든다
+SLOT_MAX_LATE = 600    # 이 시간이 지난 슬롯은 소급해서 만들지 않는다(사전 정한 허용 지연)
+SLOT_FILE = DATA / 'plan_slot.json'
+
+
+def current_slot(now):
+    return int(now // SLOT_SECONDS) * SLOT_SECONDS
+
+
+def slot_due(now, last_slot):
+    """지금 만들어야 할 슬롯 시작 시각. 이미 처리했거나 시작 전·허용 지연 밖이면 None."""
+    slot = current_slot(now)
+    if slot > last_slot and SLOT_DELAY <= now - slot <= SLOT_MAX_LATE:
+        return slot
+    return None
+
+
+def load_last_slot(now, path=None):
+    """영속 기록된 마지막 슬롯. 파일이 없거나 손상·비정각·미래 값이면 현재 슬롯을 처리한 것으로 간주한다(중복 주문안보다 한 슬롯 건너뛰는 쪽이 안전).
+
+    가동 시작에는 항상 현재 슬롯도 처리한 것으로 본다: 재시작이 허용 지연창 안에 있어도 새 판단을 만들지 않고 다음 정규 슬롯을 기다린다."""
+    path = path or SLOT_FILE
+    now_slot = current_slot(now)
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))['slot']
+        if type(value) in (int, float) and math.isfinite(value) and value % SLOT_SECONDS == 0 and 0 <= value <= now_slot:
+            return max(int(value), now_slot)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
+        pass
+    return now_slot
+
+
+def plan_tick(now, last_slot, ready, claim, make):
+    """한 번의 반복에서 할 일. (새 last_slot, 상태). 신호가 아직 최신이 아니면 기록하지 않고 허용 지연 안에서 다시 시도한다."""
+    slot = slot_due(now, last_slot)
+    if slot is None:
+        return last_slot, None
+    if not ready():
+        return last_slot, 'waiting'
+    claim(slot)  # 먼저 기록: 이후 어떤 장애가 나도 이 슬롯은 한 번만
+    try:
+        make()
+    except Exception:
+        traceback.print_exc()
+        return slot, 'failed'
+    return slot, 'made'
+
+
+def claim_slot(slot, path=None):
+    """주문안을 만들기 전에 슬롯을 먼저 기록한다. 기록 뒤 장애가 나도 같은 슬롯의 주문안이 두 번 만들어지지 않는다."""
+    path = path or SLOT_FILE
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(json.dumps({'slot': int(slot), 'claimed_at': now_iso()}), encoding='utf-8')
+    tmp.replace(path)
+
+
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
@@ -433,6 +491,8 @@ class Shadow:
             self.decide(boundary(time.time() - SETTLE, self.base.tf * 60))
         last_stop = last_snap = 0
         next_report = time.time() + 60
+        slot_mode = bool(self.cfg.get('live', {}).get('slot_plans'))
+        last_slot = load_last_slot(time.time()) if slot_mode else None
         while not STOP.exists():
             now = time.time()
             try:
@@ -445,7 +505,19 @@ class Shadow:
                 if now - last_snap >= 300:
                     self.snapshot()
                     last_snap = now
-                if now >= next_report and self.base_ranked:
+                if slot_mode:
+                    def ready():
+                        try:
+                            self.proposal_signal(now)  # 마감 봉 순위가 최신일 때만(판단 완료 전에는 기록하지 않고 기다린다)
+                            return bool(self.base_ranked)
+                        except ValueError:
+                            return False
+                    last_slot, status = plan_tick(now, last_slot, ready, claim_slot, self.make_proposal)
+                    if status in ('made', 'failed'):
+                        report(self.base, self.prop)
+                    if now < last_slot - SLOT_SECONDS:
+                        print(f'시계 역행 의심: 현재 {now:.0f} < 기록 슬롯 {last_slot}. 새 주문안은 만들지 않는다.', flush=True)
+                elif now >= next_report and self.base_ranked:
                     try:
                         self.make_proposal()
                     except Exception:

@@ -57,7 +57,9 @@ class GitStore:
         if any(s in text for s in ('stale info', 'fetch first', 'non-fast-forward', 'cannot lock ref')):
             return 'reference_conflict'
         if any(s in text for s in ('could not resolve', 'failed to connect', 'connection timed out',
-                                   'connection reset', 'unable to access', 'ssl certificate')):
+                                   'connection reset', 'unable to access', 'ssl certificate',
+                                   'rpc failed', 'hung up', 'schannel', 'openssl', 'gnutls', 'early eof',
+                                   'timed out', 'returned error: 5', 'http 5')):
             return 'network_or_tls'
         return 'git_failure'
 
@@ -114,10 +116,13 @@ class GitStore:
         result = self.git('push', '--quiet', f'--force-with-lease={REF}:{expected}',
                           self.remote, f'{commit}:{REF}', check=False)
         if result.returncode:
-            if self.failure_category(result.stderr) == 'network_or_tls':
-                raise SessionUnverified('GitHub 실행권 확인 실패(network_or_tls). 중복 실행 방지를 위해 주문을 중단합니다.')
-            # A competing claimant may win. Never overwrite it blindly.
-            return False
+            category = self.failure_category(result.stderr)
+            if category == 'reference_conflict':
+                # Someone else moved the ref: a competing claimant may have won. Never overwrite it blindly.
+                return False
+            # Anything else (network, timeout, unrecognised server error) says nothing about who owns the lease.
+            # The caller re-reads the ref, which is what actually decides ownership.
+            raise SessionUnverified(f'GitHub 실행권 갱신 확인 불가({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
         return True
 
 

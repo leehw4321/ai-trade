@@ -72,6 +72,17 @@ class GitRetry(unittest.TestCase):
                                                                     completed(1, '! [rejected] (stale info)')]):
             self.assertFalse(self.store.cas('abc', {'owner': 't'}))
 
+    def test_unrecognised_push_failure_is_unverified_not_lost(self):
+        # 2026-11-04 07:31: an 8 s push failure with an unrecognised message used to end the bot as "lost".
+        with mock.patch('session_guard.subprocess.run', side_effect=[completed(0), completed(0), completed(0),
+                                                                    completed(1, 'error: something unexpected')]):
+            with self.assertRaises(sg.SessionUnverified):
+                self.store.cas('abc', {'owner': 't'})
+        with mock.patch('session_guard.subprocess.run', side_effect=[completed(0), completed(0), completed(0),
+                                                                    completed(1, 'error: RPC failed; HTTP 502')]):
+            with self.assertRaises(sg.SessionUnverified):
+                self.store.cas('abc', {'owner': 't'})
+
     def test_timeout_is_unverified(self):
         with mock.patch('session_guard.subprocess.run', side_effect=subprocess.TimeoutExpired('git', 25)):
             with self.assertRaises(sg.SessionUnverified):

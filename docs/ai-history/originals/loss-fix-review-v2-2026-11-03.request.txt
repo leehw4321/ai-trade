@@ -1,0 +1,29 @@
+You are the actual Claude reviewer working with ChatGPT/Codex on the user's V5 trading bot. Tools are disabled. Review ONLY the bounded algorithm and proposed code contract below; no account files, credentials, or order identifiers are supplied. Respond in Korean. Do not claim unseen code or profitability is verified.
+
+Correction: the first review prompt suffered Windows pipe encoding corruption in its Korean prose. The original is preserved. This UTF-8 English prompt is the authoritative complete spec, replacing that garbled prose for this discussion.
+
+User request: Claude has resumed reasoning; discuss together and improve the repeated loss structure. New buying is currently halted by the existing daily-loss rule. Do not resume buying, loosen limits, alter position sizing or exit thresholds, or exempt execution ownership checks in this change.
+
+Findings supported by the existing executed ledger/code audit:
+1. On two occasions the same generated plan sold a held coin then bought the same coin again two seconds later. Generator sells held rank>M=5, then defines keep=held minus sells, then buys up to3 eligible coins from top8. Sold coins become eligible again. Receiver executes sells then buys. Generator reentry checks use the last_sell snapshot BEFORE executing this sale.
+2. The existing 18-hour cumulative return cap (15%) is checked at the strategy signal close only. Anchor100, signal close110 passes; a later actual ask120 still passes if spread/cash checks pass. Completed15-minute signal freshness checks already exist, but an extra JSON write is not a newer market signal. Long lookback rank also does not itself imply upward short-term price momentum.
+3. Rank6-8 unheld coins can still be bought and sold next cycle under M5. This separate strategy-policy mismatch needs an independent comparison; do not silently change top8, M5, buy3 here.
+
+SAMEPLAN-v1 exact proposed contract:
+- Generator excludes ALL originally held markets and all markets queued for sale from new buys. This preserves top8 scan/buy3 and existing size/limit settings.
+- Receiver rejects the ENTIRE conflicting plan before the FIRST account/order API call if sell and buy market sets intersect. Thus stale generators cannot sell/rebuy.
+- Receiver rereads current durable last_sell just before buy. Enforce existing cooldown (profit2h, loss6h, expiry24h), plus existing profitable-sale dip requirement using fresh15-minute ATR and actual ask. Loss reentry after6h needs no ATR. Never relax an existing cooldown/limit. Same-plan/cooldown checks apply to manual and automatic paths.
+- Initial7 offline tests passed for prior staging; final regression tests and fullV5 suite required.
+
+ASKCAP-v1 exact proposed contract (implementation underway):
+- Each AUTOMATIC proposal buy carries per-market entry_context {signal_close, anchor_close=signal_close/(1+rs), rs, signal_closed_at, signal_tf_minutes}. Source metadata identifies the same completed strategy candle as outer proposal.
+- Receiver uses its CURRENT chase_rs_cap (currently.15), never trusts a producer-supplied cap. Require finite positive prices, finite compatible rs, source identity and timeframe consistency, latest completed candle and evaluation time rules. Missing/malformed/stale/mismatched context skips affected automatic BUY, without suppressing protective sells. Do not fall back to manual execution on context validation failure.
+- Recheck fresh orderbook ask AFTER potentially slow stop-ATR lookup, immediately BEFORE durable pending-order intent and POST. Reject ask/anchor_close-1 >= current cap. Recheck source freshness there too. Respect existing disabled-cap semantics if configured.
+- Market orders mean observed ask is not a guarantee of the final fill price. Preserve spread check and record observed ask with the decision; do not claim a limit-price guarantee.
+- Existing manual execute path keeps its existing source/ask-cap policy; the new context requirement is automatic proposals ONLY. It still gets same-plan/current-last_sell protections. Current account-adopted runtime uses automatic proposals. Do you see a reason this boundary needs tightening before deployment?
+- No changes to config, cash/ratio caps, stop/trail/partial rules, daily halt or account adoption/ownership protocol. This is enforcement of existing exclusion/reentry/overheat rules, not a validated new profitable strategy.
+
+Please answer:
+1. Agree, oppose, or specify concrete changes for SAMEPLAN-v1 and ASKCAP-v1 separately. If you agree, explicitly state acceptance of the exact contract, subject to implementation review/tests.
+2. Identify missing edge cases and tests needed before safe deployment. Challenge any indirect protection/exit regression.
+3. Separate this bug repair from future strategy research (short-term entry timing, market-regime filter, rank-policy mismatch, and outage protection). Do not invent optimized thresholds.

@@ -1,0 +1,65 @@
+"""Controlled recovery reaches normal CAS; malformed state and pending writes cannot."""
+from copy import deepcopy
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+import session_guard as sg
+import upbit
+import test_reconciliation_guard as fixtures
+
+
+class Store:
+    def __init__(self, state):
+        self.state, self.version, self.calls = deepcopy(state), 'v', 0
+    def read(self): return self.version, deepcopy(self.state)
+    def cas(self, old, state):
+        self.calls += 1
+        if old != self.version: return False
+        self.state, self.version = deepcopy(state), self.version + 'x'
+        return True
+
+
+class ReconciliationSession(unittest.TestCase):
+    def setUp(self):
+        self.f = fixtures.ProofGate()
+        self.f.setUp()
+        self.addCleanup(self.f.doCleanups)
+        self.f.write_json(self.f.root / 'config.json', self.f.cfg)
+        self.store = Store(self.f.lease)
+        self.options = dict(self.f.cfg['session'], live_enabled=True)
+        self.worker = sg.SessionGuard(self.f.root, self.options, store=self.store, clock=lambda: 2000.)
+
+    def test_verified_bridge_uses_normal_cas_and_preserves_source_basis(self):
+        self.assertTrue(self.worker.acquire())
+        self.assertEqual(self.store.calls, 1)
+        self.assertEqual(self.store.state['checkpoint'], fixtures.guard.canonical_sha256(self.f.target))
+        self.assertEqual(self.f.target['risk_loss_offset'], self.f.source['risk_loss_offset'])
+        self.worker.assert_owner()
+        self.worker.release()
+
+    def test_forged_financial_result_does_not_reach_cas(self):
+        self.f.target['realized'] += 100
+        self.f.publish()
+        with self.assertRaises(sg.SessionLost): self.worker.acquire()
+        self.assertEqual(self.store.calls, 0)
+
+    def test_transition_and_incomplete_restore_markers_block_even_before_read(self):
+        for name in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
+                     'data/reconciliation/APPLYING'):
+            marker = self.f.root / name
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text('synthetic transition')
+            with patch.object(self.store, 'read', side_effect=AssertionError('lease read should not occur')):
+                with self.assertRaises(sg.SessionLost): self.worker.acquire()
+            marker.unlink()
+        self.assertEqual(self.store.calls, 0)
+
+    def test_marker_after_acquire_blocks_order_before_http(self):
+        self.worker.acquire()
+        (self.f.data / 'handoff-restore-pending.json').write_text('{}')
+        with patch.object(upbit, 'ORDER_GUARD', self.worker.assert_owner), \
+             patch.object(upbit.urllib.request, 'urlopen') as http:
+            with self.assertRaises(sg.SessionLost): upbit.market_buy('KRW-BTC', 5000)
+        http.assert_not_called()

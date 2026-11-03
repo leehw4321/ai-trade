@@ -1,0 +1,235 @@
+??? ?? Claude Code ??????. ChatGPT/Codex? ???? V5 ? ?? ??? ?????. ??? ?? ??, ?? ?? ??? ????? ??? ??????. ?? ??/?/????? ????. ????? ??? ???? ??/??/??? ?????. ??? ???? ?? ?? ??? ??? ???? ????.
+
+??? ?? ??: "???? ??? ???? ?? ???? ????? ???". ?? ?? ??? ???? ?? ??? ?? ?2????2?? ??????. ?? ??? ?? ?? ?? ??? ????/??????/????? ?? ?????? ?????.
+
+??? ??:
+A. shadow.proposal? rank>M5? ??? ??? keep=holdings-sells? ?? top8?? ??3?? ???? ?? ? ??? ??????. ???execute? ?????, ?? reentry ??? ?????last_sells? ???.
+B. ??18?? ???? ?? ???? ??? ?????? ????. ?? chase_rs_cap=.15? ?? ???? ????? ??100 ??110? ? ??? ???? ask120? ?????. ??? ????15???????? ??? ?? ????. ?? ??15%??? ???? ???? ???? ???.
+C. ?????????? ??? ?????/????? ???????? ?? ??? ????. ??? ??/??? ???? ?? ???????? ???. rank6~8???????rank>M5?? ????? ????.
+
+?? SAMEPLAN-v1: ???? ?????? ????? ??????? ?????? ??. ???? ??????????? ??????? ????. ????last_sell?? ???????? ????? ????? ?? ??. ??????7????. ??? ??diff.
+?? ASKCAP-v1(???): ??proposal ??? entry_context={signal_close, anchor_close=signal_close/(1+rs), rs, signal_closed_at, signal_tf_minutes}. receiver???? cap??; sourceidentity/finite/positive/rs???/????? ??. ?????? missing/???context? ????. sell?context????. _trade?ATR??? durableintent/??POST?? ?orderbook ask? ask/anchor-1>=??cap?????. ?????? observedask??????????????. manualexecute????????????????sameplan/reentry???. ????/??/???/???????.
+
+????:
+1. ????????????, ??????????????????.
+2. ??15%cap????????????????????????, context??????.
+3. ????? SAMEPLAN-v1? ASKCAP-v1 ?? ?????????, ???????????????????. ???????????????.
+
+--- before/shadow.py
++++ staged/shadow.py
+@@ -70,13 +70,20 @@
+         reasons.append(f'{m[4:]} 매도 100% (약 {v:,.0f}원): {why}')
+     cash = (krw + sold * 0.997) * 0.98
+     room = max(0.0, caps['max_total_buy_krw'] - bought)
+-    keep = set(holdings) - set(sells)
++    # Eligibility is based on the inventory at plan creation, not the inventory after
++    # hypothetical sales. A queued sale must never make the same coin a fresh buy.
++    originally_held = set(holdings)
++    sell_queued = set(sells)
+     picks = []
+     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
+     for r in ranked[:scan]:
+         if len(picks) >= want:
+             break
+-        if r['market'] in entry_ok and r['rs'] > 0 and r['market'] not in keep:
++        if r['market'] in originally_held or r['market'] in sell_queued:
++            if r['market'] in sell_queued:
++                reasons.append(f'{r["market"][4:]} 동일 주문안 매도 예정: 재매수 금지')
++            continue
++        if r['market'] in entry_ok and r['rs'] > 0:
+             last = (last_sells or {}).get(r['market'])
+             why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)
+             if why:
+
+--- before/live.py
++++ staged/live.py
+@@ -519,6 +519,11 @@
+     def execute(self, plan, markets):
+         if self.has_uncertain_orders(): return '미확정 주문 대사 중: 새 주문안 보류'
+         orders = parse(plan[1])
++        sold_markets = {m for side, m, _ in orders if side == 'sell'}
++        bought_markets = {m for side, m, _ in orders if side == 'buy'}
++        if sold_markets & bought_markets:
++            # Reject before the first account request or order; old generators cannot sell then rebuy.
++            return '실행 거부: 동일 주문안 매도·매수 종목 충돌 ' + ', '.join(sorted(sold_markets & bought_markets))
+         if not orders:
+             return '주문 없음 (매도 없음·매수 없음)'
+         acc = {r['currency']: r for r in upbit.accounts()}
+@@ -561,6 +566,13 @@
+         c = self.cfg
+         if self.d['halted']:
+             return '손실 중단선 도달로 신규 매수 중단 상태'
++        last = self.d.get('last_sell', {}).get(m)
++        if last:
++            # Re-read the current durable state, not the producer's pre-sale snapshot.
++            elapsed = time.time() - last['time']
++            hours = self.p.reentry_profit_hours if last.get('profit') else self.p.reentry_loss_hours
++            if 0 <= elapsed < min(hours, self.p.reentry_window_hours) * 3600:
++                return '현재 매도 장부 기준 재진입 대기: ' + str(m)
+         if self.has_uncertain_orders():
+             return '미확정 주문 대사 중: 신규 매수 보류'
+         if self.d.get('valuation_incomplete'):
+@@ -581,6 +593,12 @@
+         ob = upbit.orderbooks([m])[m]
+         if (ob['ask'] - ob['bid']) / ob['ask'] > c['max_spread']:
+             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} > {c["max_spread"]:.0%}'
++        if last and time.time() - last['time'] < self.p.reentry_window_hours * 3600:
++            atr = st.wilder_atr(upbit.completed_candles(m, self.p.tf, 100))
++            if atr is None or not math.isfinite(atr) or atr <= 0:
++                return '재진입 판정 ATR 자료 부족'
++            why = st.reentry_block({'close': ob['ask'], 'atr': atr}, last, time.time(), self.p)
++            if why: return why
+         return ''
+ 
+     def rebase_adopted_stops(self, prices):
+
+
+Existing code live.py:381
+                    try:
+                        self.record({'event': '미확정 주문 조회 대기', 'slot': key, 'reason': message})
+                    except OSError:
+                        pass
+        return not self.has_uncertain_orders()
+
+    def _trade(self, side, market, amount, reason, risk=False):
+        if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
+        if risk:
+            if side != 'ask': raise ValueError('위험 청산은 매도만 허용')
+            if self.market_has_uncertain_order(market): raise RuntimeError('동일 종목 미확정 주문: 중복 청산 차단')
+        elif self.has_uncertain_orders():
+            raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
+        atr = None
+        if side == 'bid':
+            atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
+            if atr is None or not math.isfinite(atr) or atr <= 0:
+                raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+        pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
+                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
+        risk_market = market if risk else None
+        self._set_pending(pending, risk_market)
+        self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
+        try:
+            order = (upbit.market_buy(market, amount, identifier=pending['identifier']) if side == 'bid'
+                     else upbit.market_sell(market, amount, identifier=pending['identifier']))
+        except (upbit.OrderRejected, SessionLost) as error:
+            # Rejected submission or failed lease check happened before acceptance; do not create a phantom order.
+            self._set_pending(None, risk_market)
+            self.save()
+            self.record({'event': '주문 전송 차단·거부', 'market': market,
+                         'identifier': pending['identifier'], 'reason': str(error)[:300]})
+            raise
+        if order.get('uuid'):
+            pending['uuid'] = order['uuid']; self.save()
+        order = self._wait(order)
+        if not self._apply_pending(order, risk_market):
+            raise RuntimeError('주문 미종결: 체결 반영 후 신규 주문 대기')
+        return order
+
+    def poll(self, markets):
+        """봇 주문안(위임)과 토론 합의 주문안을 확인하고, 새것이면 한 번 실행한다."""
+        if not self.cfg['enabled']:
+            return
+        if not self.recover_all_pending(): return
+        if self.cfg['auto_proposal']:
+            self.poll_proposal(markets)
+        # An adopted account uses fresh strategy proposals, never replays historical discussion orders.
+        if self.d.get('account_adoption'): return
+        if not DEBATE.exists():
+            return
+        mtime = DEBATE.stat().st_mtime
+        if mtime == self.doc_mtime:
+            return
+        self.doc_mtime = mtime
+        doc = DEBATE.read_text(encoding='utf-8')
+        try:
+            self.apply_limits(doc)
+        except Exception as ex:
+            self.record({'event': '한도 변경 실패', 'reason': f'{type(ex).__name__}: {ex}'})
+        plan = latest_plan(doc)
+        if not plan:
+            return
+        key = hashlib.sha256(f'{plan[0]}|{plan[1]}'.encode()).hexdigest()[:16]
+        if key in self.d['executed']:
+
+
+Existing code strategy.py:91
+
+def chase_block(r, p):
+    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None."""
+    if p.chase_rs_cap > 0 and r['rs'] >= p.chase_rs_cap:
+        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {p.chase_rs_cap:.0%}'
+    return None
+
+
+def cap_stop(entry, stop, p):
+    """손절가가 기준가에서 stop_max_pct보다 멀면 그 거리로 당긴다(올리기만 함)."""
+    if p.stop_max_pct > 0:
+        return max(stop, entry * (1 - p.stop_max_pct))
+    return stop
+
+
+def reentry_block(r, last, now, p):
+    """직전 매도 기록 last={'time','price','profit'}가 있으면 재진입을 더 까다롭게 본다. 막으면 사유 문자열, 아니면 None.
+    수익 청산: reentry_profit_hours 뒤부터, 그리고 reentry_window_hours 안에서는 현재가가 매도가보다 reentry_dip_atr×ATR 이상 낮을 때만(고점에서 팔고 눌리면 다시 잡기).
+    손실 청산: reentry_loss_hours 뒤부터."""
+    if not last:
+        return None
+    hours = (now - last['time']) / 3600
+    if hours >= p.reentry_window_hours:
+        return None
+    if last.get('profit'):
+        if hours < p.reentry_profit_hours:
+            return f'수익 청산 후 재진입 대기 {hours:.1f}/{p.reentry_profit_hours:g}시간'
+        atr_pct = r.get('atr', 0) / r['close'] if r.get('close') else 0
+        limit = last['price'] * (1 - p.reentry_dip_atr * atr_pct)
+        if p.reentry_dip_atr > 0 and r.get('close', 0) > limit:
+            return f'수익 청산 후 재진입은 매도가 {last["price"]:,.4g}보다 {p.reentry_dip_atr:g}ATR 이상 눌려야 함(현재 {r["close"]:,.4g} > {limit:,.4g})'
+        return None
+    if hours < p.reentry_loss_hours:
+        return f'손실 청산 후 재진입 대기 {hours:.1f}/{p.reentry_loss_hours:g}시간'
+    return None
+
+
+def plan(ranked, held, banned, entry_ok, p):
+    """15번 교체 규칙. held: 보유 종목, banned: 재진입 금지, entry_ok: 신규 진입 가능한 종목 집합.
+
+    반환: (매도 [(종목, 사유)], 매수 후보 [종목], 판단 보류 [종목])
+    """
+
+
+Existing code shadow.py:226
+        self.ledgers = {n: Ledger(SHADOW / n) for n in self.vars}
+        self.markets = {}
+        self.prop = None
+        self.base_ranked, self.rs_out, self.entry_ok = [], {}, set()
+        self.signal_closed_at = self.signal_tf_minutes = self.evaluated_at = None
+
+    def proposal_signal(self, now=None):
+        """Return provenance only for the current completed signal, never a relabelled cache."""
+        now = time.time() if now is None else now
+        tf = self.base.tf
+        if type(tf) is not int or tf <= 0 or self.signal_tf_minutes != tf:
+            raise ValueError('주문안 신호 주기 불일치: 새 판단 필요')
+        closed, evaluated = self.signal_closed_at, self.evaluated_at
+        if any(type(value) not in (int, float) or not math.isfinite(value)
+               for value in (now, closed, evaluated)):
+            raise ValueError('주문안 신호 출처 누락 또는 비정상 시각')
+        expected = boundary(now - SETTLE, tf * 60)
+        if closed != expected or not closed + SETTLE <= evaluated <= now:
+            raise ValueError('주문안 신호가 최신 마감 판단과 다름: 오래된 순위 사용 금지')
+        if not self.base_ranked:
+            raise ValueError('주문안 순위 자료 없음')
+        for row in self.base_ranked:
+            try:
+                bar_close = dt.datetime.fromisoformat(row['bar']).timestamp() + tf * 60
+            except (KeyError, TypeError, ValueError, OverflowError) as error:
+                raise ValueError('주문안 순위 봉 시각 오류') from error
+            if bar_close != closed:
+                raise ValueError('주문안 순위와 신호 마감 시각 불일치')
+        return {'signal_closed_at': closed, 'signal_tf_minutes': tf, 'evaluated_at': evaluated}
+
+    def make_proposal(self):
+        self.proposal_signal()  # Refuse stale cached ranks before any private account lookup.
+        rows = upbit.accounts()
+        krw = sum(float(r['balance']) for r in rows if r['currency'] == 'KRW')
+        coins = {'KRW-' + r['currency']: float(r['balance']) for r in rows

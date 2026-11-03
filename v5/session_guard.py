@@ -145,6 +145,12 @@ class SessionGuard:
         state = json.loads(file.read_text(encoding='utf-8'))
         return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
+    def assert_transition_clear(self):
+        for relative in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
+                         'data/reconciliation/APPLYING'):
+            if (self.root / relative).exists():
+                raise SessionLost('인계·장부 대사 적용 중이거나 복구 확인이 필요합니다. 주문을 시작하지 않습니다.')
+
     def record(self, **values):
         state = {'owner': self.token, 'updated': self.clock(), 'expires': self.clock() + 180,
                  'request': '', 'checkpoint': self.required_checkpoint or self.checkpoint_hash()}
@@ -152,6 +158,7 @@ class SessionGuard:
         return state
 
     def acquire(self, confirm=confirm_takeover, wait_seconds=240):
+        self.assert_transition_clear()
         oid, state = self.store.read()
         if state.get('owner') and not confirm():
             return False
@@ -188,16 +195,31 @@ class SessionGuard:
                      and adoption.get('scope') == 'all_current_holdings'
                      and adoption.get('no_open_orders') is True
                      and 0 <= self.clock() - adoption.get('epoch', 0) <= 600)
+            if not valid and self.cfg.get('account_reconciliation_id'):
+                # Explicit exchange reconciliation is a separate, preserved-basis
+                # recovery bridge. It never fabricates the previous PC's checkpoint.
+                try:
+                    import reconciliation_guard
+                    full_cfg = json.loads((self.root / 'config.json').read_text(encoding='utf-8-sig'))
+                    pins = ('account_reconciliation_id', 'account_reconciliation_source_checkpoint',
+                            'account_reconciliation_source_epoch')
+                    same_pins = all(full_cfg.get('session', {}).get(k) == self.cfg.get(k) for k in pins)
+                    valid = same_pins and reconciliation_guard.validate(self.root, full_cfg, state, self.clock())
+                except (OSError, ValueError, TypeError, ImportError):
+                    valid = False
             if not valid:
                 raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮기거나 명시적으로 위임된 계좌 인수 절차가 필요합니다.')
             self.required_checkpoint = ''
+        self.assert_transition_clear()
         if not self.store.cas(oid, self.record()):
             raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
         self.acquired = True
+        self.assert_transition_clear()
         return True
 
     def assert_owner(self):
         with self.mutex:
+            self.assert_transition_clear()
             if not self.acquired or self.lost.is_set():
                 raise SessionLost(self.reason or '이 PC에 주문 실행 권한이 없습니다.')
             try:

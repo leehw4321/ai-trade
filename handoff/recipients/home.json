@@ -1,0 +1,7 @@
+{
+  "name": "home",
+  "certificate": "handoff/recipients/home-DESKTOP-DLN2HJJ.pem",
+  "certificate_sha256": "00287f0629909a0bdebcf91ab6e1ace766137d8672caa2de14135df135a52208",
+  "private_key_transferred": false,
+  "private_key_location_on_recipient": "private_handoff/identities/home-DESKTOP-DLN2HJJ/private-key.pem"
+}

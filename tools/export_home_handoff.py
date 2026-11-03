@@ -22,9 +22,11 @@ KST = dt.timezone(dt.timedelta(hours=9))
 def include(path):
     return (path.is_file() and not path.is_symlink()
             and not path.name.lower().startswith('.env')
-            and path.suffix.lower() not in {'.key', '.pem', '.pyc', '.lnk'}
+            and path.suffix.lower() not in {'.key', '.pem', '.pyc', '.lnk', '.zip', '.cms', '.pfx', '.p12'}
+            and path.name.lower() not in {'auth.json', '.credentials.json'}
             and '__pycache__' not in path.parts and '.git' not in path.parts
             and '.venv' not in path.parts and 'node_modules' not in path.parts
+            and 'session_git' not in path.parts and 'private_handoff' not in path.parts
             and not path.name.endswith(('.lock', '.tmp', '.partial')))
 
 
@@ -34,6 +36,9 @@ def export(app, destination, final=False, with_history=False):
         raise ValueError('runtime config missing')
     ledger = app / 'data/live/live.json'
     initial = ledger.read_bytes()
+    config_initial = (app / 'config.json').read_bytes()
+    baseline_file = app / 'pnl_baseline.json'
+    baseline_initial = baseline_file.read_bytes() if baseline_file.exists() else None
     state = json.loads(initial)
     if final and sync_v5.bot_running():
         raise RuntimeError('final export requires normal shutdown of bot and shadow')
@@ -45,6 +50,8 @@ def export(app, destination, final=False, with_history=False):
     temp = target.with_suffix('.partial')
     sources = []
     for file in app.glob('*'):
+        if file.name in ('config.json', 'pnl_baseline.json'):
+            continue
         if file.name == 'config.json' or file.name == 'pnl_baseline.json' or file.suffix in {'.py', '.md'}:
             if include(file): sources.append((file, 'runtime/' + file.name))
     for file in (app / 'data').rglob('*'):
@@ -67,12 +74,18 @@ def export(app, destination, final=False, with_history=False):
                 'final_export_requested': final, 'live_restore_allowed': False,
                 'env_files_included': False,
                 'ledger_sha256': hashlib.sha256(initial).hexdigest(),
+                'config_sha256': hashlib.sha256(config_initial).hexdigest(),
+                'pnl_baseline_present': baseline_initial is not None,
+                'pnl_baseline_sha256': hashlib.sha256(baseline_initial).hexdigest() if baseline_initial is not None else None,
                 'files': [], 'missing_during_export': []}
     head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True)
     manifest['source_git_head'] = head.stdout.strip()
     try:
         with zipfile.ZipFile(temp, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1, allowZip64=True) as bundle:
             bundle.writestr('runtime/data/live/live.json', initial)
+            bundle.writestr('runtime/config.json', config_initial)
+            if baseline_initial is not None:
+                bundle.writestr('runtime/pnl_baseline.json', baseline_initial)
             for i, (file, name) in enumerate(sources):
                 try: bundle.write(file, name)
                 except FileNotFoundError:
@@ -82,8 +95,13 @@ def export(app, destination, final=False, with_history=False):
                 manifest['files'].append({'path': name, 'size': bundle.getinfo(name).file_size})
                 if i and i % 250 == 0: print(f'Archived {i}/{len(sources)} files', flush=True)
             changed = ledger.read_bytes() != initial
+            config_changed = (app / 'config.json').read_bytes() != config_initial
+            baseline_current = baseline_file.read_bytes() if baseline_file.exists() else None
+            baseline_changed = baseline_current != baseline_initial
             manifest['ledger_changed_during_export'] = changed
-            if final and (changed or sync_v5.bot_running()):
+            manifest['config_changed_during_export'] = config_changed
+            manifest['pnl_baseline_changed_during_export'] = baseline_changed
+            if final and (changed or config_changed or baseline_changed or sync_v5.bot_running()):
                 raise RuntimeError('runtime restarted or ledger changed during final export')
             manifest['live_restore_allowed'] = final
             bundle.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2))

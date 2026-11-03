@@ -335,6 +335,46 @@ class Bot:
         held |= {m for m, pos in self.live.d['positions'].items() if pos['qty'] * prices.get(m, 0) >= 5000}
         return held
 
+    def pnl_block(self):
+        """실현손익 관리(D-56). pnl.py가 거래소 체결로 계산한 data/pnl/summary.json을 보여 준다. 접기·펼치기 상태는 브라우저에 기억한다."""
+        e, f = html.escape, DATA / 'pnl' / 'summary.json'
+        head = '<details id=pnlBox><summary class=lg>실현손익 관리 (눌러서 열기·닫기)</summary>'
+        tail = ('</details><script>(function(){var d=document.getElementById("pnlBox");'
+                'try{if(localStorage.getItem("pnlOpen")!=="0")d.open=true;}catch(x){d.open=true;}'
+                'd.addEventListener("toggle",function(){try{localStorage.setItem("pnlOpen",d.open?"1":"0")}catch(x){}});})();</script>')
+        if not f.exists():
+            return head + '<section><p class=muted>아직 계산 전입니다. pnl.py가 거래소 체결을 받아 5분마다 계산합니다.</p></section>' + tail
+        s = json.loads(f.read_text(encoding='utf-8'))
+        won = lambda v: f"<span class={'up' if v > 0 else 'dn' if v < 0 else 'muted'}>{v:+,.0f}원</span>"
+        tiles = ''.join(
+            f"<div class=tile><h2>{e(k)} 실현손익</h2><b>{won(v['realized'])}</b>"
+            f"<span class=muted>매도 {v['sell_orders']}건 · 이익 {v['wins']} / 손실 {v['losses']} · 수수료 {v['fees']:,.0f}원"
+            f"{' · 미확정 ' + str(v['unconfirmed_count']) + '건' if v['unconfirmed_count'] else ''}</span></div>"
+            for k, v in s['periods'].items())
+        src = s['periods'].get('누적', {}).get('by_source', {})
+        src_txt = ' · '.join(f'{e(k)} {v:+,.0f}원' for k, v in src.items()) or '없음'
+        urows = ''.join(
+            f"<tr><td>{e(r['coin'])}{' <span class=warn>불일치</span>' if r['mismatch'] else ''}</td><td class=n>{r['value']:,.0f}</td>"
+            f"<td class=n>{r['cost']:,.0f}</td><td class=n>{won(r['unrealized']) if r['unrealized'] is not None else '원가 불명'}</td></tr>"
+            for r in s['unrealized_rows']) or '<tr><td colspan=4 class=muted>보유 없음</td></tr>'
+        recent = ''.join(
+            f"<li><span class=t>{e(r['time'][5:16].replace('T', ' '))}</span>{e(r['coin'])} · "
+            f"{won(r['realized']) if r['realized'] is not None else '<span class=warn>미확정(' + e(r['why']) + ')</span>'} · {e(r['source'])}</li>"
+            for r in s['recent']) or '<li class=muted>매도 체결 없음</li>'
+        warn = ''
+        if s['mismatch']:
+            warn += f"<div class=warn>체결로 재구성한 수량과 실제 잔고가 다릅니다: {e(', '.join(s['mismatch']))} (입출금·에어드롭 등 주문이 아닌 변동)</div>"
+        if s.get('open_partial'):
+            warn += f"<div class=warn>부분 체결된 미체결 주문 {s['open_partial']}건은 아직 반영하지 않았습니다.</div>"
+        err = DATA / 'pnl' / 'error.json'
+        if err.exists() and err.stat().st_mtime > f.stat().st_mtime:
+            warn += f"<div class=warn>최근 동기화 실패, 마지막 성공 결과입니다: {e(json.loads(err.read_text(encoding='utf-8'))['error'])}</div>"
+        return head + f"""<section>{warn}<div class=tiles>{tiles}</div>
+<div class=cols><div><h3>보유 평가손익 (실현과 별도 · 예상 매도수수료 미차감) 합계 {won(s['unrealized_total'])}</h3>
+<table><tr><th>코인</th><th class=n>평가액</th><th class=n>잔여 원가</th><th class=n>평가손익</th></tr>{urows}</table></div>
+<div><h3>최근 매도 체결의 실현손익</h3><ul>{recent}</ul></div></div>
+<div class=sub>누적 출처별: {src_txt}. 기준: 거래소 체결, 수수료 포함 이동평균 원가, 한국시간 매도 체결 시각, 기초 {e(s['baseline_start'][:16].replace('T', ' '))}부터 · 마지막 동기화 {e((s.get('synced_at') or '-')[5:16].replace('T', ' '))} · 관리용 손익이며 세무상 손익이 아닙니다.</div></section>""" + tail
+
     def write_status(self, prices, next_4h):
         d, e, p = self.ledger.d, html.escape, self.p
         if not self.markets:    # 재시작 직후 첫 판단 전에는 비어 있다
@@ -350,7 +390,7 @@ class Bot:
         # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
-        blocks = self.real_block(prices) + self.live_block(prices) + \
+        blocks = self.real_block(prices) + self.pnl_block() + self.live_block(prices) + \
             '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>

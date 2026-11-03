@@ -6,6 +6,7 @@ start "" pythonw bot.py
 start "" pythonw shadow.py
 if exist stop_exit_study.txt del stop_exit_study.txt
 start "" pythonw exit_study.py
+start "" pythonw pnl.py --loop 300
 timeout /t 5 >nul
 if exist data\status.html (
   if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (

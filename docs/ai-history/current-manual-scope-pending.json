@@ -1,0 +1,16 @@
+{
+  "at": "2026-11-04T00:41:18+09:00",
+  "status": "scheduled_peer_review_new_mode_NOT_DEPLOYED",
+  "current_protected": [
+    "KRW-DOGE"
+  ],
+  "current_runtime_mode_unchanged": true,
+  "immediate_removed": [],
+  "provider_limit_reset": "2026-11-04T04:10:00+09:00",
+  "not_before": "2026-11-04T04:11:00+09:00",
+  "worker_pid": 25424,
+  "local_status": "private_handoff/current-manual/deferred/state.json",
+  "stop_marker": "private_handoff/current-manual/deferred/stop.txt",
+  "condition": "Actual strict full-hash Claude approval, no blockers/conditions, tests/source/user-choice/running-bot/pending/health gates pass. Otherwise record and stop.",
+  "pc_requirement": "Home PC awake and original bot/shadow still running; never revive a stopped or handed-off bot."
+}

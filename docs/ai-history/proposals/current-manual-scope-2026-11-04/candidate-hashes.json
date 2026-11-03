@@ -1,0 +1,33 @@
+{
+  "status": "NOT_DEPLOYED_WAITING_ACTUAL_PEER_CODE_REVIEW",
+  "candidate_sha256": {
+    "tools/apply_manual_protection.py": "ff63b0b500b8817d9ac86aeb9bc6ff0ce35a2efe918df3dac354651d07104078",
+    "v5/asset_protection.py": "d6622e2e0d3eb781cd3676fe4ff28d8e843137f7efe554e8e75f9c7a3dbed112",
+    "v5/current_manual.py": "779ac7f15abb1a9a2b917a4eb41a6d654cbd09ff0a7bd81de51e9aa48f877bed",
+    "v5/live.py": "30702ef9c0a19065b4ce58d5b2440131e14d751ca55236b74d4ffc0b87c574c1",
+    "v5/manual_protection.py": "f3bb74b5ebaba2ef0728a857178673ed86f959b26a50eea1749da69211bd5354",
+    "v5/protection_panel.py": "e224484825ce1920be28b8736f3363106d8a6addcd36bd8f83fb9ed9b46c6d58",
+    "tools/secure_handoff.py": "20d60a98648075b37ac5adf7f5465264d2bbb5b8e4a843a44c3d10063c110211",
+    "tools/test_apply_manual_protection.py": "316abfc79d56514637dfed849f07b40a92953999b807eb915fa214ad508af79b",
+    "v5/test_current_manual.py": "b491de774478ace6f07a70439b30867aad02cdbcfd5c546d1058ff8a70118bf0",
+    "tools/test_current_scope_handoff.py": "71c17edcc30bfc3cbbdabf21c95b1cced7c0339d2e7c3da32631ccfb7ffa4b95"
+  },
+  "approval_sha256": {
+    "tools/apply_manual_protection.py": "ff63b0b500b8817d9ac86aeb9bc6ff0ce35a2efe918df3dac354651d07104078",
+    "v5/asset_protection.py": "d6622e2e0d3eb781cd3676fe4ff28d8e843137f7efe554e8e75f9c7a3dbed112",
+    "v5/current_manual.py": "779ac7f15abb1a9a2b917a4eb41a6d654cbd09ff0a7bd81de51e9aa48f877bed",
+    "v5/live.py": "30702ef9c0a19065b4ce58d5b2440131e14d751ca55236b74d4ffc0b87c574c1",
+    "v5/manual_protection.py": "f3bb74b5ebaba2ef0728a857178673ed86f959b26a50eea1749da69211bd5354",
+    "v5/protection_panel.py": "e224484825ce1920be28b8736f3363106d8a6addcd36bd8f83fb9ed9b46c6d58",
+    "tools/secure_handoff.py": "20d60a98648075b37ac5adf7f5465264d2bbb5b8e4a843a44c3d10063c110211",
+    "tools/test_apply_manual_protection.py": "316abfc79d56514637dfed849f07b40a92953999b807eb915fa214ad508af79b",
+    "v5/test_current_manual.py": "b491de774478ace6f07a70439b30867aad02cdbcfd5c546d1058ff8a70118bf0",
+    "tools/test_current_scope_handoff.py": "71c17edcc30bfc3cbbdabf21c95b1cced7c0339d2e7c3da32631ccfb7ffa4b95",
+    "host/deferred_scope_apply.py": "f0a8a9ff9e4f5e4a03e8f7503246e0d0b5bc836712e238e76c84bf6612ed7d2f",
+    "host/record_deferred_scope_result.py": "38cde68316bf7470b49f41d1194499f1877cfefebf0d174d90b31378e1cc91f5",
+    "host/check_current_scope.py": "99642e97fcbb350642b4cdade4f635e663318461b68d8372b572c6951af768c3",
+    "host/run_claude_review.py": "5591f72122eeba683cdec236beb5b45e2da15f97e194a92b66b2db0a30103ab5"
+  },
+  "tests": "348 V5,131 tools,4 host approval-gate tests passed",
+  "not_before": "2026-11-04T04:11:00+09:00"
+}

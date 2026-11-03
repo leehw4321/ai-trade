@@ -1,0 +1,449 @@
+Actual Claude design peer review, toolsdisabled. User NEW instruction explicitly supersedes the previous unconditional/history protection and BTC/DOGE permanent rules:
+"13개종목중 대부분은 3000원이하 소액으로 봇이 거래하고 남은 잔량들로 소액이라 거래할수 할수 없어 잔량으로 남은것 들이다 5000원이하 소액은 사용자가 직접거래했더라도 보호하지말고 과거거래내역말고 현재 보유 하고잇는 종목중 사용자 직접 거래 종목만 보호 지금 btc같은경우 보유 하고 잇지 않음으로 보호할필요 없음 적용"
+Thus UNHELD and <=5000KRW must NOT be protected, evenmanual. Only CURRENT manual remainingholdings >5000KRW are protected before releasequestion. Oldtradehistory alone neverqualifies. No extrauserconfirmation: scopeoverrideexplicit. Botdustunprotected doesnotmean itcanbe sold<exchange minimum; noforceddustsale/addbuy. Fullcurrent GETwhitelisted below. DOGE~506k actualmanual outsideBOTledger; BTC0; GTC~20/SUI~2271 BOTinheriteddust; CAP/AXIS~94k knownBOT matchedledger. APENFT/SOLO/XCORE have noKRWmarket/quote, so botcannottrade them and shouldnotpolluteactiveprotectionlist.
+ChatGPT is nextauthor/reviewerClaude. Propose practical implementation and challenge defects in this plan. Need explicit scopeagreement before finalcode review, not permissionrequests to user:
+- Mode config current_manual_only=True, min_manual_value_krw=5000. Oldmode retaineddefaultFalse forlegacytests. Policy archive can preserve pastmanualevents, but effective active set MUST intersect fresh CURRENT holding/provenance/quotedvalue eligibility. Display onlyactive/eligiblecurrentmanualholdings, noBTC absent/dust/pastmarkets.
+- Currentmanual quantity must follow actualremaining inventory, not 'ever manual buy'. Initial bootstrap: reconstruct current ownership from last7days' full open+done+cancel executed volumes, sorted byorder createdtime (limitation precise partialfillordering); derive initial unknownqty=currenttotal-netfills. Buy addsmanual/BOTqty; sell consumes itsownownerfirst, thenunknown, thenotherowner. Current holdings cap, all knownBOT balance matching ledger guards against stalehistory attribution. Unknowninitialqty does NOT automaticallymeanmanual. Existing explicituserdesignation DOGE may identify currentmanualinventory, never BTC0. Future persist per-market owner quantities and per-order cumulativevolumes toprocess onlynewdeltas, keepcurrentmanual provenance beyond7dayAPIwindow. Currentquantity0 clearsowners/provenance, futureBOTbuy mustnotinheritoldmanualtag. Sourceunknowns/externaldepositshouldnotbe mistakenfor userdirecttrades. Freshmanualremainingvalue (manualqty*currentquote)>5000 necessary, total<=5000alwaysexcluded; mixedcoinprotectwholemarket onlywhenactualmanualportion>5000. This avoids BOT94k+manualdust triggeringprotection.
+- Account+quote GETfailure: do NOT silentlyunprotect basedon0/avgcost, retainlastvalidandblocknewsubmissions pendingvalidclassification. MissingKRWlisting means notbottradable, excludedfromactiveprotectionpanel; noforcedsale or fabricatedprice.
+- ExistingPolicy.effective can filterby validatedscope eligiblemap; legacycfgBTC/DOGE can'toverride neweligibility. Live newmodeblocksfirstsubmission until freshglobalscansuccess afterstart, then prePOSTmarketrescan and finalpolicy recheck. Samependingrecoverysafe. ExactuserreleaseCASremains. Eligiblemanualholdings newlymanualbuy re-protect, sameoldseenrepeatdoesn't; purehistoryrows outsidecurrentholding don'tsetactivequestion. Dustthresholdexception changeseligibility, notfake 'userexplicitrelease' decisions.
+- Deploymenthelper currentlyhardrequiresBTC/DOGE andhandoffinspecthardrequiresDOGE. Must replacewith modeaware freshscope/proofhealth soemptyactiveprotectedsetvalid. Keeplegacycheck oldmode. Crypto/restorecurrentprotectionintents+scope mustfreshscanbeforeorders, existinglease/pending/riskbasisunchanged.
+Need tests: BTC0/allhistoricals excluded; <=5000 exactlyexcluded; >5000currentmanualDOGEprotected+question; >5000BOT-onlyCAPnotprotected; manualclosedthenBOTrebuyunprotected; mixedmanualdustnotprotectBOTlarge; newmanualbuyafterreleaseprotects; readonlyGETsmoke showsONLY DOGE at present; statecorruption/missingquote failclosed; no lossbasisreset. Please concise <=1000words; suggest simpler evidence-based path if better. Do not claimsearch/run. Actualsource excerpts below.
+
+{"at": "2026-11-03T23:31:32+09:00", "holdings": [{"market": "KRW-DOGE", "quantity": 5010.02004008, "value_krw": 506012.02404808, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": true}, {"market": "KRW-DKA", "quantity": 1e-08, "value_krw": 4.38e-08, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": false}, {"market": "KRW-APENFT", "quantity": 30779720.7780543, "value_krw": null, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": null}, {"market": "KRW-GTC", "quantity": 0.06805695, "value_krw": 19.94068635, "bot_ledger_quantity": 0.06805695, "inherited": true, "acquisition_source": null, "over_5000": false}, {"market": "KRW-SOLO", "quantity": 70.44991954, "value_krw": null, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": null}, {"market": "KRW-SUI", "quantity": 1.88899338, "value_krw": 2270.57004276, "bot_ledger_quantity": 1.88899338, "inherited": true, "acquisition_source": null, "over_5000": false}, {"market": "KRW-XCORE", "quantity": 8.78750026, "value_krw": null, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": null}, {"market": "KRW-TRUST", "quantity": 1e-08, "value_krw": 7.350000000000001e-07, "bot_ledger_quantity": 0, "inherited": false, "acquisition_source": null, "over_5000": false}, {"market": "KRW-BIRB", "quantity": 1e-08, "value_krw": 1.07e-06, "bot_ledger_quantity": 1.0000007932831068e-08, "inherited": true, "acquisition_source": null, "over_5000": false}, {"market": "KRW-CAP", "quantity": 950.45500505, "value_krw": 94190.091000455, "bot_ledger_quantity": 950.45500505, "inherited": false, "acquisition_source": null, "over_5000": true}, {"market": "KRW-AXIS", "quantity": 510.86956521, "value_krw": 93489.13043343001, "bot_ledger_quantity": 510.86956521, "inherited": false, "acquisition_source": null, "over_5000": true}], "BTC_current_quantity": 0}
+
+CURRENT manual_protection.py
+"""Conservative manual-order detection. GET only, never cancels or submits orders."""
+from decimal import Decimal
+import json
+from pathlib import Path
+import time
+import urllib.parse
+import urllib.request
+
+from asset_protection import Policy, ProtectionError, effective, normalize
+
+EPS = Decimal('0.00000001')
+
+
+class HistoryClient:
+    def get(self, path, params):
+        import upbit
+        # Parameters here contain only ASCII market/state/count/page fields.
+        request = urllib.request.Request(upbit.BASE+path+'?'+urllib.parse.urlencode(params),
+            headers=upbit._auth(params))
+        with urllib.request.urlopen(request,timeout=3) as response: return json.load(response)
+
+    def accounts(self):
+        import upbit
+        return upbit.accounts()
+
+    def orders(self, market=None):
+        rows = []
+        for state in ('wait','watch'):
+            page = 1
+            while True:
+                params={'state':state,'limit':100,'page':page}
+                if market: params['market']=market
+                batch=self.get('/v1/orders/open',params)
+                if not isinstance(batch,list): raise ProtectionError('직접 주문 조회 형식 불명')
+                rows += batch
+                if len(batch)<100: break
+                page+=1
+                if page>100: raise ProtectionError('직접 미체결 조회 한도 초과')
+        for state in ('done','cancel'):
+            params={'state':state,'limit':1000,'order_by':'desc'}
+            if market: params['market']=market
+            batch=self.get('/v1/orders/closed',params)
+            if not isinstance(batch,list) or len(batch)>=1000:
+                raise ProtectionError('직접 주문 이력 한도·완전성 확인 필요')
+            rows += batch
+        return rows
+
+
+def user_identifiers(folder):
+    """Bot-screen direct orders retain v5 IDs, so their local reason identifies them."""
+    file=Path(folder)/'orders.jsonl'
+    if not file.exists(): return set()
+    result=set()
+    for line in file.read_text(encoding='utf-8').splitlines():
+        if not line.strip(): continue
+        row=json.loads(line)
+        if str(row.get('reason','')).startswith(('수동','화면')) and row.get('identifier'):
+            result.add(row['identifier'])
+    return result
+
+
+class Detector:
+    def __init__(self, policy, live_folder, client=None, clock=time.time):
+        self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
+        self.good={}
+        self.error=''
+        self.last_global_success=0
+
+    @staticmethod
+    def _inventory(rows):
+        result={}
+        for row in rows:
+            if row.get('currency')=='KRW': continue
+            market=normalize(str(row.get('currency','')))
+            qty,locked=Decimal(str(row['balance']))+Decimal(str(row['locked'])),Decimal(str(row['locked']))
+            if not qty.is_finite() or not locked.is_finite() or qty<0 or locked<0:
+                raise ProtectionError('보유 수량 확인 불가')
+            result[market]=(qty,locked)
+        return result
+
+    @staticmethod
+    def _owned(state,market):
+        pos=state.get('positions',{}).get(market)
+        if not pos: return Decimal(0),False
+        qty=Decimal(str(pos['qty']))
+        known=not pos.get('inherited') and pos.get('acquisition_source')!='explicitly_authorized_external_exchange_fill'
+        return qty,known
+
+    def _bootstrap(self,state,inventory,markets=None):
+        doc=self.policy.read(); result=[]
+        for market,(qty,locked) in inventory.items():
+            if qty<=EPS or markets is not None and market not in markets: continue
+            pending=state.get('pending_order')
+            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
+                continue  # Its own uncertain fills are settled first, never guessed to be manual.
+            owned,known=self._owned(state,market)
+            if not known or abs(qty-owned)>EPS or locked>EPS:
+                if market not in doc.get('bootstrap',{}): result.append(market)
+                elif (abs(qty-owned)>EPS or not state.get('positions',{}).get(market)):
+                    previous=doc.get('external_quantities',{}).get(market)
+                    external=qty-owned
+                    if previous is not None and abs(Decimal(str(previous))-external)<=EPS: continue
+                    if previous is not None: result.append(market)
+        return result
+
+    def _record_balance_evidence(self,state,inventory):
+        def change(doc):
+            prior=doc.setdefault('external_quantities',{})
+            for market,(qty,_) in inventory.items():
+                pending=state.get('pending_order')
+                if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):continue
+                # This is evidence for avoiding repeated bootstrap of an explicitly released holding.
+                # Signed residual handles withdrawals too. Even inherited ledger quantities
+                # explain the bot's OWN fills after the user authorizes management by release.
+                owned,_=self._owned(state,market)
+                if market in doc.get('bootstrap',{}): prior[market]=str(qty-owned)
+        self.policy.mutate(change)
+
+    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
+        market=normalize(market) if market else None
+        try:
+            inventory=self._inventory(self.client.accounts())
+        except Exception:
+            self.error='계좌 확인 불가: 직접 보유 보호 확인 대기'
+            raise ProtectionError(self.error) from None
+        doc=self.policy.read()
+        tracked=set(doc.get('bootstrap',{}))|{normalize(m) for m in state.get('positions',{})}
+        for m in ({market} if market else tracked)-set(inventory):inventory[m]=(Decimal(0),Decimal(0))
+        bootstrap=self._bootstrap(state,inventory,{market} if market else None)
+        if bootstrap:
+            doc=self.policy.read()
+            fresh=[m for m in bootstrap if m in doc.get('bootstrap',{})]
+            if fresh:
+                import datetime as dt
+                self.policy.observe([{'uuid':'balance:'+m+':'+str(self.policy.revision(m,doc)),'identifier':'external-balance','market':m,
+                    'side':'bid','state':'done','executed_volume':str(inventory[m][0]),'paid_fee':'0',
+                    'created_at':dt.datetime.fromtimestamp(self.clock(),dt.timezone.utc).isoformat()} for m in fresh])
+            self.policy.observe(bootstrap=bootstrap)
+        self._record_balance_evidence(state,{m:v for m,v in inventory.items() if market is None or m==market})
+        try:
+            orders=self.client.orders(market)
+            changed=self.policy.observe(orders,user_identifiers=user_identifiers(self.folder))
+            doc=self.policy.read()
+            checked={market} if market else set(inventory)|{normalize(o['market']) for o in orders}
+            for m in checked: self.good[m]={'revision':self.policy.revision(m,doc),'at':self.clock()}
+            self.error=''
+            if market is None:self.last_global_success=self.clock()
+        except Exception:
+            self.error='직접 주문 이력 확인 대기: 신규 주문 보류'
+            # Only already-proven BOT inventory may retain protective exits. Equality is
+            # stricter than <=: a manual partial sale must not expose the remaining quantity.
+            doc=self.policy.read()
+            prior=self.good.get(market)
+            qty,locked=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,known=self._owned(state,market)
+            if (market and risk and prior and known and abs(qty-owned)<=EPS and locked<=EPS
+                    and self.policy.revision(market,doc)==prior['revision']
+                    and market not in effective(doc,self.policy.configured)):
+                return min(float(qty),float(owned),float(amount)) if amount is not None else None
+            raise ProtectionError(self.error) from None
+        if market and not allow_protected and market in effective(doc,self.policy.configured):
+            raise ProtectionError('사용자 직접 주문·보유 기본 보호: 봇 주문 제외')
+        if market and amount is not None and risk:
+            qty,_=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,_=self._owned(state,market)
+            return min(float(qty),float(owned),float(amount))
+        return changed if not market else amount
+
+
+CURRENT asset_protection.py
+"""User-owned asset protection policy. No exchange or order access."""
+from contextlib import contextmanager
+from copy import deepcopy
+from decimal import Decimal, InvalidOperation
+import datetime as dt
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import threading
+import time
+
+MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
+_LOCKS, _LOCKS_GUARD = {}, threading.Lock()
+USER_ORIGINS = {'user_ui', 'cli'}
+
+
+class ProtectionError(ValueError):
+    pass
+
+
+def normalize(value):
+    if not isinstance(value, str): raise ProtectionError('종목 형식 오류')
+    market = value.strip().upper()
+    if not market.startswith('KRW-'): market = 'KRW-' + market
+    if not MARKET.fullmatch(market): raise ProtectionError('종목 형식 오류')
+    return market
+
+
+def validate(doc):
+    if not isinstance(doc, dict) or not isinstance(doc.get('markets'), list):
+        raise ProtectionError('보호 목록 형식 오류')
+    for value in doc['markets']:
+        if normalize(value) != value: raise ProtectionError('보호 종목 표준 형식 오류')
+    decisions = doc.get('decisions', {})
+    if not isinstance(decisions, dict): raise ProtectionError('보호 결정 형식 오류')
+    for market, choice in decisions.items():
+        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
+        if (not isinstance(choice, dict) or type(choice.get('protected')) is not bool
+                or type(choice.get('at')) not in (int, float) or not math.isfinite(choice['at'])
+                or choice['at'] < 0 or choice.get('origin') not in USER_ORIGINS | {'manual', 'bootstrap'}):
+            raise ProtectionError('보호 결정 형식 오류')
+        if not choice['protected'] and choice['origin'] not in USER_ORIGINS:
+            raise ProtectionError('사용자 선택 없는 보호 해제')
+    for key in ('seen_orders', 'manual', 'revisions', 'bootstrap'):
+        if not isinstance(doc.get(key, {}), dict): raise ProtectionError('보호 상태 형식 오류')
+    for market, revision in doc.get('revisions', {}).items():
+        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
+        if type(revision) is not int or revision < 0: raise ProtectionError('보호 버전 오류')
+    for market, item in doc.get('manual', {}).items():
+        if (normalize(market) != market or not isinstance(item, dict)
+                or type(item.get('pending')) is not bool or not isinstance(item.get('kind'), str)
+                or type(item.get('at')) not in (int,float) or not math.isfinite(item['at'])):
+            raise ProtectionError('직접 주문 보호 기록 오류')
+    for key, item in doc.get('seen_orders', {}).items():
+        if (not isinstance(key,str) or not re.fullmatch('[a-f0-9]{64}',key)
+                or not isinstance(item,dict) or normalize(item.get('market')) != item['market']
+                or not isinstance(item.get('revision'),str) or not re.fullmatch('[a-f0-9]{64}',item['revision'])
+                or item.get('state') not in ('wait','watch','done','cancel')
+                or not isinstance(item.get('created_at'),str)
+                or type(item.get('seen_at')) not in (int,float) or not math.isfinite(item['seen_at'])):
+            raise ProtectionError('직접 주문 출처 기록 오류')
+        _decimal(item.get('volume'))
+    for market, value in doc.get('bootstrap',{}).items():
+        if normalize(market) != market or value is not True: raise ProtectionError('직접 보유 기록 오류')
+    if not isinstance(doc.get('external_quantities',{}),dict): raise ProtectionError('직접 보유 수량 오류')
+    for market,value in doc.get('external_quantities',{}).items():
+        if normalize(market) != market: raise ProtectionError('직접 보유 종목 오류')
+        try: quantity=Decimal(str(value))
+        except InvalidOperation: raise ProtectionError('직접 보유 수량 오류') from None
+        if not quantity.is_finite(): raise ProtectionError('직접 보유 수량 오류')
+    return doc
+
+
+def effective(doc, configured=()):
+    validate(doc)
+    result = {normalize(m) for m in list(configured) + doc['markets']}
+    for market, choice in doc.get('decisions', {}).items():
+        if choice['protected']: result.add(normalize(market))
+        else: result.discard(normalize(market))
+    return result
+
+
+def explicit_release(doc, market):
+    validate(doc)
+    choice = doc.get('decisions', {}).get(normalize(market), {})
+    return choice.get('protected') is False and choice.get('origin') in USER_ORIGINS
+
+
+def merge(left, right, left_configured=(), right_configured=()):
+    """Latest explicit choice wins; equally dated/unknown conflicts favor protection."""
+    validate(left); validate(right)
+    out = deepcopy(right)
+    markets = effective(left, left_configured) | effective(right, right_configured)
+    decisions = {}
+    for market in markets | set(left.get('decisions', {})) | set(right.get('decisions', {})):
+        choices = [d.get('decisions', {}).get(market) for d in (left, right)]
+        choices = [c for c in choices if c]
+        if choices:
+            selected = max(choices, key=lambda c: (c['at'], c['protected']))
+            decisions[market] = deepcopy(selected)
+            if selected['protected']: markets.add(market)
+            else: markets.discard(market)
+    out['decisions'], out['markets'] = decisions, sorted(markets)
+    for key in ('seen_orders', 'manual', 'bootstrap', 'external_quantities'):
+        out[key] = {**deepcopy(left.get(key, {})), **deepcopy(right.get(key, {}))}
+    for key,time_key in (('seen_orders','seen_at'),('manual','at')):
+        for name,item in left.get(key,{}).items():
+            other=out[key].get(name)
+            if other is None or item[time_key] > other[time_key]: out[key][name]=deepcopy(item)
+    # A transfer invalidates every rendered page from either machine, including a
+    # coincidentally equal counter. Revisions must never move backwards.
+    out['revisions']={m:max(left.get('revisions',{}).get(m,0),right.get('revisions',{}).get(m,0))+1
+        for m in set(left.get('revisions',{}))|set(right.get('revisions',{}))}
+    return validate(out)
+
+
+def _decimal(value):
+    try: result = Decimal(str(value or 0))
+    except InvalidOperation: raise ProtectionError('주문 수량 형식 오류') from None
+    if not result.is_finite() or result < 0: raise ProtectionError('주문 수량 형식 오류')
+    return format(result.normalize(), 'f')
+
+
+class Policy:
+    def __init__(self, file, configured=(), required=True, clock=time.time, lock_timeout=1.):
+        self.file = Path(file)
+        self.configured, self.required = list(configured), required
+        self.clock, self.lock_timeout = clock, lock_timeout
+        self.last_valid = None
+
+    def read(self):
+        try:
+            if not self.file.exists():
+                if self.required: raise ProtectionError('필수 보호 파일 없음')
+                doc = {'markets': []}
+            else: doc = json.loads(self.file.read_text(encoding='utf-8'))
+            validate(doc)
+        except (OSError, ValueError, TypeError) as error:
+            raise ProtectionError('보호 상태 확인 불가: 새 주문 보류') from None
+        self.last_valid = deepcopy(doc)
+        return doc
+
+    @contextmanager
+    def locked(self):
+        self.file.parent.mkdir(parents=True, exist_ok=True)
+        name = str(self.file.resolve())
+        with _LOCKS_GUARD: local = _LOCKS.setdefault(name, threading.RLock())
+        if not local.acquire(timeout=self.lock_timeout): raise ProtectionError('보호 목록 사용 중')
+        handle, acquired = None, False
+        try:
+            handle = self.file.with_suffix('.lock').open('a+b')
+            handle.seek(0, 2)
+            if not handle.tell(): handle.write(b'0'); handle.flush()
+            until = time.monotonic() + self.lock_timeout
+            while True:
+                try:
+                    handle.seek(0)
+                    if __import__('os').name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True; break
+                except OSError:
+                    if time.monotonic() >= until: raise ProtectionError('보호 목록 잠금 확인 불가') from None
+                    time.sleep(.02)
+            yield
+        finally:
+            if handle:
+                if acquired:
+                    handle.seek(0)
+                    if __import__('os').name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+            local.release()
+
+    def mutate(self, change):
+        with self.locked():
+            doc = self.read()
+            before = json.dumps(doc, sort_keys=True)
+            result = change(doc)
+            if json.dumps(doc, sort_keys=True) != before:
+                doc['version'] = 2
+                doc['markets'] = sorted(effective(doc, self.configured))
+                doc['updated_at'] = dt.datetime.fromtimestamp(self.clock(),dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds')
+                validate(doc)
+                temp = self.file.with_suffix('.tmp')
+                temp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding='utf-8')
+                temp.replace(self.file)
+                self.last_valid = deepcopy(doc)
+            return result
+
+    def revision(self, market, doc=None):
+        return (self.read() if doc is None else doc).get('revisions', {}).get(normalize(market), 0)
+
+    def _choice(self, doc, market, protected, origin):
+        doc.setdefault('decisions', {})[market] = {'protected':protected,'origin':origin,'at':self.clock()}
+        revisions = doc.setdefault('revisions', {})
+        revisions[market] = revisions.get(market, 0) + 1
+        if market in doc.get('manual', {}): doc['manual'][market]['pending'] = origin not in USER_ORIGINS
+
+    def decide(self, market, protect, origin='user_ui', expected=None):
+        market = normalize(market)
+        if origin not in USER_ORIGINS or type(protect) is not bool: raise ProtectionError('사용자 보호 선택 오류')
+        def change(doc):
+            if not protect and (type(expected) is not int or expected != self.revision(market,doc)):
+                raise ProtectionError('새 직접 주문 또는 보호 변경이 있습니다. 새로고침 후 다시 확인하세요.')
+            self._choice(doc,market,protect,origin)
+            return {'market':market,'protected':protect,'revision':self.revision(market,doc)}
+        return self.mutate(change)
+
+    def observe(self, orders=(), bootstrap=(), user_identifiers=()):
+        user_identifiers = set(user_identifiers)
+        def change(doc):
+            seen = doc.setdefault('seen_orders', {})
+            manual = doc.setdefault('manual', {})
+            now = self.clock()
+            doc.setdefault('scan_started_at',now)
+            changed = []
+            latest = {}
+            for row in orders:
+                ident = row.get('identifier') or ''
+                if ident.startswith('v5-') and ident not in user_identifiers: continue
+                market = normalize(row.get('market'))
+                uid = row.get('uuid') or ident
+                if not isinstance(uid,str) or not uid: raise ProtectionError('주문 출처 식별 불가')
+                volume = _decimal(row.get('executed_volume'))
+                state = row.get('state')
+                if state not in ('wait','watch','done','cancel'): raise ProtectionError('주문 상태 불명')
+                key = hashlib.sha256(uid.encode()).hexdigest()
+                rev = hashlib.sha256(json.dumps([market,row.get('side'),state,volume,_decimal(row.get('paid_fee'))]).encode()).hexdigest()
+                item = {'market':market,'revision':rev,'volume':volume,'state':state,
+                        'created_at':str(row.get('created_at') or ''),'seen_at':now}
+                rank = (Decimal(volume),state in ('done','cancel'))
+                if key not in latest or rank > latest[key][0]: latest[key] = (rank,item)
+            for key,(_,item) in latest.items():
+                old = seen.get(key)
+                if old and old['revision'] == item['revision']: continue
+                # Every newly observed direct order protects first and asks about release,
+                # even if it was created before an explicit release.
+                seen[key] = item
+                market = item['market']
+                manual[market] = {'at':now,'event':key,'pending':True,'kind':'직접 주문 또는 출처 미확인 주문'}
+                self._choice(doc,market,True,'manual'); changed.append(market)
+            marked = doc.setdefault('bootstrap',{})
+            for value in bootstrap:
+                market = normalize(value)
+                if market in marked: continue
+                marked[market] = True
+                if explicit_release(doc,market): continue
+                manual[market] = {'at':now,'pending':True,'kind':'직접 보유 또는 출처 미확인 수량'}
+                self._choice(doc,market,True,'bootstrap'); changed.append(market)
+            if len(seen) > 10000:
+                old = sorted((k for k,v in seen.items() if v['state'] in ('done','cancel') and v['seen_at'] < now-7*86400), key=lambda k:seen[k]['seen_at'])
+                for key in old[:max(0,len(seen)-10000)]: del seen[key]
+                if len(seen) > 10000: raise ProtectionError('직접 주문 출처 기록 한도: 대사 필요')
+            return sorted(set(changed))
+        return self.mutate(change)

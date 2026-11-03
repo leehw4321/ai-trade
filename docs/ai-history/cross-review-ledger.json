@@ -66,6 +66,14 @@
       "execution": "reviewed script hashes; first rollback then successful retry after Claude sync normalization fix",
       "live_deployment": "complete",
       "ledger_restore": false
+    },
+    {
+      "issue": "TEMP-public-tactical-observer",
+      "author": "ChatGPT",
+      "reviewer": "not reviewed by Claude; user explicit temporary sole-lead authorization",
+      "execution": "six checks and public collection passed; observer running",
+      "live_deployment": "none; public read-only observer only",
+      "handoff_after_kst": "2026-11-03T15:40:00+09:00"
     }
   ],
   "pending": [

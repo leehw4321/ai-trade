@@ -33,5 +33,13 @@
   "era_today_excluded_from_final_test": true,
   "evidence": "docs/ai-history/2026-11-03-era-opportunity.md",
   "latest_review_evidence": "docs/ai-history/2026-11-03-warning-conditional-trading.md",
-  "latest_review_status": "proposal_pending_claude_limit"
+  "latest_review_status": "proposal_pending_claude_limit",
+  "observation": {
+    "status": "public_feature_observer_running_not_paper_trading",
+    "source": "tools/tactical_observer.py",
+    "version": "public-features-v1",
+    "path": "data/tactical_observer",
+    "review": "ChatGPT solo under user authorization until 2026-11-03T15:40:00+09:00",
+    "orders_enabled": false
+  }
 }

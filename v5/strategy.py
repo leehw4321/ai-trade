@@ -50,7 +50,8 @@ class Params:
     regime_filter: bool = False
     regime_bars: int = 96         # 균등지수 기간(15분봉 96개 = 24시간)
     regime_min_markets: int = 20  # 지수 계산에 필요한 최소 종목 수. 모자라면 신규 매수 보류
-    regime_expires: float = 0.0   # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
+    halt_new_buys: bool = False   # True면 신규 매수를 전부 보류한다(매도·손절·이익보호·보유 관리는 그대로). 2026-11-04 검증 전 임시 중단
+    regime_expires: float = 0.0  # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
 
     @classmethod

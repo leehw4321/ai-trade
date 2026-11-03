@@ -74,6 +74,16 @@ class RegimeGate(unittest.TestCase):
         self.assertIn('매수 없음', text)
         self.assertTrue(any('만료' in r for r in reasons))
 
+    def test_halt_keeps_sells_and_holds_but_creates_no_buys(self):
+        held = {'KRW-OLD': 50_000, 'KRW-HOT1': 50_000}
+        self.ranked.append({'market': 'KRW-OLD', 'rank': 9, 'rs': .01})
+        self.eligible.add('KRW-OLD')
+        params = st.Params(M=5, entry_want=3, entry_scan=8, coin_cap=1., total_cap=1., halt_new_buys=True)
+        text, reasons = shadow.proposal(held, self.ranked, {}, self.eligible, params, self.CAPS, 990_000, 0, market_index=0.05)
+        self.assertIn('매도 OLD 100%', text)
+        self.assertIn('매수 없음', text)
+        self.assertTrue(any('신규 매수 임시 중단' in r for r in reasons))
+
     def test_disabled_filter_changes_nothing(self):
         for index in (None, -0.05, 0.02):
             text, reasons = self.plan(enabled=False, index=index)
@@ -144,6 +154,12 @@ class ReceiverEnforcement(unittest.TestCase):
         self.lv.p = st.Params(regime_filter=True, regime_expires=time.time() + 3600)
         with self.assertRaises(AssertionError):  # 기간 안이고 상승장이면 통과해 정상 경로(계좌 조회)로 간다
             self.run_plan(market_index=0.05)
+
+    def test_halt_new_buys_blocks_all_automatic_buys_even_in_a_rising_market(self):
+        self.lv.p = st.Params(regime_filter=True, halt_new_buys=True)
+        self.assertIn('신규 매수 차단', self.run_plan(market_index=0.05))
+        self.lv.p = st.Params(regime_filter=False, halt_new_buys=True)
+        self.assertIn('신규 매수 차단', self.run_plan(market_index=0.05))
 
     def test_filter_off_does_not_block(self):
         self.lv.p = st.Params(regime_filter=False)

@@ -135,7 +135,10 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
     regime_closed = False
-    if getattr(base, 'regime_filter', False):
+    if getattr(base, 'halt_new_buys', False):
+        regime_closed = True
+        reasons.append('신규 매수 임시 중단: 비용 후 우위가 검증되기 전에는 새로 사지 않는다 (보유 관리·매도·손절은 그대로)')
+    elif getattr(base, 'regime_filter', False):
         expires = getattr(base, 'regime_expires', 0.0)
         if expires and time.time() >= expires:
             regime_closed = True

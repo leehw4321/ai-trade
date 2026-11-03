@@ -609,7 +609,12 @@ class Live:
         protected_orders = [m for _, m, _ in orders if m in protected]
         orders = [(side, m, amount) for side, m, amount in orders if m not in protected]
         regime_blocked = []
-        if automatic and getattr(self.p, 'regime_filter', False):
+        if automatic and getattr(self.p, 'halt_new_buys', False):
+            regime_blocked = [m for side, m, _ in orders if side == 'buy']
+            orders = [o for o in orders if o[0] != 'buy']
+            if regime_blocked:
+                self.record({'event': '신규 매수 임시 중단으로 차단', 'markets': regime_blocked})
+        elif automatic and getattr(self.p, 'regime_filter', False):
             # 수신 쪽에서도 장세 필터를 강제한다: 오래된 생성기나 필터 정보 누락 주문안이 신규 매수를 만들지 못하게 한다. 매도는 그대로.
             expires = getattr(self.p, 'regime_expires', 0.0)
             expired = bool(expires) and time.time() >= expires

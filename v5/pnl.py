@@ -9,7 +9,10 @@
 - 기초: pnl_baseline.json (모든 PC 공통. 기초 시각의 수량·평균 매입가)
 - 기간: 한국시간 오늘·이번 주(월요일)·이번 달·기초 이후 누적. 매도 체결 시각으로 나눈다.
 - 원가: 매수 체결대금+수수료를 원가에 더하고, 매도 시 실현손익 = 체결대금 − 매도수수료 − 이동평균 배분원가.
-- 원가 불명(평균가 0인 기초 보유·주문이 아닌 입고)이나 수량 부족 매도는 확정 합계에 넣지 않고 미확정으로 분리한다.
+- 손익은 세 가지로 나눈다(ChatGPT 구현 검토 05 반영):
+  확정 = 기초 이후 체결 기록만으로 원가가 정해진 매도.
+  추정 = 기초 보유분의 평균 매입가(수수료 포함 여부·입출금 미확인)가 원가에 섞인 매도.
+  미확정 = 원가 불명·수량 부족·실제 잔고와 재구성 수량 불일치 종목·체결 상세 불완전 주문.
 - 관리용 손익이며 세무상 손익이 아니다.
 """
 import argparse
@@ -31,9 +34,10 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'data' / 'pnl'
 BASELINE = ROOT / 'pnl_baseline.json'
 KST = dt.timezone(dt.timedelta(hours=9))
-VERSION = 'moving-average-fee-in-cost-v1'
+VERSION = 'moving-average-fee-in-cost-v2'
 EPS = D('1e-8')
 WINDOW = dt.timedelta(days=7)
+RECHECK = dt.timedelta(hours=24)  # 이 기간의 체결 주문은 매번 상세를 다시 받아 정정을 반영한다
 
 
 def kst(s):
@@ -96,30 +100,54 @@ class Store:
 
     def sync(self, start):
         """기초 시각부터(이미 받은 구간은 1시간 겹쳐서) 지금까지 7일 창으로 받는다. 체결 있는 주문은 체결 내역을 받는다."""
-        t = kst(self.d['covered_until']) - dt.timedelta(hours=1) if self.d['covered_until'] else start
         end = now()
+        t = min(kst(self.d['covered_until']), end - RECHECK) if self.d['covered_until'] else start
+        t = max(t, start)
         while t < end:
             hi = min(t + WINDOW, end)
             for o in closed_between(t, hi):
-                if float(o.get('executed_volume') or 0) <= 0:
-                    continue
-                old = self.d['orders'].get(o['uuid'])
-                if old and old.get('state') == o['state'] and old.get('executed_volume') == o['executed_volume']:
-                    continue
-                detail = _get('/v1/order', [('uuid', o['uuid'])])
-                self.d['orders'][o['uuid']] = {k: detail.get(k) for k in (
-                    'uuid', 'market', 'side', 'state', 'created_at', 'executed_volume', 'paid_fee', 'identifier', 'trades')}
-                time.sleep(0.12)
+                if float(o.get('executed_volume') or 0) > 0:
+                    self.d['orders'][o['uuid']] = self.detail(o['uuid'])
+                    time.sleep(0.12)
             t = hi
         self.d['covered_until'] = end.isoformat(timespec='seconds')
+        # 미종료 주문의 부분 체결도 반영한다(전체 페이지). 실패하면 불명으로 표시한다.
+        try:
+            for o in self.open_orders():
+                if float(o.get('executed_volume') or 0) > 0:
+                    self.d['orders'][o['uuid']] = self.detail(o['uuid'])
+            self.d['open_status'] = 'ok'
+        except Exception as ex:
+            self.d['open_status'] = f'조회 실패: {type(ex).__name__}'
         self.d['synced_at'] = end.isoformat(timespec='seconds')
         self.save()
-        try:
-            opened = _get('/v1/orders/open', [('state', 'wait'), ('limit', 100)])
-            self.d['open_partial'] = sum(1 for o in opened if float(o.get('executed_volume') or 0) > 0)
-        except Exception:
-            self.d['open_partial'] = None
-        self.save()
+
+    def detail(self, uid):
+        d = _get('/v1/order', [('uuid', uid)])
+        row = {k: d.get(k) for k in ('uuid', 'market', 'side', 'state', 'created_at', 'executed_volume', 'paid_fee', 'identifier', 'trades')}
+        seen, trades = set(), []
+        for tr in d.get('trades') or []:
+            key = tr.get('uuid') or (tr['created_at'], tr['volume'], tr['funds'])
+            if key not in seen:
+                seen.add(key)
+                trades.append(tr)
+        row['trades'] = trades
+        got = sum(D(str(tr['volume'])) for tr in trades)
+        row['complete'] = abs(got - D(str(d.get('executed_volume') or 0))) <= EPS
+        return row
+
+    @staticmethod
+    def open_orders():
+        out, page = [], 1
+        while True:
+            rows = []
+            for state in ('wait', 'watch'):
+                rows += _get('/v1/orders/open', [('state', state), ('limit', 100), ('page', page)])
+            out += rows
+            if len(rows) < 100:
+                return out
+            page += 1
+            time.sleep(0.15)
 
 
 # ---------- 계산 (순수) ----------
@@ -134,7 +162,7 @@ def fills(orders):
             funds = D(str(t['funds']))
             ev.append({'time': kst(t['created_at']), 'market': o['market'], 'coin': o['market'].split('-', 1)[1],
                        'side': o['side'], 'vol': D(str(t['volume'])), 'funds': funds,
-                       'fee': fee * funds / total if total > 0 else D(0), 'order': o['uuid'],
+                       'fee': fee * funds / total if total > 0 else D(0), 'order': o['uuid'], 'complete': o.get('complete', True),
                        'source': 'V5 식별 주문' if (o.get('identifier') or '').startswith('v5-') else '출처 불명(수동 등)'})
     return sorted(ev, key=lambda e: (e['time'], e['order']))
 
@@ -144,26 +172,31 @@ def rebuild(baseline, events):
     pos = {}
     for coin, h in baseline['holdings'].items():
         q, a = D(str(h['qty'])), D(str(h['avg']))
-        pos[coin] = {'qty': q, 'cost': q * a, 'known': a > 0}
+        pos[coin] = {'qty': q, 'cost': q * a, 'bcost': q * a, 'known': a > 0, 'clean': True}
     sells = []
     for e in events:
-        p = pos.setdefault(e['coin'], {'qty': D(0), 'cost': D(0), 'known': True})
+        p = pos.setdefault(e['coin'], {'qty': D(0), 'cost': D(0), 'bcost': D(0), 'known': True, 'clean': True})
+        if not e['complete']:
+            p['clean'] = False  # 상세 체결이 불완전한 주문이 섞인 종목은 이후 원가를 확정할 수 없다
         if e['side'] == 'bid':
             p['qty'] += e['vol']
             p['cost'] += e['funds'] + e['fee']
             continue
-        if not p['known'] or p['qty'] + EPS < e['vol']:
-            sells.append(dict(e, realized=None, why='원가 불명' if not p['known'] else '수량 부족'))
+        if not p['known'] or not p['clean'] or p['qty'] + EPS < e['vol']:
+            why = '원가 불명' if not p['known'] else '체결 상세 불완전' if not p['clean'] else '수량 부족'
+            sells.append(dict(e, realized=None, kind='미확정', why=why))
             p['qty'] = max(D(0), p['qty'] - e['vol'])
             if p['qty'] <= EPS:
-                p.update(qty=D(0), cost=D(0), known=True)
+                p.update(qty=D(0), cost=D(0), bcost=D(0), known=True)
             continue
-        alloc = p['cost'] * e['vol'] / p['qty']
-        sells.append(dict(e, realized=e['funds'] - e['fee'] - alloc))
+        share = e['vol'] / p['qty']
+        alloc, balloc = p['cost'] * share, p['bcost'] * share
+        sells.append(dict(e, realized=e['funds'] - e['fee'] - alloc, kind='추정' if balloc > 0 else '확정', why=''))
         p['qty'] -= e['vol']
         p['cost'] -= alloc
+        p['bcost'] -= balloc
         if p['qty'] <= EPS:
-            p.update(qty=D(0), cost=D(0))
+            p.update(qty=D(0), cost=D(0), bcost=D(0))
     return pos, sells
 
 
@@ -172,19 +205,25 @@ def period_starts(t):
     return {'오늘': day, '이번 주': day - dt.timedelta(days=day.weekday()), '이번 달': day.replace(day=1)}
 
 
-def aggregate(sells, events, starts):
+def aggregate(sells, events, starts, mismatch=(), baseline_start=None):
     out = {}
     for name, start in starts.items():
         ss = [s for s in sells if s['time'] >= start]
+        for s in ss:
+            if s['coin'] in mismatch and s['kind'] != '미확정':
+                s['kind'], s['why'] = '미확정', '실제 잔고와 불일치'
         orders = {}
         for s in ss:
-            if s['realized'] is not None:
+            if s['kind'] != '미확정':
                 orders.setdefault(s['order'], [s['source'], D(0)])[1] += s['realized']
-        conf = sum((v for _, v in orders.values()), D(0))
+        conf = sum((s['realized'] for s in ss if s['kind'] == '확정'), D(0))
+        est = sum((s['realized'] for s in ss if s['kind'] == '추정'), D(0))
         by_src = {}
         for src, v in orders.values():
             by_src[src] = by_src.get(src, D(0)) + v
-        out[name] = {'realized': float(conf), 'unconfirmed_count': sum(1 for s in ss if s['realized'] is None),
+        out[name] = {'realized': float(conf + est), 'confirmed': float(conf), 'estimated': float(est),
+                     'unconfirmed_count': sum(1 for s in ss if s['kind'] == '미확정'),
+                     'partial_period': bool(baseline_start and start < baseline_start),
                      'fees': float(sum((e['fee'] for e in events if e['time'] >= start), D(0))),
                      'sell_orders': len({s['order'] for s in ss}), 'wins': sum(1 for _, v in orders.values() if v > 0),
                      'losses': sum(1 for _, v in orders.values() if v < 0), 'zero': sum(1 for _, v in orders.values() if v == 0),
@@ -208,8 +247,9 @@ def unrealized(pos, accounts, prices):
         if value < 5000 and u is not None and abs(u) < 100:
             continue  # 소액 먼지
         rows.append({'coin': coin, 'qty': float(p['qty']), 'value': float(value), 'cost': float(p['cost']),
-                     'unrealized': None if u is None else float(u), 'mismatch': coin in mismatch})
-        if u is not None:
+                     'unrealized': None if u is None else float(u), 'mismatch': coin in mismatch,
+                     'estimated': p.get('bcost', D(0)) > 0})
+        if u is not None and coin not in mismatch:
             total += u
     return rows, float(total), mismatch
 
@@ -219,14 +259,19 @@ def compute(store, baseline, accounts, prices, at=None):
     ev = [e for e in fills(store.d['orders']) if e['time'] >= kst(baseline['start'])]
     pos, sells = rebuild(baseline, ev)
     starts = period_starts(at)
-    starts['누적'] = kst(baseline['start'])
+    bstart = kst(baseline['start'])
+    starts['누적'] = bstart
+    starts = {k: max(v, bstart) if k != '누적' else v for k, v in starts.items()}
     rows, utotal, mismatch = unrealized(pos, accounts, prices)
+    raw = period_starts(at)
     return {'version': VERSION, 'computed_at': at.isoformat(timespec='seconds'), 'baseline_start': baseline['start'],
             'baseline_source': baseline['source'], 'synced_at': store.d.get('synced_at'), 'covered_until': store.d.get('covered_until'),
-            'open_partial': store.d.get('open_partial'), 'periods': aggregate(sells, ev, starts),
+            'open_status': store.d.get('open_status'),
+            'periods': {k: dict(v, partial_period=k in raw and raw[k] < bstart)
+                        for k, v in aggregate(sells, ev, starts, set(mismatch), bstart).items()},
             'unrealized_rows': rows, 'unrealized_total': utotal, 'mismatch': mismatch,
             'recent': [{'time': s['time'].isoformat(timespec='minutes'), 'coin': s['coin'], 'source': s['source'],
-                        'realized': None if s['realized'] is None else float(s['realized']), 'why': s.get('why', '')}
+                        'realized': None if s['kind'] == '미확정' else float(s['realized']), 'kind': s['kind'], 'why': s.get('why', '')}
                        for s in sells[-15:]][::-1]}
 
 

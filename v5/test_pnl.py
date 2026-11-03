@@ -91,5 +91,48 @@ class Paging(unittest.TestCase):
         self.assertEqual(len(rows), 1001)
 
 
+class ReviewFixes(unittest.TestCase):
+    """ChatGPT 구현 검토(D-56/05) 반영."""
+
+    def test_mismatch_coin_moves_to_unconfirmed(self):
+        orders = [order('b', 'bid', [('2026-11-03T09:00:00+09:00', 5, 500)], 0),
+                  order('s', 'ask', [('2026-11-03T10:00:00+09:00', 2, 300)], 0)]
+        ev = pnl.fills({o['uuid']: o for o in orders})
+        _, sells = pnl.rebuild(BASE, ev)
+        agg = pnl.aggregate(sells, ev, {'누적': pnl.kst(BASE['start'])}, {'X'})['누적']
+        self.assertEqual((agg['realized'], agg['unconfirmed_count']), (0.0, 1))
+
+    def test_baseline_cost_is_estimated_not_confirmed(self):
+        base = dict(BASE, holdings={'X': {'qty': 2, 'avg': 100}})
+        orders = [order('s', 'ask', [('2026-11-03T10:00:00+09:00', 1, 130)], 0)]
+        ev = pnl.fills({o['uuid']: o for o in orders})
+        _, sells = pnl.rebuild(base, ev)
+        agg = pnl.aggregate(sells, ev, {'누적': pnl.kst(BASE['start'])})['누적']
+        self.assertEqual((agg['confirmed'], agg['estimated']), (0.0, 30.0))
+
+    def test_incomplete_detail_makes_later_sells_unconfirmed(self):
+        b = order('b', 'bid', [('2026-11-03T09:00:00+09:00', 1, 100)], 0)
+        b['complete'] = False
+        _, sells = realize([b, order('s', 'ask', [('2026-11-03T10:00:00+09:00', 1, 120)], 0)])
+        self.assertEqual((sells[0]['kind'], sells[0]['why']), ('미확정', '체결 상세 불완전'))
+
+    def test_detail_dedupes_trades_and_checks_volume(self):
+        d = {'uuid': 'u', 'market': 'KRW-X', 'side': 'bid', 'state': 'done', 'created_at': 't', 'paid_fee': 0,
+             'executed_volume': '2', 'identifier': '',
+             'trades': [{'uuid': 't1', 'created_at': 'a', 'volume': '1', 'funds': '1'},
+                        {'uuid': 't1', 'created_at': 'a', 'volume': '1', 'funds': '1'}]}
+        with mock.patch.object(pnl, '_get', return_value=d):
+            row = pnl.Store.detail(None, 'u')
+        self.assertEqual(len(row['trades']), 1)
+        self.assertFalse(row['complete'])                        # 1개만 받았는데 주문 체결량은 2
+
+    def test_month_marked_partial_before_baseline(self):
+        store = mock.Mock()
+        store.d = {'orders': {}, 'synced_at': None, 'covered_until': None}
+        s = pnl.compute(store, BASE, [], {}, at=dt.datetime(2026, 11, 3, 12, tzinfo=pnl.KST))
+        self.assertTrue(s['periods']['이번 달']['partial_period'])  # 11-01 시작, 집계는 11-02부터
+        self.assertFalse(s['periods']['오늘']['partial_period'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -347,25 +347,30 @@ class Bot:
         s = json.loads(f.read_text(encoding='utf-8'))
         won = lambda v: f"<span class={'up' if v > 0 else 'dn' if v < 0 else 'muted'}>{v:+,.0f}원</span>"
         tiles = ''.join(
-            f"<div class=tile><h2>{e(k)} 실현손익</h2><b>{won(v['realized'])}</b>"
-            f"<span class=muted>매도 {v['sell_orders']}건 · 이익 {v['wins']} / 손실 {v['losses']} · 수수료 {v['fees']:,.0f}원"
-            f"{' · 미확정 ' + str(v['unconfirmed_count']) + '건' if v['unconfirmed_count'] else ''}</span></div>"
+            f"<div class=tile><h2>{e(k)} 실현손익{' <span class=warn>(' + e(s['baseline_start'][5:10]) + '부터, 이전 미집계)</span>' if v.get('partial_period') else ''}</h2>"
+            f"<b>{won(v['realized'])}</b><span class=muted>확정 {v.get('confirmed', v['realized']):+,.0f} · 추정 {v.get('estimated', 0):+,.0f}"
+            f"{' · <span class=warn>미확정 ' + str(v['unconfirmed_count']) + '건</span>' if v['unconfirmed_count'] else ''}<br>"
+            f"매도 {v['sell_orders']}건 · 이익 {v['wins']} / 손실 {v['losses']} · 수수료 {v['fees']:,.0f}원</span></div>"
             for k, v in s['periods'].items())
         src = s['periods'].get('누적', {}).get('by_source', {})
         src_txt = ' · '.join(f'{e(k)} {v:+,.0f}원' for k, v in src.items()) or '없음'
         urows = ''.join(
-            f"<tr><td>{e(r['coin'])}{' <span class=warn>불일치</span>' if r['mismatch'] else ''}</td><td class=n>{r['value']:,.0f}</td>"
+            f"<tr><td>{e(r['coin'])}{' <span class=warn>불일치(합계 제외)</span>' if r['mismatch'] else ''}{' <span class=muted>추정 원가</span>' if r.get('estimated') else ''}</td><td class=n>{r['value']:,.0f}</td>"
             f"<td class=n>{r['cost']:,.0f}</td><td class=n>{won(r['unrealized']) if r['unrealized'] is not None else '원가 불명'}</td></tr>"
             for r in s['unrealized_rows']) or '<tr><td colspan=4 class=muted>보유 없음</td></tr>'
         recent = ''.join(
             f"<li><span class=t>{e(r['time'][5:16].replace('T', ' '))}</span>{e(r['coin'])} · "
-            f"{won(r['realized']) if r['realized'] is not None else '<span class=warn>미확정(' + e(r['why']) + ')</span>'} · {e(r['source'])}</li>"
+            f"{won(r['realized']) if r['realized'] is not None else '<span class=warn>미확정(' + e(r['why']) + ')</span>'}"
+            f"{' <span class=muted>추정</span>' if r.get('kind') == '추정' else ''} · {e(r['source'])}</li>"
             for r in s['recent']) or '<li class=muted>매도 체결 없음</li>'
         warn = ''
         if s['mismatch']:
             warn += f"<div class=warn>체결로 재구성한 수량과 실제 잔고가 다릅니다: {e(', '.join(s['mismatch']))} (입출금·에어드롭 등 주문이 아닌 변동)</div>"
-        if s.get('open_partial'):
-            warn += f"<div class=warn>부분 체결된 미체결 주문 {s['open_partial']}건은 아직 반영하지 않았습니다.</div>"
+        if s.get('open_status') not in (None, 'ok'):
+            warn += f"<div class=warn>미체결 주문 조회 {e(s['open_status'])}: 부분 체결분이 빠졌을 수 있습니다.</div>"
+        synced = s.get('synced_at')
+        if not synced or (dt.datetime.now(KST) - dt.datetime.fromisoformat(synced)).total_seconds() > 900:
+            warn += f"<div class=warn>실현손익 동기화가 15분 넘게 멈춰 있습니다(마지막 {e((synced or '-')[5:16].replace('T', ' '))}). pnl.py 실행을 확인하세요.</div>"
         err = DATA / 'pnl' / 'error.json'
         if err.exists() and err.stat().st_mtime > f.stat().st_mtime:
             warn += f"<div class=warn>최근 동기화 실패, 마지막 성공 결과입니다: {e(json.loads(err.read_text(encoding='utf-8'))['error'])}</div>"
@@ -373,7 +378,9 @@ class Bot:
 <div class=cols><div><h3>보유 평가손익 (실현과 별도 · 예상 매도수수료 미차감) 합계 {won(s['unrealized_total'])}</h3>
 <table><tr><th>코인</th><th class=n>평가액</th><th class=n>잔여 원가</th><th class=n>평가손익</th></tr>{urows}</table></div>
 <div><h3>최근 매도 체결의 실현손익</h3><ul>{recent}</ul></div></div>
-<div class=sub>누적 출처별: {src_txt}. 기준: 거래소 체결, 수수료 포함 이동평균 원가, 한국시간 매도 체결 시각, 기초 {e(s['baseline_start'][:16].replace('T', ' '))}부터 · 마지막 동기화 {e((s.get('synced_at') or '-')[5:16].replace('T', ' '))} · 관리용 손익이며 세무상 손익이 아닙니다.</div></section>""" + tail
+<div class=sub>누적 출처별: {src_txt}. 기준: 거래소 체결, 이동평균 원가(기초 이후 매수는 수수료 포함), 한국시간 매도 체결 시각, 기초 {e(s['baseline_start'][:16].replace('T', ' '))}부터.
+확정 = 체결 기록만으로 원가가 정해진 손익 · 추정 = 기초 보유분의 평균 매입가(수수료 포함 여부·입출금 미확인)가 원가에 섞인 손익 · 미확정 = 원가 불명·잔고 불일치·체결 상세 불완전.
+마지막 동기화 {e((synced or '-')[5:16].replace('T', ' '))} · 관리용 손익이며 세무상 손익이 아닙니다.</div></section>""" + tail
 
     def write_status(self, prices, next_4h):
         d, e, p = self.ledger.d, html.escape, self.p

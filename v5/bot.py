@@ -18,6 +18,8 @@ import manual_orders
 import position_popup
 import protection_panel
 import strategy as st
+import rotation_policy as rotation
+import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
 from live import Live
@@ -169,10 +171,27 @@ class Bot:
 
     def apply(self, name, lg, ranked, entry_ok, end, bars, uni):
         d = lg.d
+        if rotation.enabled(self.p):
+            floor = d.setdefault('rotation_first_slot', rotation.slot(time.time()))
+            prior = max(floor, d.get('rotation_last_slot', floor))
+            d['ranking'] = ranked[:15]
+            d['ranking_time'] = utc(end).astimezone(KST).isoformat(timespec='minutes')
+            if end % rotation.HOUR or end <= prior:
+                d['last_4h'] = end
+                lg.save()
+                return
+            d['rotation_last_slot'] = end
+            d['last_4h'] = end
+            lg.save()  # claim before any paper fill; crash skips this slot
         held = list(d['positions'])
         now = time.time()
         d['banned'] = {m: t for m, t in d['banned'].items() if t > now}
         sells, buys, unknown = st.plan(ranked, held, set(d['banned']), entry_ok, self.p)
+        if rotation.enabled(self.p):
+            index = st.market_index({m:b for m,b in bars.items() if m in uni}, self.p.regime_bars, self.p.regime_min_markets) if self.p.regime_filter else None
+            expired = self.p.regime_filter and self.p.regime_expires and now >= self.p.regime_expires
+            if self.p.halt_new_buys or expired or (self.p.regime_filter and (type(index) not in (int,float) or not math.isfinite(index) or index <= 0)):
+                buys = []
         d['ranking'] = ranked[:15]
         d['ranking_time'] = utc(end).astimezone(KST).isoformat(timespec='minutes')
         log = lambda msg: (lg.event(msg), print(f'[{now_iso()}] {name} {msg}', flush=True))
@@ -322,8 +341,9 @@ class Bot:
         tr_rows = ''.join(
             f"<tr><td>{e(t['time'][5:16].replace('T', ' '))}</td><td>{e(t['side'])}</td><td>{e(t['market'][4:])}</td>"
             f"<td class=n>{t['amount']:,}</td><td>{e(t.get('reason', ''))}</td>"
-            f"<td class='n {'up' if t.get('pnl', 0) >= 0 else 'dn'}'>{(format(t['pnl'], '+,') + '원') if 'pnl' in t else ''}</td></tr>"
-            for t in trades) or '<tr><td colspan=6 class=muted>아직 거래 없음</td></tr>'
+            f"<td class='n {'up' if t.get('pnl', 0) >= 0 else 'dn'}'>{(format(t['pnl'], '+,') + '원') if 'pnl' in t else ''}</td>"
+            f"<td class=n>{(format(t['pnl_pct'], '+.2f') + '%') if 'pnl_pct' in t else ''}</td></tr>"
+            for t in trades) or '<tr><td colspan=7 class=muted>아직 거래 없음</td></tr>'
         return f"""<section><h2 class=lg>{e(title)}</h2>
 <div class=tiles>
 <div class=tile><h2>전략 순자산 (모의)</h2><b>{P:,.0f}원</b><span class="{'up' if pr >= 0 else 'dn'}">{pr*100:+.2f}%</span> <span class=muted>배정 {d['A0']:,}원</span></div>
@@ -332,7 +352,7 @@ class Bot:
 <div class=tile><h2>매수 신호 · 최소주문 미달</h2><b>{sig} · {skip}</b><span class=muted>건너뜀 비율 {(skip/sig*100 if sig else 0):.0f}%</span></div>
 </div>
 <div class=cols><div><h3>보유 종목</h3><table><tr><th>종목</th><th class=n>평가액</th><th class=n>진입가</th><th class=n>현재가</th><th class=n>손절가</th><th class=n>손익</th></tr>{pos_rows}</table></div>
-<div><h3>최근 거래</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th></tr>{tr_rows}</table></div></div></section>"""
+<div><h3>최근 모의거래 (실제 주문 아님)</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th><th class=n>손익률</th></tr>{tr_rows}</table></div></div></section>"""
 
     def held_markets(self, prices):
         """평가 5,000원 이상 보유 종목(실제 계좌 + 봇 관리 장부)."""

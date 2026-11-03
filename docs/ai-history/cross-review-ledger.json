@@ -1,9 +1,9 @@
 {
-  "updated_kst": "2026-11-03T17:53:46+09:00",
+  "updated_kst": "2026-11-04T08:46:44+09:00",
   "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
-  "previous_author": "Claude",
-  "next_author": "ChatGPT",
-  "next_reviewer": "Claude",
+  "previous_author": "ChatGPT",
+  "next_author": "Claude",
+  "next_reviewer": "ChatGPT",
   "items": [
     {
       "issue": "A-sync-process-guard",
@@ -156,6 +156,28 @@
       },
       "execution": "317V5 tests passed; exact author replacements; normalstop/backup/sync/start/health; no unprotect/test orders",
       "review_original": "manual-always-protect-author-2026-11-03.response.txt"
+    },
+    {
+      "issue": "reviewed-hourly-rotation-v1",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "approved_hash_verified_deployed_profitability_unproven",
+      "approved_hashes": {
+        "v5/strategy.py": "7d0621d8dd0f9dee28d8e30101de21dcbbc6478485bce3de395f8ec4e1bdb117",
+        "v5/shadow.py": "f608a87f2722d63f9cb7dd3b83d17cc93c062d7659b176e51418a9a8704170ee",
+        "v5/live.py": "6655ea5457e3a1929c4daa36c1a64e70b5e010b2345c3d2665b3d2fd877a1d36",
+        "v5/bot.py": "febd669037464a07c44f9e23215ba153025e7420ae706e67fd238a953be56994",
+        "v5/rotation_policy.py": "c1ab5ee881a84dd0bbe2427140b5b96052f9aa21d364f8f0beffba15e40022e4",
+        "v5/test_rotation_rollout.py": "7da511a9c90d3b1232690b3fcc174fbef3bb8c00f3812e3b5a633c2c88abe493",
+        "v5/test_plan_slot.py": "5babc2557c6f15fff7be25776b1ad38ef88a7026c3703df0521eb7e8a5142f3c",
+        "config-patch.json": "fb6dd133401f88543218194bf251244b9f958a2c5ade0cfe1d8eb97fe83d9ea6",
+        "apply_reviewed.py": "c7b0044825dfb1d79adc73181fc68e446a584c629840160f1fe60504c4e85693",
+        "test_host_gate.py": "3de7182614cceca86029b674116c79e7c376f3c44103ce4b33421e08ec78fb47",
+        "dependencies/deploy_v5.py": "eb1dcfc8645b7e4eb550e857fe03841dc5311633a23e86a78ca7b248be53a383",
+        "dependencies/sync_v5.py": "9251ef8078b9ac38e5c8360dabb36bfca1c91e8b77223049a9a6caed30aa9b5f"
+      },
+      "execution": "378 V5, 8 host, 125 tools tests; stop/checkpoint/backup/apply/start/health; risk/protection preserved; existing user resumed buys preserved",
+      "review_original": "rotation-rollout-2026-11-04-review-02.response.txt"
     }
   ],
   "pending": [

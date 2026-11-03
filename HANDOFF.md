@@ -270,3 +270,11 @@ Claude가 실제 소스를 정적 검토하고 현재 손실/완전성 A·B 확�
 - 실제Claude는 설계에 동의했으나 최종CODE검토가429 사용량한도에 막혔고04:10재개안내를받음. 설계동의를 코드해시승인으로 대신하지 않는다. 프로젝트의 상대검증 전 실거래금지 규칙에 따라 현 실행코드를 유지. 권한을 다시 묻지 않고04:11부터정해진후보만재검토하도록예약했다.
 - 예약 작업 PID25424, 상태파일 private_handoff/current-manual/deferred/state.json. 모델이 전체승인해시와엄격한approve/빈blockers·conditions를반환할때만 검사재실행→코드/현재사용자선택일치→실제현재봇/그림자실행·인계표식없음→미확정주문없음→정상종료·백업·적용·재시작·신선한현재보호목록/UI헬스검증. 실패/수정요청/사용자변경/중지·인계면중단하고기록한다. PC꺼짐·절전중실행불가. 임의계정전환/유료API/승인우회없음. 봇장부·손실기초/offset/위험한도·기존이익보호3%/손절상한5.5%변경없음.
 - 코드 제안/해시/호스트실행원문은 proposals/current-manual-scope-2026-11-04/ 에Git보존. 실제원문은 originals/current-manual-scope-*에보존. 현재상태는 current-manual-scope-pending.json 및 집PC의예약상태파일로재확인. 새사용자지시가 이예약과충돌하면 먼저stop.txt를만들어예약을중지하고기존작업을덮어쓰지않는다. 작성자ChatGPT/검증자Claude, 현재CODE검증대기이며합의완료배포아님.
+
+
+## 2026-11-04T08:46:44+09:00 사용자 지정 순환 개선 실제 배포·눈속임 지적 구분
+- 실제Claude첫코드검토4차단수정후12파일전체무조건승인(review-02)확보. 378V5/8호스트/125도구검사,전후정확해시·정상정지·백업·최종장부체크포인트·sync/패치/재시작·헬스와수동제어ping완료. 결과applied_healthy. 세부: 2026-11-04-reviewed-rotation-rollout.md.
+- 실제설정: scan8→5/M5/want3,rotation_enabledTrue,rotation_confirmations1,slot_plansTrue. 다른세션이사용자지시로이미재개한halt_new_buysFalse/국면필터·만료/entry_risk0.00184/stop0.045/guard0.03유지. 사용자보호·손익기초보존. 새정규순환은다음유효정각,위험관리는즉시. 이번패치가매수재개나금액복원을수행한것아님. 시험주문없음.
+- 다른Claude세션ec97453시간슬롯/3d6ba9e매수보류/09e38de금액복원을덮어쓰지않고보존. 이번추가작성ChatGPT/검토Claude. 관측기재생성·연속토론재개없음.
+- 거래액절반이면같은밤거래−5514.80→−2757.40원이나승률/각수익률불변. 동일10만원환산−5393.32원도음수. 이는진단환산이지효과입증아님. 수익률개선미입증상태를기록. 축소/매수보류효과와전략우위를분리. 미확인과거R/순위는추정하지않음.
+- 실제응답4건원문originals/rotation-rollout-2026-11-04-plan/revision-01/review-01/review-02.request/response.txt. 추가deploy-confirm-01은요청만존재하고600초시간초과,동의로간주하지않음. 해시/패치/호스트/결과 2026-11-04-reviewed-rotation-rollout-evidence/. 코드배포완료와수익성검증을구분한다.

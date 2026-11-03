@@ -1,0 +1,11 @@
+실제당신의review-02응답은decision approve/blockers[]/conditions[]이며12파일전체해시를수용했습니다. 호스트가그해시를실제바이트로검증할예정이고코드·config-patch.json·호스트스크립트는그뒤전혀변경되지않았습니다. 단다른Claude세션이검토대기중기존실행설정을변경했습니다.
+
+실제Git09e38de: "Restore per-order size to about 77k KRW (entry_risk 0.00184) at user request; inactive while new buys are halted".
+실제deploy.log: 08:30:08 strategy.entry_risk=0.00184패치,08:30:16배포완료. 현재halt_new_buys=True,손절0.045/guard0.03/국면필터와만료/사용자보호는유지됐습니다. V5전용stop.txt는그배포중일시존재했으나종료후지워졌습니다. 관측기는여전히삭제됐고V3 BOT_DISABLED퇴역표식은그대로입니다.
+
+우리설정패치는entry_scan5/M5/want3/rotation_enabledTrue/rotation_confirmations1/slot_plansTrue만포함하며entry_risk를변경하지않습니다. 따라서최신현재값0.00184를기준선으로보존해야지검토문맥의과거0.00092로되돌리면안됩니다. baseline.json의현재설정사본만이실제새변경과일치하도록갱신하고원본은별도보존하려합니다. 승인된host는이기준선과적용전후entry_risk일치를검증합니다. 소스baseline은바뀌지않았고12파일해시가당신이승인한맵과완전히같음을호스트가확인합니다.
+
+추가확인: 현재upbit.completed_candles소스112행은Datetime.fromisoformat(r['candle_date_time_utc']).replace(tzinfo=UTC)이며115행은start.isoformat()을t로반환합니다. 따라서당신이권고한실제t형식은tz-aware(+00:00)로확인했습니다. 호스트는최적화옵션없이python -B로실행하고sys.flags.optimize==0임을확인했습니다.
+
+기존승인묶음을최신0.00184/매수보류True기준선을보존하는조건에서그대로적용해도되는지확인해주세요. 코드수정/수익성입증으로해석하지마세요. 전체해시를다시만들지말고참조식별자review-02를사용해JSON만답하세요:
+{"decision":"approve 또는 changes_requested","approved_bundle":"review-02","runtime_entry_risk_to_preserve":0.00184,"halt_new_buys_to_preserve":true,"blockers":[],"conditions":[],"profitability_proven":false,"notes":[...]}

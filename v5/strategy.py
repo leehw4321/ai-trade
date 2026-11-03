@@ -4,6 +4,7 @@
 """
 from dataclasses import dataclass, field
 import math
+import rotation_policy as rotation
 
 MAJORS = ('KRW-BTC', 'KRW-ETH')
 
@@ -50,8 +51,10 @@ class Params:
     regime_filter: bool = False
     regime_bars: int = 96         # 균등지수 기간(15분봉 96개 = 24시간)
     regime_min_markets: int = 20  # 지수 계산에 필요한 최소 종목 수. 모자라면 신규 매수 보류
-    halt_new_buys: bool = False   # True면 신규 매수를 전부 보류한다(매도·손절·이익보호·보유 관리는 그대로). 2026-11-04 검증 전 임시 중단
-    regime_expires: float = 0.0  # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
+    halt_new_buys: bool = False  # preserve latest other-session temporary buy halt
+    regime_expires: float = 0.0   # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
+    rotation_enabled: bool = False  # reviewed hourly rotation; opt-in
+    rotation_confirmations: int = 1  # 2 is research-only, not the rollout value
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
 
     @classmethod
@@ -143,6 +146,9 @@ def reentry_block(r, last, now, p):
     손실 청산: reentry_loss_hours 뒤부터."""
     if not last:
         return None
+    if rotation.enabled(p):
+        why = rotation.fresh_reentry(last, p, rotation.row_close(r, p.tf))
+        if why: return why
     hours = (now - last['time']) / 3600
     if hours >= p.reentry_window_hours:
         return None
@@ -174,8 +180,12 @@ def plan(ranked, held, banned, entry_ok, p):
     keep = [m for m in held if m not in {s[0] for s in sells}]
     free = p.slots - len(keep)
     buys = []
-    for r in ranked[:p.entry_top]:
-        if len(buys) >= free:
+    scan = min(p.entry_scan or p.entry_top, p.M) if rotation.enabled(p) else p.entry_top
+    want = p.entry_want or p.entry_top
+    for r in ranked[:scan]:
+        if rotation.enabled(p) and (type(r.get('rank')) is not int or not 1 <= r['rank'] <= p.M):
+            continue
+        if len(buys) >= min(free, want):
             break
         m = r['market']
         if m in held or m in banned or m not in entry_ok:

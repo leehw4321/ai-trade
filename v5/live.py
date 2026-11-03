@@ -21,6 +21,7 @@ import datetime as dt
 import math
 
 import strategy as st
+import rotation_policy as rotation
 import upbit
 import asset_protection
 import manual_protection
@@ -142,6 +143,15 @@ class Live:
             {'executed': {}, 'positions': {}, 'bought_krw': 0, 'realized': 0, 'halted': ''}
         self.cfg.update(self.d.get('limits', {}))
         self.doc_mtime = 0
+        self._rotation_meta = None
+        if rotation.enabled(self.p):
+            self.d.setdefault('rotation_state', {'floor_slot': rotation.slot(time.time()),
+                'last_slot': -1, 'net_realized': 0., 'paused': ''})
+            self.save()
+            rotation.append_audit(self.folder / 'rotation_audit.jsonl',
+                {'event': 'restart', 'policy_hash': rotation.policy_hash(self.p),
+                 'source_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                 'state': dict(self.d['rotation_state'])})
 
     def save(self):
         tmp = self.file.with_suffix('.tmp')
@@ -368,6 +378,8 @@ class Live:
             raise ValueError('주문 누적 체결량 무효: 정산 보류')
         if terminal and executed > volume + 1e-8:
             raise ValueError('상세 체결 자료 부족: 주문 대사 필요')
+        realized_before = self.d.get('realized', 0.)
+        basis = None
         dv = volume - pending.get('applied_volume', 0.)
         df = funds - pending.get('applied_funds', 0.)
         dfee = fee - pending.get('applied_fee', 0.)
@@ -393,6 +405,9 @@ class Live:
                     for k in ('entry', 'atr', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased'):
                         if k in old: new[k] = old[k]
                     new['trail'] = False
+                if rotation.enabled(self.p) and old is None:
+                    new['rotation_initial_risk'] = {'per_unit': max(0., df / dv - stop),
+                        'entry_price': df / dv, 'stop': stop, 'basis': 'first_fill_price_minus_initial_stop_excludes_costs'}
                 self.d['positions'][m] = new
                 self.d['bought_krw'] += df + dfee
             else:
@@ -418,6 +433,15 @@ class Live:
                 self.d['bought_krw'] += dfee
             else:
                 self.d['realized'] -= dfee
+        delta_pnl = self.d.get('realized', 0.) - realized_before
+        if rotation.enabled(self.p) and pending.get('rotation_evidence', {}).get('decision'):
+            state = self.d['rotation_state']
+            state['net_realized'] += delta_pnl
+            budget = rotation.saved_loss_budget(self.cfg, self.d)
+            if budget is None:
+                state['paused'] = '저장된 순환 손실 기준 무효: 정규 순환 보류'
+            elif state['net_realized'] <= -budget:
+                state['paused'] = '순환 시험 손실이 기존 손실 한도 도달: 정규 순환 보류, 위험 청산 유지'
         pending.update(applied_volume=volume, applied_funds=funds, applied_fee=fee)
         if order.get('uuid'): pending['uuid'] = order['uuid']
         if terminal:
@@ -427,6 +451,19 @@ class Live:
             self.record({'side': '매수' if pending['side'] == 'bid' else '매도', 'market': m,
                 'volume': max(0., dv), 'funds': max(0., df), 'fee': max(0., dfee),
                 'identifier': pending['identifier'], 'state': order.get('state'), 'reason': pending['reason']})
+        if rotation.enabled(self.p) and (dv > 1e-12 or dfee > 0):
+            audit = pending.get('rotation_evidence', {})
+            fill_times = [t.get('created_at') for t in order.get('trades', []) if isinstance(t, dict) and t.get('created_at')]
+            rotation.append_audit(self.folder / 'rotation_audit.jsonl',
+                {'event': 'fill', 'market': m, 'side': pending['side'],
+                 'volume': dv, 'funds': df, 'fee': dfee, 'realized_delta': delta_pnl,
+                 'average_fill': df / dv if dv > 0 else None,
+                 'observed_basis': basis,
+                 'net_return_pct': delta_pnl / basis * 100 if basis and basis > 0 else None,
+                 'r_multiple': (delta_pnl / (dv * audit.get('position_at_submit', {}).get('rotation_initial_risk', {}).get('per_unit', 0)))
+                    if dv > 0 and audit.get('position_at_submit', {}).get('rotation_initial_risk', {}).get('per_unit', 0) > 0 else None,
+                 'exchange_fill_times_if_provided': fill_times,
+                 'exchange_order_created_at': order.get('created_at'), 'analysis': audit})
         return terminal
 
     def recover_pending(self, risk_market=None):
@@ -482,6 +519,12 @@ class Live:
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
         risk_market = market if risk else None
+        if rotation.enabled(self.p):
+            meta = getattr(self, '_rotation_meta', None)
+            evidence = rotation.trade_evidence(self.d['positions'].get(market), reason, time.time(), meta)
+            if meta:
+                evidence['intent_id'] = rotation.intent_id(meta['slot'], market, side, meta['policy_hash'])
+            pending['rotation_evidence'] = evidence
         self._set_pending(pending, risk_market)
         self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
         try:
@@ -510,7 +553,7 @@ class Live:
         if self.cfg['auto_proposal']:
             self.poll_proposal(markets)
         # An adopted account uses fresh strategy proposals, never replays historical discussion orders.
-        if self.d.get('account_adoption'): return
+        if self.d.get('account_adoption') or rotation.enabled(self.p): return
         if not DEBATE.exists():
             return
         mtime = DEBATE.stat().st_mtime
@@ -584,19 +627,41 @@ class Live:
             expected = int((now - 20) // (tf * 60)) * tf * 60
             if closed != expected or not closed + 20 <= evaluated <= now:
                 return
+        meta = None
+        if rotation.enabled(self.p):
+            state = self.d['rotation_state']
+            if state.get('paused') or self.has_uncertain_orders(): return
+            try:
+                meta = rotation.validate(prop, self.p, time.time(),
+                    max(state['floor_slot'], state.get('last_slot', -1)))
+            except ValueError as error:
+                rotation.append_audit(self.folder / 'rotation_audit.jsonl',
+                    {'event': 'proposal_rejected', 'reason': str(error)})
+                return
+            state['last_slot'] = meta['slot']
+            state['last_decision'] = meta['decision_id']
+            state['claim_status'] = 'claimed_at_most_once_crash_may_skip'
+            self.save()  # critical durable claim; diagnostics are optional
+            meta = {**meta, 'markets': prop.get('rotation_markets', {})}
         text = prop['text'].split('실행 주문안:', 1)[-1].strip()
-        key = 'P' + hashlib.sha256(f"{prop['time']}|{text}".encode()).hexdigest()[:15]
+        key = ('R' + meta['decision_id']) if meta else 'P' + hashlib.sha256(f"{prop['time']}|{text}".encode()).hexdigest()[:15]
         if key in self.d['executed']:
             return
         label = f"봇 주문안 {prop['time'][5:16]}"
         self.d['executed'][key] = {'id': label, 'text': text, 'time': now_iso(), 'result': '처리 중'}
         self.save()
+        self._rotation_meta = meta
         try:
             result = self.execute((label, text), markets,
                                   entry_context=prop.get('entry_context'), automatic=True,
                                   market_index=prop.get('market_index'))
         except Exception as ex:
             result = f'중단: {type(ex).__name__}: {ex}'
+        self._rotation_meta = None
+        if meta:
+            self.d['rotation_state']['claim_status'] = 'processed'
+            rotation.append_audit(self.folder / 'rotation_audit.jsonl',
+                {'event': 'decision_processed', 'decision': meta, 'result': result})
         self.d['executed'][key]['result'] = result
         self.save()
         self.record({'event': '주문안 처리', 'id': label, 'plan': text, 'result': result})
@@ -680,6 +745,14 @@ class Live:
 
     def entry_chase_block(self, market, context, ask=_NO_ASK):
         """Validate source identity and enforce the receiver's existing cap; no new threshold."""
+        if rotation.enabled(self.p):
+            if (not isinstance(context, dict) or type(context.get('rank')) is not int
+                    or not 1 <= context['rank'] <= self.p.M
+                    or context.get('policy_hash') != rotation.policy_hash(self.p)):
+                return '신규 매수 순위·유지 범위·정책 불일치: 매수 보류'
+            why = rotation.fresh_reentry(self.d.get('last_sell', {}).get(market),
+                                         self.p, context.get('signal_closed_at'))
+            if why: return why
         if not isinstance(context, dict) or context.get('market') != market:
             return '매수 신호 출처 누락·종목 불일치: 매수 보류'
         close, anchor, rs = (context.get(k) for k in ('signal_close', 'anchor_close', 'rs'))
@@ -753,10 +826,14 @@ class Live:
             if why: return why
         if (last and last.get('profit') and self.p.reentry_dip_atr > 0
                 and time.time() - last['time'] < self.p.reentry_window_hours * 3600):
-            atr = st.wilder_atr(upbit.completed_candles(m, self.p.tf, 100))
+            reentry_bars = upbit.completed_candles(m, self.p.tf, 100)
+            atr = st.wilder_atr(reentry_bars)
             if atr is None or not math.isfinite(atr) or atr <= 0:
                 return '재진입 판정 ATR 자료 부족'
-            why = st.reentry_block({'close': ob['ask'], 'atr': atr}, last, time.time(), self.p)
+            reentry_row = {'close': ob['ask'], 'atr': atr}
+            if rotation.enabled(self.p) and reentry_bars:
+                reentry_row['bar'] = reentry_bars[-1]['t']
+            why = st.reentry_block(reentry_row, last, time.time(), self.p)
             if why: return why
         return ''
 
@@ -992,6 +1069,12 @@ class Live:
         self.recover_all_pending()
         self.rebase_adopted_stops(prices)
         self.update_profit_guard(prices)
+        if rotation.enabled(self.p):
+            for m, pos in self.d['positions'].items():
+                if not self.is_protected(m):
+                    rotation.observe(pos, prices.get(m), time.time())
+            # Optional observations persist with the next normal ledger save.
+            # Do not add a disk write in front of urgent protective orders.
         candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
                       if not self.is_protected(m) and m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
                       and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0

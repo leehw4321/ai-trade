@@ -1,0 +1,12 @@
+{
+  "strategy": {
+    "rotation_enabled": true,
+    "rotation_confirmations": 1,
+    "entry_scan": 5,
+    "M": 5,
+    "entry_want": 3
+  },
+  "live": {
+    "slot_plans": true
+  }
+}

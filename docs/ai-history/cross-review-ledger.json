@@ -1,0 +1,63 @@
+{
+  "updated_kst": "2026-11-03 11:40 KST",
+  "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
+  "previous_author": "ChatGPT",
+  "next_author": "Claude",
+  "next_reviewer": "ChatGPT",
+  "items": [
+    {
+      "issue": "A-sync-process-guard",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved",
+      "approved_hashes": {
+        "tools/sync_v5.py": "507ff64c87bd418dd9954780b306de8e06432e17fc863b4b4e1bce3da746a173",
+        "tools/test_sync_v5.py": "382ad05d5a171fe5d1972e31dc0abfed372ad3ed45be98d0816757bb1315beb7"
+      },
+      "execution": "9_unit_tests_and_actual_pythonw_block_probe_passed",
+      "time": "2026-11-03T11:39:28+09:00",
+      "copied_files": 0,
+      "live_restart": false,
+      "limitations": [
+        "global conservative process matching",
+        "TOCTOU remains; not a full concurrent-start lock"
+      ]
+    },
+    {
+      "issue": "B-session-diagnostics",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "approved_hashes": {
+        "v5/session_guard.py": "e24c45aa56c6f7ed8ee599fc5aea9eb7c04f89219a5f7d09808e5ba1580b5e01",
+        "v5/test_session_diagnostics.py": "35da7f2d3222a81eca5343364b65eb29437012c2d339aea9c975b1aa57b29aa6"
+      },
+      "execution": "read_only_git_probe_passed",
+      "time": "2026-11-03T11:37:09+09:00",
+      "remote_session_changed": false,
+      "live_deployment": "hold"
+    }
+  ],
+  "pending": [
+    {
+      "id": "C-launcher-and-deploy-preflight",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "queued_not_started",
+      "scope": "fix missing launcher/target preflight; no bot stop before restart path is verified"
+    },
+    {
+      "id": "D-protection-observation",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "design_only",
+      "scope": "continue read-only protection observation during lease failure; never bypass order ownership"
+    },
+    {
+      "id": "E-scan5-vs-scan8",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "research_only",
+      "scope": "independent shadow comparison; no live parameter change"
+    }
+  ]
+}

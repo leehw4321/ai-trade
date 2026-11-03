@@ -24,19 +24,57 @@ class GitStore:
         if not (self.folder / 'HEAD').exists():
             self.git('init', '--bare', str(self.folder), outside=True)
 
+    def diagnostic(self, operation, category, duration, returncode=None):
+        """Fixed metadata only: never persist command arguments, URLs, stderr or state."""
+        verbs = {'init', 'ls-remote', 'fetch', 'rev-parse', 'show', 'hash-object', 'mktree', 'commit-tree', 'push'}
+        record = {'epoch': time.time(), 'operation': operation if operation in verbs else 'other',
+                  'category': category, 'duration_ms': max(0, round(duration * 1000)),
+                  'returncode': returncode}
+        try:
+            with (self.folder.parent / 'session_diagnostics.jsonl').open('a', encoding='utf-8') as f:
+                f.write(json.dumps(record) + '\n')
+        except Exception:
+            pass  # Diagnostic storage failure never changes execution ownership rules.
+
+    @staticmethod
+    def failure_category(stderr):
+        text = stderr.lower()
+        if any(s in text for s in ('authentication failed', 'could not read username', 'permission denied',
+                                   'repository not found', 'error: 403', 'error: 401')):
+            return 'authentication_or_permission'
+        if any(s in text for s in ('stale info', 'fetch first', 'non-fast-forward', 'cannot lock ref')):
+            return 'reference_conflict'
+        if any(s in text for s in ('could not resolve', 'failed to connect', 'connection timed out',
+                                   'connection reset', 'unable to access', 'ssl certificate')):
+            return 'network_or_tls'
+        return 'git_failure'
+
     def git(self, *args, input=None, outside=False, check=True):
         env = os.environ.copy()
         env.update(GIT_TERMINAL_PROMPT='0', GCM_INTERACTIVE='Never',
+                   LC_ALL='C', LANGUAGE='C',
                    GIT_AUTHOR_NAME='Bot Session', GIT_AUTHOR_EMAIL='bot@localhost',
                    GIT_COMMITTER_NAME='Bot Session', GIT_COMMITTER_EMAIL='bot@localhost')
         cmd = ['git'] + ([] if outside else ['--git-dir', str(self.folder)]) + list(args)
-        result = subprocess.run(cmd, input=input.encode('utf-8') if input is not None else None,
-                                capture_output=True, env=env, timeout=25,
-                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        started = time.monotonic()
+        operation = args[0] if args else 'other'
+        try:
+            result = subprocess.run(cmd, input=input.encode('utf-8') if input is not None else None,
+                                    capture_output=True, env=env, timeout=25,
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except subprocess.TimeoutExpired as ex:
+            self.diagnostic(operation, 'timeout', time.monotonic() - started)
+            raise SessionLost('GitHub 실행권 조회 시간 초과(timeout). 주문을 중단합니다.') from None
+        except OSError as ex:
+            self.diagnostic(operation, 'git_process_unavailable', time.monotonic() - started)
+            raise SessionLost('Git 실행 불가(git_process_unavailable). 주문을 중단합니다.') from None
         result.stdout = result.stdout.decode('utf-8', errors='replace')
         result.stderr = result.stderr.decode('utf-8', errors='replace')
-        if check and result.returncode:
-            raise SessionLost('GitHub 연결/인증 실패. 중복 실행 방지를 위해 주문을 중단합니다.')
+        if result.returncode:
+            category = self.failure_category(result.stderr)
+            self.diagnostic(operation, category, time.monotonic() - started, result.returncode)
+            if check:
+                raise SessionLost(f'GitHub 실행권 확인 실패({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
         return result
 
     def read(self):

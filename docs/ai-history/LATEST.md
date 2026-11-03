@@ -13,7 +13,7 @@
 2. 정시 슬롯 주문안: 재시작이 추가 주문안을 만들지 않음, 슬롯 기록을 생성 전에 저장. (v5/shadow.py, live.slot_plans)
 3. "눈속임" 지적 정정: 금액 축소·장세 필터는 수익 개선이 아니라 위험 축소. 신규 매수 중단→재개 경과는 위 1절. (원문 originals/halt-and-validation-*)
 4. 연구 도구: tools/research/collect_candles.py(수집), pit_universe.py(시점별 순위 재구성, 미래 봉 금지). 단타·스윙 2중 구조 설계 4원칙 합의: docs/ai-history/2026-11-04-dual-bucket-design.md, 청산 후보: 2026-11-04-exit-rule-candidates.md (수치는 가설·미동결).
-5. **결과 확인 도구**: `python tools/results_since.py --since 2026-11-04T08:33` (읽기 전용, 수수료 포함 순손익·청산 목록·보유 평가). 사용자가 "결과로 확인해보자"고 함. 사전 판단 규칙: 완결 거래 30건 또는 3일 전에는 개선·악화를 단정하지 않는다.
+5. **결과 확인:** results_since.py는 낮 복구 체결 누락으로 유령보유(WAVES/MPLX)를 남김. 단독 손익 인용 금지; 현재 live.json/검증 체크포인트와 대사. 08:51 확인: 개선 후 매수0·매도0·실현변화0원, 기존보유 평가 약+2046원은 신규전략 성과 아님. [확인 기록](2026-11-04-0851-rotation-results.md).
 6. 인계 방식: 이 LATEST.md 한 장 + `start`가 이것만 출력 + `tools/handoff_digest.py check`.
 
 7. **08:41 순환 개선 적용:** scan8→5/M5/want3, 고정슬롯+수신부지속claim/재진입새봉/수익률·R진단/모의표시. 378V5·8호스트·125도구검사와 실제Claude 전체해시승인 후 적용. 최신 매수재개·건당금액·손절4.5%·guard3% 보존. 수익성 미입증. [세부·원문](2026-11-04-reviewed-rotation-rollout.md). 다음 신규 작성자는Claude/검증자ChatGPT.

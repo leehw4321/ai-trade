@@ -356,7 +356,7 @@ class Bot:
         src_txt = ' · '.join(f'{e(k)} {v:+,.0f}원' for k, v in src.items()) or '없음'
         urows = ''.join(
             f"<tr><td>{e(r['coin'])}{' <span class=warn>불일치(합계 제외)</span>' if r['mismatch'] else ''}{' <span class=muted>추정 원가</span>' if r.get('estimated') else ''}</td><td class=n>{r['value']:,.0f}</td>"
-            f"<td class=n>{r['cost']:,.0f}</td><td class=n>{won(r['unrealized']) if r['unrealized'] is not None else '원가 불명'}</td></tr>"
+            f"<td class=n>{r['cost']:,.0f}</td><td class=n>{won(r['unrealized']) if r['unrealized'] is not None else '<span class=warn>미확정(' + e(r.get('why') or '원가 불명') + ', 합계 제외)</span>'}</td></tr>"
             for r in s['unrealized_rows']) or '<tr><td colspan=4 class=muted>보유 없음</td></tr>'
         recent = ''.join(
             f"<li><span class=t>{e(r['time'][5:16].replace('T', ' '))}</span>{e(r['coin'])} · "

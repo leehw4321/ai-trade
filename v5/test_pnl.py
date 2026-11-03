@@ -134,5 +134,22 @@ class ReviewFixes(unittest.TestCase):
         self.assertFalse(s['periods']['오늘']['partial_period'])
 
 
+    def test_empty_trade_detail_sell_is_counted_unconfirmed(self):
+        sell = order('s', 'ask', [('2026-11-03T10:00:00+09:00', 1, 120)], 0)
+        sell['trades'], sell['complete'] = [], False
+        orders = [order('b', 'bid', [('2026-11-03T09:00:00+09:00', 1, 100)], 0), sell]
+        ev = pnl.fills({o['uuid']: o for o in orders})
+        _, sells = pnl.rebuild(BASE, ev)
+        agg = pnl.aggregate(sells, ev, {'누적': pnl.kst(BASE['start'])})['누적']
+        self.assertEqual((agg['sell_orders'], agg['unconfirmed_count'], agg['realized']), (1, 1, 0.0))
+
+    def test_incomplete_cost_excluded_from_unrealized_total(self):
+        b = order('b', 'bid', [('2026-11-03T09:00:00+09:00', 1, 100)], 0)
+        b['complete'] = False
+        pos, _ = realize([b])
+        rows, total, mismatch = pnl.unrealized(pos, [{'currency': 'X', 'balance': '1', 'locked': '0'}], {'KRW-X': 10000})
+        self.assertEqual((total, mismatch, rows[0]['unrealized'], rows[0]['why']), (0.0, [], None, '체결 상세 불완전'))
+
+
 if __name__ == '__main__':
     unittest.main()

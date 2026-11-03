@@ -158,6 +158,12 @@ def fills(orders):
         trades = o.get('trades') or []
         total = sum(D(str(t['funds'])) for t in trades)
         fee = D(str(o.get('paid_fee') or 0))
+        if not trades and D(str(o.get('executed_volume') or 0)) > 0:
+            # 체결량은 있는데 상세 체결이 비었다: 사라지지 않도록 미확정 자리표시 이벤트를 만든다
+            ev.append({'time': kst(o['created_at']), 'market': o['market'], 'coin': o['market'].split('-', 1)[1],
+                       'side': o['side'], 'vol': D(str(o['executed_volume'])), 'funds': D(0), 'fee': fee, 'order': o['uuid'],
+                       'complete': False, 'source': 'V5 식별 주문' if (o.get('identifier') or '').startswith('v5-') else '출처 불명(수동 등)'})
+            continue
         for t in trades:
             funds = D(str(t['funds']))
             ev.append({'time': kst(t['created_at']), 'market': o['market'], 'coin': o['market'].split('-', 1)[1],
@@ -243,11 +249,12 @@ def unrealized(pos, accounts, prices):
         if p['qty'] <= EPS or price is None:
             continue
         value = p['qty'] * D(str(price))
-        u = value - p['cost'] if p['known'] else None
+        u = value - p['cost'] if p['known'] and p.get('clean', True) else None
         if value < 5000 and u is not None and abs(u) < 100:
             continue  # 소액 먼지
         rows.append({'coin': coin, 'qty': float(p['qty']), 'value': float(value), 'cost': float(p['cost']),
                      'unrealized': None if u is None else float(u), 'mismatch': coin in mismatch,
+                     'why': '' if u is not None else ('원가 불명' if not p['known'] else '체결 상세 불완전'),
                      'estimated': p.get('bcost', D(0)) > 0})
         if u is not None and coin not in mismatch:
             total += u

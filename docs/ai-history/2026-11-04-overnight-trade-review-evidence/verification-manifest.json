@@ -1,0 +1,21 @@
+{
+  "runtime_files_sha256": {
+    "live.py": "d6e8014fa00dbabbda3fecb6f5ada829fb893418c884f9df9e38484b85ca8640",
+    "shadow.py": "49dd73aca07264ce7b549117b9baa9548d649f6a51c71f0bcb7ad660db5b66cc",
+    "strategy.py": "764e986c6906075dbe59e9fe09d7e3a2b11f7dac68ffe15c6af50f058da70a88",
+    "config.json": "22c5b5c5507f89672e97330193de8fab779748989516551672577fae0116938f"
+  },
+  "analysis_scripts_sha256": {
+    "overnight_trade_audit.py": "3a112495340f78855ab54069c1bb3b02093e50c899b5d649adf8abc62ce7d465",
+    "overnight_price_paths.py": "d68b5579c6d59bb17a09c2cc0f4176aa26a3894fa4bf733a1eee2cf2c80ea629"
+  },
+  "deploy_log_excerpt": [
+    "[2026-11-03 23:47:15] 배포 요청(사용자 직접 실행 + 설정 guard_arm_3_stop_055.json): 다른 파일 [] · 실행 중 ['bot.lock', 'shadow.lock'] · 미확정 주문 없음 · 테스트 통과",
+    "[2026-11-03 23:47:15] 백업: C:\\Users\\User\\Desktop\\코인 트레이딩\\v5-app\\v5\\_backup\\20261103_234715",
+    "[2026-11-03 23:47:15] 정상 종료 요청(강제 종료 없음). 최대 180초 대기",
+    "[2026-11-03 23:47:22] 설정 변경 적용: {'strategy': {'stop_max_pct': 0.055}, 'live': {'profit_guard_arm_pct': 0.03}}",
+    "[2026-11-03 23:47:22] 코드 0개 적용 (data·.env 그대로)",
+    "[2026-11-03 23:47:28] 배포 완료"
+  ],
+  "execution_failure_observed": "2026-11-04T07:31:23+09:00 runtime bot stdout: lease renewal failed and bot exited; shadow remained; analysis made no process/config/trading changes"
+}

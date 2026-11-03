@@ -1,0 +1,1270 @@
+{
+  "generated_at": "2026-11-04T07:31:41+09:00",
+  "requested_window": {
+    "from": "2026-11-03T18:00:00+09:00",
+    "through": "2026-11-04T07:31:41+09:00"
+  },
+  "source_sha256": "997efacde73906cf9c7628d0dcc2c90c3d4b424f1ff058affe24978dcea5d622",
+  "accounting_limits": [
+    "not_account_pnl",
+    "inherited_cost_and_missing_history_excluded",
+    "no_signal_or_intratrade_price_path_yet",
+    "not_a_profitability_test",
+    "holding_and_rebuy_intervals_use_log_times_not_verified_exchange_times",
+    "mixed_inherited_and_recorded_lots_may_misattribute_cost",
+    "file_order_may_differ_from_exchange_execution_order",
+    "latest_80_rows_in_packet_full_history_local"
+  ],
+  "accounting_reconciliation": {
+    "basis": "verified_15:23_recovery_checkpoint_then_all_subsequent_local_fills",
+    "checkpoint_realized": -20513.840546883166,
+    "replayed_realized": -27647.376755109584,
+    "actual_snapshot_realized": -27647.376755109584,
+    "all_position_qty_and_cost_match": true,
+    "plain_journal_lot_statistics_superseded_due_missing_daytime_fills": true
+  },
+  "overnight_summary": {
+    "buys": 13,
+    "sells": 11,
+    "cost_covered_sells": 11,
+    "unknown_cost_sells": 0,
+    "wins": 3,
+    "losses": 8,
+    "gain_krw": 3285.948945324635,
+    "loss_krw": 8800.75241913626,
+    "net_known_krw": -5514.803473811626,
+    "profit_factor": 0.373371365177789,
+    "mean_win_krw": 1095.3163151082117,
+    "mean_loss_krw": 1100.0940523920326,
+    "mean_win_pct": 1.4217778320729533,
+    "mean_loss_pct": -1.2073311717350839,
+    "median_hold_minutes": 60.31666666666667,
+    "known_fees_krw": 998.207451909253,
+    "filled_principal_krw": 1996414.903818506
+  },
+  "events": [
+    {
+      "index": 71,
+      "time": "2026-11-03T15:24:35+09:00",
+      "market": "KRW-BTC",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 0.00484167,
+      "funds": 498710.38004,
+      "fee": 249.35519002,
+      "average_fill": 103003794.15367012,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -1788.235680469952,
+      "covered_by_observed_buys": true,
+      "reason_detail": "봇 주문안 11-03T15:24",
+      "in_overnight_window": false,
+      "observed_basis": 500249.26053045,
+      "net_return_pct": -0.35746893030361665,
+      "holding_seconds": 4857.0
+    },
+    {
+      "index": 72,
+      "time": "2026-11-03T15:24:37+09:00",
+      "market": "KRW-PUFFER",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 2547.42547425,
+      "funds": 93999.999999825,
+      "fee": 46.9999999999125,
+      "average_fill": 36.9,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T15:24",
+      "in_overnight_window": false
+    },
+    {
+      "index": 73,
+      "time": "2026-11-03T15:24:40+09:00",
+      "market": "KRW-META2",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 16.20689655,
+      "funds": 93999.99999,
+      "fee": 46.999999995,
+      "average_fill": 5800.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T15:24",
+      "in_overnight_window": false
+    },
+    {
+      "index": 75,
+      "time": "2026-11-03T16:24:22+09:00",
+      "market": "KRW-META2",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 16.20689655,
+      "funds": 93432.75861075,
+      "fee": 46.716379305375,
+      "average_fill": 5765.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -660.9577585503721,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99998999499,
+      "holding_seconds": 3582.0,
+      "reason_detail": "봇 주문안 11-03T16:24",
+      "net_return_pct": -0.7027951541470614,
+      "in_overnight_window": false
+    },
+    {
+      "index": 76,
+      "time": "2026-11-03T16:24:24+09:00",
+      "market": "KRW-BMT",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 2910.21671826,
+      "funds": 93999.999999798,
+      "fee": 46.999999999899,
+      "average_fill": 32.3,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T16:24",
+      "in_overnight_window": false
+    },
+    {
+      "index": 79,
+      "time": "2026-11-03T16:33:59+09:00",
+      "market": "KRW-PUFFER",
+      "side": "sell",
+      "reason": "profit_guard",
+      "volume": 2547.42547425,
+      "funds": 95018.970189525,
+      "fee": 47.5094850947625,
+      "average_fill": 37.3,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": 924.4607046053279,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99999982491,
+      "holding_seconds": 4162.0,
+      "reason_detail": "이익보호",
+      "net_return_pct": 0.9829773460153424,
+      "in_overnight_window": false
+    },
+    {
+      "index": 81,
+      "time": "2026-11-03T17:07:37+09:00",
+      "market": "KRW-BMT",
+      "side": "sell",
+      "reason": "profit_guard",
+      "volume": 2910.21671826,
+      "funds": 93999.999999798,
+      "fee": 46.999999999899,
+      "average_fill": 32.3,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -93.99999999979627,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.9999997979,
+      "holding_seconds": 2593.0,
+      "reason_detail": "이익보호",
+      "net_return_pct": -0.0999500249875044,
+      "in_overnight_window": false
+    },
+    {
+      "index": 82,
+      "time": "2026-11-03T17:23:49+09:00",
+      "market": "KRW-AXIS",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 510.86956521,
+      "funds": 93999.99999864,
+      "fee": 46.99999999932,
+      "average_fill": 184.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 22817.0,
+      "reason_detail": "봇 주문안 11-03T17:23",
+      "in_overnight_window": false
+    },
+    {
+      "index": 86,
+      "time": "2026-11-03T18:52:53+09:00",
+      "market": "KRW-CAP",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 950.45500505,
+      "funds": 93999.999999445,
+      "fee": 46.9999999997225,
+      "average_fill": 98.9,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 31769.0,
+      "reason_detail": "봇 주문안 11-03T18:52",
+      "in_overnight_window": true
+    },
+    {
+      "index": 99,
+      "time": "2026-11-03T23:35:19+09:00",
+      "market": "KRW-CAP",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 950.4550050400001,
+      "funds": 93755.690932981,
+      "fee": 46.8778454664905,
+      "average_fill": 98.64295567472473,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -338.1869109407271,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99999845524,
+      "holding_seconds": 16946.0,
+      "reason_detail": "봇 주문안 11-03T23:34",
+      "net_return_pct": -0.35959351276094076,
+      "in_overnight_window": true
+    },
+    {
+      "index": 100,
+      "time": "2026-11-03T23:35:22+09:00",
+      "market": "KRW-MPLX",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 810.34482758,
+      "funds": 93999.99999928,
+      "fee": 46.99999999964,
+      "average_fill": 116.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 84976.0,
+      "reason_detail": "봇 주문안 11-03T23:34",
+      "in_overnight_window": true
+    },
+    {
+      "index": 101,
+      "time": "2026-11-03T23:35:25+09:00",
+      "market": "KRW-ERA",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 1029.5728368,
+      "funds": 93999.99999984,
+      "fee": 46.99999999992,
+      "average_fill": 91.3,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T23:34",
+      "in_overnight_window": true
+    },
+    {
+      "index": 102,
+      "time": "2026-11-03T23:35:27+09:00",
+      "market": "KRW-META2",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 16.23488773,
+      "funds": 93999.9999567,
+      "fee": 46.99999997835,
+      "average_fill": 5790.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 25865.0,
+      "reason_detail": "봇 주문안 11-03T23:34",
+      "in_overnight_window": true
+    },
+    {
+      "index": 105,
+      "time": "2026-11-03T23:49:05+09:00",
+      "market": "KRW-META2",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 16.23488773,
+      "funds": 93512.9533248,
+      "fee": 46.7564766624,
+      "average_fill": 5760.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -580.8031085407565,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99995667835,
+      "holding_seconds": 818.0,
+      "reason_detail": "봇 주문안 11-03T23:48",
+      "net_return_pct": -0.6175668642362826,
+      "in_overnight_window": true
+    },
+    {
+      "index": 106,
+      "time": "2026-11-03T23:49:08+09:00",
+      "market": "KRW-ERA",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 1029.5728368,
+      "funds": 93897.04271616,
+      "fee": 46.94852135808,
+      "average_fill": 91.2,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -196.90580503801175,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99999983993,
+      "holding_seconds": 823.0,
+      "reason_detail": "봇 주문안 11-03T23:48",
+      "net_return_pct": -0.20936957589114685,
+      "in_overnight_window": true
+    },
+    {
+      "index": 107,
+      "time": "2026-11-03T23:49:11+09:00",
+      "market": "KRW-PIEVERSE",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 49.45407835,
+      "funds": 76999.99999095,
+      "fee": 38.499999995475,
+      "average_fill": 1557.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T23:48",
+      "in_overnight_window": true
+    },
+    {
+      "index": 108,
+      "time": "2026-11-03T23:49:14+09:00",
+      "market": "KRW-FLOCK",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 1461.10165356,
+      "funds": 76999.999999754,
+      "fee": 38.499999999877,
+      "average_fill": 52.69996089056647,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-03T23:48",
+      "in_overnight_window": true
+    },
+    {
+      "index": 113,
+      "time": "2026-11-04T00:16:16+09:00",
+      "market": "KRW-AXIS",
+      "side": "sell",
+      "reason": "stop",
+      "volume": 510.86956521,
+      "funds": 89402.17391175,
+      "fee": 44.701086955875,
+      "average_fill": 175.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -4689.527173845199,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99999863932,
+      "holding_seconds": 24747.0,
+      "reason_detail": "손절",
+      "net_return_pct": -4.9863655128957305,
+      "in_overnight_window": true
+    },
+    {
+      "index": 114,
+      "time": "2026-11-04T00:49:03+09:00",
+      "market": "KRW-FLOCK",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 1461.10165356,
+      "funds": 76561.726646544,
+      "fee": 38.280863323272,
+      "average_fill": 52.4,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -515.0542165331572,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.49999975388,
+      "holding_seconds": 3589.0,
+      "reason_detail": "봇 주문안 11-04T00:48",
+      "net_return_pct": -0.6685672962671945,
+      "in_overnight_window": true
+    },
+    {
+      "index": 115,
+      "time": "2026-11-04T00:49:05+09:00",
+      "market": "KRW-MPLX",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 810.34482758,
+      "funds": 92379.31034412,
+      "fee": 46.18965517206,
+      "average_fill": 114.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -1713.8793103317003,
+      "covered_by_observed_buys": true,
+      "observed_basis": 94046.99999927964,
+      "holding_seconds": 4423.0,
+      "reason_detail": "봇 주문안 11-04T00:48",
+      "net_return_pct": -1.8223646797291013,
+      "in_overnight_window": true
+    },
+    {
+      "index": 118,
+      "time": "2026-11-04T01:25:16+09:00",
+      "market": "KRW-PIEVERSE",
+      "side": "sell",
+      "reason": "profit_guard",
+      "volume": 49.45407835,
+      "funds": 78335.2601064,
+      "fee": 39.1676300532,
+      "average_fill": 1584.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": 1257.5924854013283,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.49999094548,
+      "holding_seconds": 5765.0,
+      "reason_detail": "이익보호",
+      "net_return_pct": 1.6324207838277434,
+      "in_overnight_window": true
+    },
+    {
+      "index": 120,
+      "time": "2026-11-04T02:49:04+09:00",
+      "market": "KRW-IRYS",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 2701.75438596,
+      "funds": 76999.99999986,
+      "fee": 38.49999999993,
+      "average_fill": 28.5,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 60337.0,
+      "reason_detail": "봇 주문안 11-04T02:48",
+      "in_overnight_window": true
+    },
+    {
+      "index": 125,
+      "time": "2026-11-04T04:49:17+09:00",
+      "market": "KRW-PIEVERSE",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 49.31688004,
+      "funds": 76999.99998897,
+      "fee": 38.499999994485,
+      "average_fill": 1561.3315344871114,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 12241.0,
+      "reason_detail": "봇 주문안 11-04T04:49",
+      "in_overnight_window": true
+    },
+    {
+      "index": 126,
+      "time": "2026-11-04T04:49:19+09:00",
+      "market": "KRW-XRP",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 44.76744186,
+      "funds": 76999.9999992,
+      "fee": 38.4999999996,
+      "average_fill": 1720.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-04T04:49",
+      "in_overnight_window": true
+    },
+    {
+      "index": 130,
+      "time": "2026-11-04T05:49:36+09:00",
+      "market": "KRW-PIEVERSE",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 49.31688003,
+      "funds": 76342.53028644,
+      "fee": 38.17126514322,
+      "average_fill": 1548.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -734.1409520465822,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.49997334337,
+      "holding_seconds": 3619.0,
+      "reason_detail": "봇 주문안 11-04T05:49",
+      "net_return_pct": -0.9529533315168488,
+      "in_overnight_window": true
+    },
+    {
+      "index": 131,
+      "time": "2026-11-04T05:49:38+09:00",
+      "market": "KRW-XRP",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 44.76744186,
+      "funds": 77044.76744106,
+      "fee": 38.52238372053,
+      "average_fill": 1721.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": -32.254941860126564,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.4999991996,
+      "holding_seconds": 3619.0,
+      "reason_detail": "봇 주문안 11-04T05:49",
+      "net_return_pct": -0.04186860058342476,
+      "in_overnight_window": true
+    },
+    {
+      "index": 132,
+      "time": "2026-11-04T05:49:41+09:00",
+      "market": "KRW-ONDO",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 146.11005692,
+      "funds": 76999.99999684,
+      "fee": 38.49999999842,
+      "average_fill": 527.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-04T05:49",
+      "in_overnight_window": true
+    },
+    {
+      "index": 136,
+      "time": "2026-11-04T06:49:44+09:00",
+      "market": "KRW-ONDO",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 146.11005692,
+      "funds": 77292.22011068,
+      "fee": 38.64611005534,
+      "average_fill": 529.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": 215.07400378625607,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.4999968384,
+      "holding_seconds": 3603.0,
+      "reason_detail": "봇 주문안 11-04T06:49",
+      "net_return_pct": 0.2791772993958638,
+      "in_overnight_window": true
+    },
+    {
+      "index": 137,
+      "time": "2026-11-04T06:49:47+09:00",
+      "market": "KRW-IRYS",
+      "side": "sell",
+      "reason": "proposal",
+      "volume": 2701.75438596,
+      "funds": 78891.228070032,
+      "fee": 39.445614035016,
+      "average_fill": 29.2,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": 1813.2824561370508,
+      "covered_by_observed_buys": true,
+      "observed_basis": 77038.49999985992,
+      "holding_seconds": 14443.0,
+      "reason_detail": "봇 주문안 11-04T06:49",
+      "net_return_pct": 2.3537354129952526,
+      "in_overnight_window": true
+    },
+    {
+      "index": 138,
+      "time": "2026-11-04T06:49:50+09:00",
+      "market": "KRW-AXIS",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 418.47826086,
+      "funds": 76999.99999824,
+      "fee": 38.49999999912,
+      "average_fill": 184.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 23614.0,
+      "reason_detail": "봇 주문안 11-04T06:49",
+      "in_overnight_window": true
+    },
+    {
+      "index": 139,
+      "time": "2026-11-04T06:49:53+09:00",
+      "market": "KRW-FLOCK",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 1472.2753346,
+      "funds": 76999.99999958,
+      "fee": 38.49999999979,
+      "average_fill": 52.3,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": 21650.0,
+      "reason_detail": "봇 주문안 11-04T06:49",
+      "in_overnight_window": true
+    },
+    {
+      "index": 140,
+      "time": "2026-11-04T06:49:55+09:00",
+      "market": "KRW-ENA",
+      "side": "buy",
+      "reason": "proposal",
+      "volume": 323.52941176,
+      "funds": 76999.99999888,
+      "fee": 38.49999999944,
+      "average_fill": 238.0,
+      "time_basis": "journal_log_time_exchange_fill_time_unverified",
+      "fee_bps": 5.0,
+      "signal_to_fill_seconds": null,
+      "post_entry_price_path": "not_collected",
+      "observed_lot_pnl": null,
+      "covered_by_observed_buys": false,
+      "rebuy_seconds_after_sell": null,
+      "reason_detail": "봇 주문안 11-04T06:49",
+      "in_overnight_window": true
+    }
+  ],
+  "lifecycle_events": [
+    {
+      "time": "2026-11-02T21:14:37+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T22:24:18+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-GTC",
+      "old_stop": 261.7434291342484,
+      "new_stop": 298.08000000000004
+    },
+    {
+      "time": "2026-11-02T22:24:18+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-BIRB",
+      "old_stop": 78.37992161390063,
+      "new_stop": 97.52000000000001
+    },
+    {
+      "time": "2026-11-02T22:24:18+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-MPLX",
+      "old_stop": 79.31462994355391,
+      "new_stop": 102.12
+    },
+    {
+      "time": "2026-11-02T22:24:18+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-POD",
+      "old_stop": 623.0327381900419,
+      "new_stop": 648.6
+    },
+    {
+      "time": "2026-11-02T22:25:54+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T22:28:50+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T22:37:08+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T22:41:20+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T22:59:40+09:00",
+      "event": "인수 보유분 추적 기준 생성",
+      "market": "KRW-GTC",
+      "entry": 358.0,
+      "peak": 358.0
+    },
+    {
+      "time": "2026-11-02T22:59:40+09:00",
+      "event": "인수 보유분 추적 기준 생성",
+      "market": "KRW-SUI",
+      "entry": 1000.0,
+      "peak": 1202.0
+    },
+    {
+      "time": "2026-11-02T22:59:40+09:00",
+      "event": "인수 보유분 추적 기준 생성",
+      "market": "KRW-BIRB",
+      "entry": 117.99993178795148,
+      "peak": 117.99993178795148
+    },
+    {
+      "time": "2026-11-02T22:59:40+09:00",
+      "event": "인수 보유분 추적 기준 생성",
+      "market": "KRW-MPLX",
+      "entry": 99.8,
+      "peak": 115.0
+    },
+    {
+      "time": "2026-11-02T22:59:40+09:00",
+      "event": "인수 보유분 추적 기준 생성",
+      "market": "KRW-POD",
+      "entry": 730.3649999999999,
+      "peak": 730.3649999999999
+    },
+    {
+      "time": "2026-11-02T23:01:22+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:04:39+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:09:15+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:11:56+09:00",
+      "event": "손실 중단선 기준 총자산 확정",
+      "pct": 0.008,
+      "limit": 15097.63177129952
+    },
+    {
+      "time": "2026-11-02T23:13:31+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:34:58+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:38:57+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:41:47+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:44:21+09:00",
+      "event": "신규 매수 중단"
+    },
+    {
+      "time": "2026-11-02T23:51:00+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-02T23:57:00+09:00",
+      "event": "손실 집계 하루 단위 시작"
+    },
+    {
+      "time": "2026-11-02T23:58:33+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T00:00:07+09:00",
+      "event": "손실 집계 하루 단위 시작"
+    },
+    {
+      "time": "2026-11-03T00:04:59+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T00:15:17+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T00:21:53+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T00:22:13+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-SLX",
+      "old_stop": 53.473374617487366,
+      "new_stop": 53.48
+    },
+    {
+      "time": "2026-11-03T05:59:38+09:00",
+      "event": "신규 매수 중단"
+    },
+    {
+      "time": "2026-11-03T06:22:08+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T07:22:09+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T08:21:59+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T08:33:21+09:00",
+      "event": "신규 매수 재개"
+    },
+    {
+      "time": "2026-11-03T08:40:43+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T09:03:36+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T10:03:29+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T11:03:32+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T15:22:58+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-BIRB",
+      "old_stop0": 97.52000000000001,
+      "new_stop0": 100.27499999999999
+    },
+    {
+      "time": "2026-11-03T15:22:58+09:00",
+      "event": "이익보호 시작",
+      "market": "KRW-SUI",
+      "entry": 1000.0,
+      "peak": 1161.0,
+      "guard_stop": 1096.6
+    },
+    {
+      "time": "2026-11-03T15:24:40+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T16:24:24+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T16:32:45+09:00",
+      "event": "이익보호 시작",
+      "market": "KRW-PUFFER",
+      "entry": 36.91845,
+      "peak": 37.7,
+      "guard_stop": 37.38738
+    },
+    {
+      "time": "2026-11-03T17:06:54+09:00",
+      "event": "이익보호 시작",
+      "market": "KRW-BMT",
+      "entry": 32.31615,
+      "peak": 33.0,
+      "guard_stop": 32.72646
+    },
+    {
+      "time": "2026-11-03T17:23:49+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T17:28:15+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-BTC"
+    },
+    {
+      "time": "2026-11-03T17:53:05+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T18:52:53+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T23:25:28+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-APENFT"
+    },
+    {
+      "time": "2026-11-03T23:25:32+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-BIRB"
+    },
+    {
+      "time": "2026-11-03T23:26:44+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-ETH"
+    },
+    {
+      "time": "2026-11-03T23:26:49+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-DKA"
+    },
+    {
+      "time": "2026-11-03T23:26:55+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-XRP"
+    },
+    {
+      "time": "2026-11-03T23:27:00+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-XCORE"
+    },
+    {
+      "time": "2026-11-03T23:27:05+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-SUI"
+    },
+    {
+      "time": "2026-11-03T23:27:09+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-SOLO"
+    },
+    {
+      "time": "2026-11-03T23:27:14+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-ONG"
+    },
+    {
+      "time": "2026-11-03T23:27:18+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-MPLX"
+    },
+    {
+      "time": "2026-11-03T23:27:26+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-GTC"
+    },
+    {
+      "time": "2026-11-03T23:35:27+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T23:47:37+09:00",
+      "event": "사용자 보호 선택",
+      "market": "KRW-BTC"
+    },
+    {
+      "time": "2026-11-03T23:49:14+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-03T23:49:16+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-FLOCK",
+      "old_stop": 49.801463041585315,
+      "new_stop": 49.8015
+    },
+    {
+      "time": "2026-11-03T23:49:16+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-FLOCK",
+      "old_stop0": 49.801463041585315,
+      "new_stop0": 49.8015
+    },
+    {
+      "time": "2026-11-04T00:00:06+09:00",
+      "event": "손실 집계 하루 단위 시작"
+    },
+    {
+      "time": "2026-11-04T00:49:05+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T01:17:59+09:00",
+      "event": "이익보호 시작",
+      "market": "KRW-PIEVERSE",
+      "entry": 1557.7785,
+      "peak": 1610.0,
+      "guard_stop": 1589.1114
+    },
+    {
+      "time": "2026-11-04T01:49:19+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T02:49:04+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T02:49:10+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-IRYS",
+      "old_stop": 26.932499999999994,
+      "new_stop": 26.932499999999997
+    },
+    {
+      "time": "2026-11-04T02:49:10+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-IRYS",
+      "old_stop0": 26.932499999999994,
+      "new_stop0": 26.932499999999997
+    },
+    {
+      "time": "2026-11-04T03:49:17+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T04:49:19+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T04:49:24+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-PIEVERSE",
+      "old_stop": 1475.45830009032,
+      "new_stop": 1476.09
+    },
+    {
+      "time": "2026-11-04T04:49:24+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-PIEVERSE",
+      "old_stop0": 1475.45830009032,
+      "new_stop0": 1476.09
+    },
+    {
+      "time": "2026-11-04T05:49:41+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T05:49:43+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-ONDO",
+      "old_stop": 498.0149999999999,
+      "new_stop": 498.015
+    },
+    {
+      "time": "2026-11-04T05:49:43+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-ONDO",
+      "old_stop0": 498.0149999999999,
+      "new_stop0": 498.015
+    },
+    {
+      "time": "2026-11-04T06:49:55+09:00",
+      "event": "주문안 처리"
+    },
+    {
+      "time": "2026-11-04T06:49:58+09:00",
+      "event": "손절가 상한 적용",
+      "market": "KRW-ENA",
+      "old_stop": 224.90999999999997,
+      "new_stop": 224.91
+    },
+    {
+      "time": "2026-11-04T06:49:58+09:00",
+      "event": "실시간 손절가 상한 적용",
+      "market": "KRW-ENA",
+      "old_stop0": 224.90999999999997,
+      "new_stop0": 224.91
+    }
+  ],
+  "strategy": {
+    "L": 72,
+    "M": 5,
+    "coin_cap": 0.25,
+    "cost_major": 0.001,
+    "cost_other": 0.002,
+    "entry_risk": 0.00225,
+    "entry_scan": 8,
+    "entry_top": 3,
+    "entry_want": 3,
+    "k": 3.0,
+    "reentry_hours": 24,
+    "require_positive_rs": true,
+    "risk": 0.002,
+    "size_by_risk": true,
+    "slots": 3,
+    "stop_max_pct": 0.055,
+    "stop_seconds": 30,
+    "tf": 15,
+    "total_cap": 0.5,
+    "universe": 30
+  },
+  "live_policy": {
+    "profit_guard_enabled": true,
+    "profit_guard_arm_pct": 0.03,
+    "profit_guard_giveback": 0.4,
+    "trail_enabled": true,
+    "trail_adopted": true,
+    "stop_tf": 240,
+    "max_spread": 0.01,
+    "adopted_trail_start_r": 1.0
+  },
+  "current_positions": {
+    "KRW-BIRB": {
+      "qty": 1.0000007932831068e-08,
+      "cost": 1.1800002539530396e-06,
+      "time": "2026-11-02T21:12:57.177196+09:00",
+      "entry": 117.99993178795148,
+      "atr": 2.0748699389136864,
+      "peak": 117.99993178795148,
+      "stop": 97.52000000000001,
+      "stop0": 100.27499999999999,
+      "profit_guard_peak": 117.99993178795148,
+      "profit_guard_stop": null,
+      "inherited": true
+    },
+    "KRW-GTC": {
+      "qty": 0.06805695,
+      "cost": 24.364388100000003,
+      "time": "2026-11-02T21:12:57.177196+09:00",
+      "entry": 358.0,
+      "atr": 4.600075812752514,
+      "peak": 358.0,
+      "stop": 298.08000000000004,
+      "stop0": 298.08000000000004,
+      "profit_guard_peak": 358.0,
+      "profit_guard_stop": null,
+      "inherited": true
+    },
+    "KRW-SUI": {
+      "qty": 1.88899338,
+      "cost": 1888.9933800000001,
+      "time": "2026-11-02T21:12:57.177196+09:00",
+      "entry": 1000.0,
+      "atr": 5.3396111554204895,
+      "peak": 1216.0,
+      "stop": 1205.320777689159,
+      "stop0": 1130.3407388548223,
+      "profit_guard_peak": 1217.0,
+      "profit_guard_stop": 1130.2,
+      "inherited": true
+    },
+    "KRW-PIEVERSE": {
+      "qty": 1.000000082740371e-08,
+      "cost": 1.5621117199771106e-05,
+      "time": "2026-11-04T04:49:15+09:00",
+      "entry": 1561.3315344871114,
+      "atr": 59.39106006716467,
+      "peak": 1574.0,
+      "stop": 1476.09,
+      "stop0": 1476.09,
+      "profit_guard_peak": 1574.0,
+      "profit_guard_stop": null,
+      "inherited": null
+    },
+    "KRW-AXIS": {
+      "qty": 418.47826086,
+      "cost": 77038.49999823913,
+      "time": "2026-11-04T06:49:48+09:00",
+      "entry": 184.00000000000003,
+      "atr": 11.734813081968145,
+      "peak": 185.0,
+      "stop": 173.88000000000002,
+      "stop0": 173.88000000000002,
+      "profit_guard_peak": 185.0,
+      "profit_guard_stop": null,
+      "inherited": null
+    },
+    "KRW-FLOCK": {
+      "qty": 1472.2753346,
+      "cost": 77038.4999995798,
+      "time": "2026-11-04T06:49:51+09:00",
+      "entry": 52.300000000000004,
+      "atr": 2.838473394830974,
+      "peak": 52.300000000000004,
+      "stop": 49.423500000000004,
+      "stop0": 49.423500000000004,
+      "profit_guard_peak": 52.4,
+      "profit_guard_stop": null,
+      "inherited": null
+    },
+    "KRW-ENA": {
+      "qty": 323.52941176,
+      "cost": 77038.49999887944,
+      "time": "2026-11-04T06:49:53+09:00",
+      "entry": 237.99999999999997,
+      "atr": 8.39557939249464,
+      "peak": 240.0,
+      "stop": 224.91,
+      "stop0": 224.91,
+      "profit_guard_peak": 240.0,
+      "profit_guard_stop": null,
+      "inherited": null
+    }
+  }
+}

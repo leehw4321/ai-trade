@@ -1,0 +1,35 @@
+{
+  "id": "TACTICAL-20261103",
+  "status": "not_ready_spec_registered_not_running",
+  "implementation_owner": "Claude",
+  "reviewer": "ChatGPT",
+  "live_change": false,
+  "allowed_research": [
+    "no_warning",
+    "caution_price_volume_only"
+  ],
+  "exclude": [
+    "investment_warning",
+    "delisting",
+    "technical_issue",
+    "other_or_mixed_caution"
+  ],
+  "research_caps": {
+    "budget_fraction": 0.05,
+    "risk_per_trade_fraction": 0.001,
+    "concurrent_positions": 1,
+    "max_holding_minutes": 30
+  },
+  "unresolved": [
+    "breakout_N",
+    "turnover_multiplier",
+    "stop_distance",
+    "exit_rules",
+    "sample_size",
+    "evaluation_period",
+    "pass_fail_thresholds"
+  ],
+  "no_lookahead": true,
+  "era_today_excluded_from_final_test": true,
+  "evidence": "docs/ai-history/2026-11-03-era-opportunity.md"
+}

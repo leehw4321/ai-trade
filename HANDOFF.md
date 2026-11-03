@@ -54,3 +54,10 @@
 
 ## ChatGPT 대행 검토 추가 — 2026-11-03
 사용자가 Claude 한도 중 ChatGPT 대행을 지시했다. [손실 원인과 반복 진입 검토](docs/ai-history/2026-11-03-chatgpt-loss-review.md)를 우선 읽는다. 실제 같은 주문안 매도·재매수 결함이 확인됐다. 새 수정안은 집 PC private_handoff/staged-entry-review에만 있고7검사 통과·실거래 미반영이다. 중단은 해제하지 않았다. 일일 손실 계산은 장부와 대사됐다. 기존 큰 포지션 위험과 누적 상승률 후보/실행 시점의 불일치는 별도 평가가 필요하다. 이번 내용은 ChatGPT 단독 검토이며 Claude 합의로 기록하지 않는다.
+
+## 2026-11-03 11:20 회사 PC 합류 (Claude, 회사 PC)
+- 사용자 지시: "ChatGPT 한도 도달, 당분간 Claude가 주도하고 ChatGPT는 대화 가능할 때 보조. 지금은 이 PC(회사)로 하고, 깃에 올릴 때 모든 이력을 함께 올려 집에서 그대로 덮어쓰고 사용하도록 상호 호환·연동되게 운영."
+- 회사 PC도 집 PC와 같은 구조다: 정본 `C:\Users\User\Desktop\ai-trade`, 실행본 `C:\Users\User\Desktop\코인 트레이딩\v5-app\v5`. Windows 사용자 이름이 같아 코드 경로가 그대로 맞는다. 어느 PC에서든 `git pull` 후 `tools/sync_v5.py --apply`로 실행본을 갱신한다.
+- 회사 PC 이력(토론 79회차, V5 1판 탄생 과정, 사용자 지시 원문, 로컬 git 이력 번들)은 [docs/ai-history/office-pc/](docs/ai-history/office-pc/README.md).
+- 회사 PC 실행본은 `live.enabled=false`. 실거래 실행권은 11-03 10:49 기준 집 PC에 있다. 회사 PC로 실거래를 옮길 때는 `session_guard` 양도 절차를 따르고 집 PC 봇을 먼저 멈춘다. 실거래 장부 `data/live/live.json`은 GitHub에 없으므로 집 PC 파일을 옮겨야 한다.
+- 남은 손실 원인: ChatGPT 검토의 3번(18시간 누적 상승률 기준이라 이미 꺾인 코인을 사는 늦은 진입). 1·2번(같은 주문안 매도·재매수, 실행 직전 과열 재검사)은 34fb63c에서 수정됐다. 집 PC 실행본에 배포됐는지는 집 PC에서 확인이 필요하다.

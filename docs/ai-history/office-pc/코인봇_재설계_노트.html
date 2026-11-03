@@ -1,0 +1,308 @@
+<title>코인봇 재설계 노트</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&family=Nanum+Myeongjo:wght@700;800&display=swap">
+<style>
+/* Layout: 단일 읽기 칼럼(약 68자) + 왼쪽 여백에 장 번호, 표·공식은 칼럼 폭 안에서 장부처럼 정렬 */
+:root{
+  --ink:#16202a;
+  --muted:#5a6773;
+  --paper:#f5f7f8;
+  --sheet:#ffffff;
+  --rule:#d9dfe3;
+  --accent:#0f6e5c;
+  --accent-soft:#e3f1ed;
+  --up:#c8322f;      /* 국내 시세 관례: 상승·이익 = 빨강 */
+  --down:#2457b3;    /* 하락·손실 = 파랑 */
+  --warn-soft:#fbf0e1;
+  --warn:#8a5a12;
+  --f-display:"Nanum Myeongjo","Batang",serif;
+  --f-body:"IBM Plex Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ink:#e4e9ec; --muted:#9aa6af; --paper:#11171c; --sheet:#182128; --rule:#2c3740;
+    --accent:#4fc2a6; --accent-soft:#16312b; --up:#ff6b66; --down:#6e9bff;
+    --warn-soft:#2f2614; --warn:#e3b25e;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ink:#e4e9ec; --muted:#9aa6af; --paper:#11171c; --sheet:#182128; --rule:#2c3740;
+  --accent:#4fc2a6; --accent-soft:#16312b; --up:#ff6b66; --down:#6e9bff;
+  --warn-soft:#2f2614; --warn:#e3b25e;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:var(--f-body); font-size:16px; line-height:1.75;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:48px 96px;
+  word-break:keep-all; overflow-wrap:break-word;
+}
+.wrap{max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:56px}
+header{display:flex; flex-direction:column; gap:14px; border-bottom:2px solid var(--ink); padding-bottom:28px}
+.eyebrow{font-family:var(--f-mono); font-size:12.5px; letter-spacing:.08em; color:var(--muted); text-transform:uppercase}
+h1{font-family:var(--f-display); font-weight:800; font-size:clamp(32px,6vw,46px); line-height:1.25; margin:0; text-wrap:balance}
+.lede{font-size:18px; color:var(--ink); margin:0; max-width:62ch}
+.meta{display:flex; flex-wrap:wrap; gap:6px 20px; font-size:13.5px; color:var(--muted)}
+section{display:flex; flex-direction:column; gap:18px}
+h2{font-family:var(--f-display); font-weight:800; font-size:26px; line-height:1.35; margin:0; text-wrap:balance; display:flex; gap:14px; align-items:baseline}
+h2 .no{font-family:var(--f-mono); font-size:14px; font-weight:500; color:var(--accent); min-width:2.2em}
+h3{font-size:17px; font-weight:700; margin:8px 0 0}
+p{margin:0; max-width:68ch}
+ul,ol{margin:0; padding-left:1.3em; display:flex; flex-direction:column; gap:6px; max-width:68ch}
+strong{font-weight:700}
+.up{color:var(--up)} .down{color:var(--down)}
+.num{font-variant-numeric:tabular-nums; font-family:var(--f-mono); font-size:.94em}
+.key{background:var(--accent-soft); border-left:3px solid var(--accent); padding:16px 20px; display:flex; flex-direction:column; gap:8px}
+.key p{max-width:none}
+.caution{background:var(--warn-soft); padding:14px 18px; color:var(--ink); font-size:15px}
+.caution b{color:var(--warn)}
+.table-box{overflow-x:auto; border-top:1px solid var(--ink); border-bottom:1px solid var(--ink)}
+table{border-collapse:collapse; width:100%; min-width:520px; font-size:14.5px; line-height:1.55}
+th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--rule); vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{font-size:12.5px; font-weight:500; color:var(--muted); letter-spacing:.04em; background:var(--sheet)}
+td.r,th.r{text-align:right; font-variant-numeric:tabular-nums; font-family:var(--f-mono); white-space:nowrap}
+caption{caption-side:bottom; text-align:left; font-size:13px; color:var(--muted); padding:8px 0 0}
+.formula{font-family:var(--f-mono); background:var(--sheet); border:1px solid var(--rule); padding:14px 18px; font-size:14.5px; line-height:1.8; overflow-x:auto; white-space:pre}
+.timeline{list-style:none; padding:0; gap:0; max-width:none}
+.timeline li{display:grid; grid-template-columns:7.5em 1fr; gap:16px; padding:12px 0; border-bottom:1px solid var(--rule)}
+.timeline li:last-child{border-bottom:none}
+.timeline .when{font-family:var(--f-mono); font-size:13.5px; color:var(--muted); padding-top:2px}
+.timeline .what{display:flex; flex-direction:column; gap:4px}
+.timeline .what b{font-weight:700}
+.models{display:grid; grid-template-columns:repeat(2,1fr); gap:14px}
+.model{background:var(--sheet); border:1px solid var(--rule); padding:18px; display:flex; flex-direction:column; gap:10px}
+.model .tag{font-family:var(--f-mono); font-size:12.5px; color:var(--accent); letter-spacing:.05em}
+.model h3{margin:0; font-size:17px}
+.model dl{margin:0; display:grid; grid-template-columns:4.6em 1fr; gap:4px 10px; font-size:14px; line-height:1.55}
+.model dt{color:var(--muted)}
+.model dd{margin:0}
+.steps{counter-reset:s; list-style:none; padding:0; gap:12px}
+.steps li{counter-increment:s; display:grid; grid-template-columns:2.4em 1fr; gap:10px}
+.steps li::before{content:counter(s); font-family:var(--f-mono); color:var(--accent); font-weight:500; padding-top:1px}
+.gloss{display:grid; grid-template-columns:9em 1fr; gap:10px 18px; margin:0; font-size:15px}
+.gloss dt{font-weight:700}
+.gloss dd{margin:0; color:var(--ink)}
+footer{font-size:13.5px; color:var(--muted); border-top:1px solid var(--rule); padding-top:20px; display:flex; flex-direction:column; gap:6px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (max-width:620px){
+  .models{grid-template-columns:1fr}
+  .timeline li{grid-template-columns:1fr; gap:2px}
+  .gloss{grid-template-columns:1fr; gap:2px}
+  .gloss dd{margin-bottom:10px}
+  h2{font-size:23px}
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">자동거래 v4 → 다음 단계 · 2026-11-02</div>
+  <h1>코인봇 재설계 노트</h1>
+  <p class="lede">지금까지의 실거래·모의 결과와 Claude·ChatGPT의 의견을 합쳐, 앞으로 무엇을 어떤 순서로 검증할지 정리한 공부용 문서입니다.</p>
+  <div class="meta"><span>대상: 업비트 원화 현물</span><span>원금 기준: 100만 원</span><span>작성: Claude</span></div>
+</header>
+
+<section>
+  <div class="key">
+    <p><strong>한 줄 요약.</strong> 지금까지의 문제는 필터가 너무 많거나 적어서가 아니라, <strong>거래 비용을 이길 만큼 우위가 있는 진입 신호를 아직 하나도 찾지 못했다</strong>는 것입니다.</p>
+    <p>그래서 다음 단계는 새 프로그램을 만드는 일이 아닙니다. <strong>하나의 공통 평가 도구로 후보 모델 3개와 단순 보유를 같은 조건에서 비교</strong>하고, 통과한 것만 프로그램으로 만듭니다.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">1</span>지금까지 있었던 일</h2>
+  <ol class="timeline">
+    <li><span class="when">10/25</span><span class="what"><b>첫 버전 실거래</b>급등 종목 추격 단타. 40건 거래, 11승 29패, <span class="num down">-68,323원</span>. 손절 손실의 약 81%가 급등 추격과 약한 거래량 종목 진입에서 나왔습니다.</span></li>
+    <li><span class="when">10/26</span><span class="what"><b>모의 재현</b>-2% 손절 조건인데 실제 가격 손실이 <span class="num down">-4.36%</span>까지 난 사례. 손절가는 체결 보장 가격이 아니라는 것을 확인했습니다.</span></li>
+    <li><span class="when">10/27</span><span class="what"><b>장세별 모델 검증 (2025~2026, 시간봉)</b>기존 돌파 <span class="num down">-6.34%</span>, 방어 모델 <span class="num down">-1.45%</span>. 손실은 줄었지만 수익은 나지 않았습니다.</span></li>
+    <li><span class="when">10/29~30</span><span class="what"><b>V3·V4 (모의 전용)</b>안전장치를 많이 쌓은 결과 10개월 재현에서 거래 29건, <span class="num down">-1.09%</span>. 분봉 판단의 64%가 데이터 공백 검사에서 막혔습니다. 신규 자동 매수는 모의매매로만 동작하도록 막혀 있습니다.</span></li>
+    <li><span class="when">10/30</span><span class="what"><b>후보 16개 비교 검증</b>5분·15분봉 전략은 모두 <span class="num down">-4~-5%</span>. 가장 나은 1시간 돌파도 7~10월 <span class="num up">+3.26%</span>로, 같은 기간 단순 보유 <span class="num up">+6.14%</span>보다 낮았습니다. 통과 0개.</span></li>
+  </ol>
+  <p>첫 버전은 비용을 <strong>무시해서</strong> 손실이 났고, V3·V4는 비용을 <strong>막으려다</strong> 거래를 못 하게 됐습니다. 원인은 같습니다.</p>
+</section>
+
+<section>
+  <h2><span class="no">2</span>왜 단타는 비용에 지는가</h2>
+  <p>업비트 현물 한 번 사고팔 때 드는 비용은 수수료(편도 0.05%)에 호가 차이와 체결 시 가격 밀림을 더한 것입니다. 기존 보고서는 왕복 약 <span class="num">0.24%</span>로 가정했습니다. 종목·주문 크기·시점에 따라 달라지므로 고정값은 아닙니다.</p>
+  <p>이 비용은 거래할 때마다 빠집니다. 그래서 같은 전략이라도 <strong>얼마나 자주 거래하느냐</strong>가 1년 동안 먼저 벌어야 하는 금액을 정합니다.</p>
+  <div class="table-box">
+  <table>
+    <thead><tr><th>모델 유형</th><th class="r">1회 투입</th><th class="r">연간 거래</th><th class="r">1년 비용 (원금 대비)</th></tr></thead>
+    <tbody>
+      <tr><td>장중 단타 (하루 5회)</td><td class="r">20%</td><td class="r">1,825회</td><td class="r down">약 88%</td></tr>
+      <tr><td>4시간봉 순환 (주 3회)</td><td class="r">25%</td><td class="r">156회</td><td class="r">약 9%</td></tr>
+      <tr><td>일봉 추세추종 (월 4회)</td><td class="r">25%</td><td class="r">48회</td><td class="r">약 3%</td></tr>
+    </tbody>
+    <caption>계산: 연간 거래 수 × 1회 투입 비중 × 왕복 0.24%. 설명용 예시이며 실제 검증에서는 종목별 실제 호가 차이를 씁니다.</caption>
+  </table>
+  </div>
+  <p>하루 5회 단타는 신호가 1년에 원금의 약 88%를 먼저 벌어야 본전입니다. 지금까지 시험한 단기 신호 중 그런 것은 없었습니다. <strong>거래 횟수는 목표가 아니라 결과입니다.</strong></p>
+
+  <h3>손익분기 승률 계산</h3>
+  <p>한 전략이 이익을 내는지는 승률 하나로 판단할 수 없습니다. 평균 이익, 평균 손실, 비용을 함께 봐야 합니다.</p>
+<div class="formula">기대값(1회) = 승률 × 평균이익 − (1 − 승률) × 평균손실 − 왕복비용
+
+손익분기 승률 ≈ (평균손실 + 왕복비용) ÷ (평균이익 + 평균손실)
+
+첫 버전 예:  (2.0% + 0.24%) ÷ (2.8% + 2.0%) ≈ 47%   실제 승률 27.5%</div>
+  <p>첫 버전은 이길 때 평균 +2.8%, 질 때 약 -2%였습니다. 이 구조로 본전을 하려면 절반 가까이 이겨야 하는데 실제로는 4번 중 1번 남짓 이겼습니다. +4%에서 70%를 파는 규칙 하나가 틀렸다기보다, <strong>여러 청산 규칙을 겹친 결과가 유리한지 한 번도 확인하지 않은 것</strong>이 문제였습니다. 이 점은 ChatGPT의 지적이 맞습니다.</p>
+</section>
+
+<section>
+  <h2><span class="no">3</span>두 AI가 합의한 것과 다르게 본 것</h2>
+  <div class="table-box">
+  <table>
+    <thead><tr><th>주제</th><th>결론</th></tr></thead>
+    <tbody>
+      <tr><td>핵심 진단</td><td><strong>합의.</strong> 수익 우위가 검증되지 않은 상태에서 기능과 진입 제한만 쌓아 왔다.</td></tr>
+      <tr><td>작업 순서</td><td><strong>합의.</strong> 새 엔진(V5)보다 공통 평가 도구를 먼저 만든다. 엔진을 먼저 만들면 프로그램 개발이 다시 검증보다 앞선다.</td></tr>
+      <tr><td>비교 방식</td><td><strong>합의.</strong> 같은 원금·투자 한도·비용 가정·평가 기간. 과거 상위 종목은 그 당시 정보로 고른다.</td></tr>
+      <tr><td>신호 성과와 계좌 성과</td><td><strong>합의 (ChatGPT 제안).</strong> 계좌가 손실 한도로 멈춰도 신호는 별도로 계속 기록해 원인을 구분한다.</td></tr>
+      <tr><td>합격 기준</td><td><strong>ChatGPT 의견으로 수정.</strong> 모든 장세에서 단순 보유를 이길 필요는 없다. 미사용 기간 전체의 비용 후 수익과 위험 대비 성과로 본다.</td></tr>
+      <tr><td>증액 기준</td><td><strong>ChatGPT 의견으로 수정.</strong> 50~100건 플러스만으로는 부족하다. 큰 수익 몇 건이나 특정 상승장에 의존했는지 확인한다.</td></tr>
+      <tr><td>장중 순환매(A안)</td><td><strong>이견.</strong> ChatGPT는 활발한 거래 후보로 본다. Claude는 첫 버전의 급등 추격과 실패한 5분 눌림 전략을 합친 형태라 비용을 넘기 어렵다고 본다. 둘 다 시험해서 숫자로 판단한다.</td></tr>
+      <tr><td>4시간봉 순환매(C안)</td><td><strong>Claude 추가 제안.</strong> 같은 순위 아이디어로 보유 시간만 늘린 절충안. A안이 실패해도 원인이 아이디어인지 보유 시간인지 구분할 수 있다.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">4</span>시험할 모델</h2>
+  <p>모든 수치는 첫 검증용 설계입니다. 결과를 보고 고르는 최적값이 아니며, 시험을 시작하기 전에 파일로 고정합니다.</p>
+  <div class="models">
+    <div class="model">
+      <span class="tag">A안 · ChatGPT 제안</span>
+      <h3>장중 상대강도 순환매</h3>
+      <dl>
+        <dt>대상</dt><dd>그 시점 24시간 거래대금 상위 30개</dd>
+        <dt>선정</dt><dd>1시간 BTC 대비 초과수익 + 15분 거래대금 증가율 순위</dd>
+        <dt>진입</dt><dd>상위 3개 중 5분봉 눌림 후 직전 고가 회복</dd>
+        <dt>청산</dt><dd>1.5 ATR 손절, +1R 후 2 ATR 추적, 최대 3시간</dd>
+        <dt>빈도</dt><dd>하루 3~10회</dd>
+        <dt>질문</dt><dd>자금이 몰리는 종목에 비용을 넘는 단기 우위가 있는가?</dd>
+      </dl>
+    </div>
+    <div class="model">
+      <span class="tag">B안 · Claude 제안 · 기준 모델</span>
+      <h3>일봉·4시간봉 추세추종</h3>
+      <dl>
+        <dt>대상</dt><dd>BTC·ETH + 그 시점 거래대금 상위 종목</dd>
+        <dt>진입</dt><dd>최근 N일 수익률 플러스이고 이동평균 위일 때 보유</dd>
+        <dt>청산</dt><dd>추세가 꺾이면 현금</dd>
+        <dt>크기</dt><dd>변동성이 크면 투입 금액을 줄임</dd>
+        <dt>빈도</dt><dd>월 수회</dd>
+        <dt>질문</dt><dd>거래를 줄여 비용을 낮추면 수익과 낙폭이 개선되는가?</dd>
+      </dl>
+    </div>
+    <div class="model">
+      <span class="tag">C안 · 절충안</span>
+      <h3>4시간봉 상대강도 순환</h3>
+      <dl>
+        <dt>대상</dt><dd>그 시점 거래대금 상위 종목</dd>
+        <dt>진입</dt><dd>추세가 살아 있는 종목 중 상대강도 상위로 교체</dd>
+        <dt>보유</dt><dd>1~5일</dd>
+        <dt>빈도</dt><dd>주 수회~하루 1회</dd>
+        <dt>질문</dt><dd>순위 아이디어를 비용이 감당되는 보유 시간에 쓰면 우위가 남는가?</dd>
+      </dl>
+    </div>
+    <div class="model">
+      <span class="tag">기준선</span>
+      <h3>단순 보유 · 현금</h3>
+      <dl>
+        <dt>방식</dt><dd>같은 종목을 같은 비중으로 사서 그대로 보유, 나머지는 현금</dd>
+        <dt>역할</dt><dd>모든 모델이 넘어야 할 기준</dd>
+        <dt>질문</dt><dd>복잡한 매매가 실제로 더 나은가?</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">5</span>검증 원칙</h2>
+  <ul>
+    <li><strong>기간을 나눈다.</strong> 2025년은 규칙을 정하는 데 쓰고, 지금까지 어떤 전략도 맞춰 보지 않은 <strong>2022~2024년</strong>을 최종 시험으로 고정합니다. 하락장(2022), 횡보, 상승장(2024)이 모두 들어 있습니다. 이미 여러 번 본 2026년 7~10월은 최종 시험으로 쓰지 않습니다.</li>
+    <li><strong>규칙을 먼저 고정한다.</strong> 최종 시험 결과를 보고 숫자를 바꾸면 그 시험은 무효입니다.</li>
+    <li><strong>미래 정보를 쓰지 않는다.</strong> 마감된 봉만 쓰고, 신호가 난 다음 봉 시가에 체결한 것으로 계산합니다.</li>
+    <li><strong>그 시점의 종목만 쓴다.</strong> 지금 살아남은 종목을 과거에 넣으면 성과가 좋게 나옵니다.</li>
+    <li><strong>모두 공개한다.</strong> 거래 수, 비용 전후 손익, 최대 낙폭, 평균 투자 비중, 장세별 성과, 수익 상위 5건을 뺐을 때의 결과까지 보고합니다.</li>
+    <li><strong>비용을 올려 본다.</strong> 비용을 2배로 해도 플러스인지 확인합니다.</li>
+  </ul>
+  <div class="caution"><b>알고 있어야 할 한계.</b> 업비트는 상장 폐지된 코인의 과거 시세를 API로 주지 않습니다. 그래서 A안·C안처럼 상위 종목을 고르는 모델은 과거 성과가 실제보다 좋게 나올 수 있습니다. 결과를 볼 때 이 점을 감안해야 합니다.</div>
+</section>
+
+<section>
+  <h2><span class="no">6</span>합격 기준</h2>
+  <p>아래를 모두 충족해야 모의 운용 단계로 넘어갑니다. 시험 전에 고정합니다.</p>
+  <div class="table-box">
+  <table>
+    <thead><tr><th>항목</th><th>기준</th></tr></thead>
+    <tbody>
+      <tr><td>최종 시험 기간 수익</td><td>비용 후 플러스</td></tr>
+      <tr><td>비용 2배 스트레스</td><td>그래도 플러스</td></tr>
+      <tr><td>손익계수 (총이익 ÷ 총손실)</td><td class="r">1.2 이상</td></tr>
+      <tr><td>최대 낙폭</td><td class="r">8% 이하</td></tr>
+      <tr><td>단순 보유 대비</td><td>위험 대비 성과(수익 ÷ 최대 낙폭)가 더 나을 것</td></tr>
+      <tr><td>집중도</td><td>수익 상위 5건을 빼도 크게 무너지지 않을 것</td></tr>
+      <tr><td>장세별 성과</td><td>합격 조건은 아니고 그대로 공개</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>어느 모델도 통과하지 못하면 필터를 풀어서 통과시키지 않습니다. <strong>진입 가설 자체를 바꿉니다.</strong></p>
+</section>
+
+<section>
+  <h2><span class="no">7</span>실행 순서</h2>
+  <ol class="steps">
+    <li><span><strong>공통 평가 도구.</strong> 2022년부터의 업비트 일봉·4시간봉·1시간봉 수집, 종목별 실제 호가 차이를 반영한 비용 모델, 그 시점 거래대금 상위 종목 선정, 성과 보고서 자동 생성.</span></li>
+    <li><span><strong>모델 4개 실행.</strong> A·B·C안과 단순 보유를 같은 조건으로 돌리고 결과를 숨김없이 보고합니다.</span></li>
+    <li><span><strong>통과 모델 모의 운용.</strong> 실시간 공개 시세로 최소 30일. 과거 검증과 비슷한 성과가 나오는지 확인합니다.</span></li>
+    <li><span><strong>프로그램(V5) 작성.</strong> 통과한 전략 1개, 장부 1개, 설정 1개. 기존 코드에서는 업비트 연결과 주문 함수만 재사용합니다.</span></li>
+    <li><span><strong>소액 실거래.</strong> 20~30만 원으로 시작. 모의 성과와 실제 체결 차이를 기록합니다.</span></li>
+    <li><span><strong>증액.</strong> 실거래 성과가 모의와 비슷하고, 특정 장세나 큰 수익 몇 건에 의존하지 않았을 때만.</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="no">8</span>하지 않을 것</h2>
+  <ul>
+    <li>손실 뒤 금액을 늘려 만회하는 방식 (마틴게일, 무제한 물타기)</li>
+    <li>거래 횟수를 채우기 위해 조건을 사후에 완화하는 것</li>
+    <li>좋은 과거 수익을 만들려고 손실 한도를 해제하는 것</li>
+    <li>검증 전에 레버리지나 선물을 쓰는 것</li>
+    <li>최종 시험 결과를 보고 숫자를 다시 고르는 것</li>
+  </ul>
+  <div class="caution"><b>API 키 점검.</b> 업비트 API 키는 출금 권한을 끄고 접속 IP를 제한해 두세요. 현재 <span class="num">.env</span> 파일이 두 폴더(D:\github\coin, D:\자동거래 v4)에 있습니다.</div>
+</section>
+
+<section>
+  <h2><span class="no">9</span>용어</h2>
+  <dl class="gloss">
+    <dt>왕복 비용</dt><dd>한 번 사고팔 때 드는 수수료 + 호가 차이 + 체결 시 가격 밀림.</dd>
+    <dt>ATR</dt><dd>평균 실제 변동폭. 한 봉에서 가격이 보통 얼마나 움직이는지를 나타냅니다. 방향은 알려주지 않습니다.</dd>
+    <dt>R</dt><dd>한 거래에서 감수하기로 한 손실 금액. +1R은 그만큼 이익이 났다는 뜻입니다.</dd>
+    <dt>손익계수</dt><dd>총이익 ÷ 총손실. 1보다 커야 돈을 법니다.</dd>
+    <dt>최대 낙폭</dt><dd>자산이 고점에서 가장 많이 떨어진 비율.</dd>
+    <dt>추세추종</dt><dd>오르는 동안 보유하고 꺾이면 빠지는 방식. 횡보장에서 반복 손절이 생기는 대가가 있습니다.</dd>
+    <dt>상대강도 순환</dt><dd>여러 종목 중 최근 가장 강한 것으로 계속 갈아타는 방식.</dd>
+    <dt>과최적화</dt><dd>과거 데이터에 숫자를 너무 맞춰서 과거에만 좋아 보이는 것. 시험한 규칙이 많을수록 위험이 커집니다.</dd>
+    <dt>생존 편향</dt><dd>지금 살아남은 종목만으로 과거를 시험해 성과가 부풀려지는 것.</dd>
+    <dt>미사용 기간</dt><dd>규칙을 정할 때 한 번도 보지 않은 기간. 최종 시험은 여기서만 합니다.</dd>
+  </dl>
+</section>
+
+<footer>
+  <span>근거 자료: analysis_runs/model_search/report.md · analysis_runs/ytd_v4/결과보고서.md · D:\github\coin\analysis_runs (2026-10-26, 10-27) · 전략_원문.txt</span>
+  <span>이 문서는 검증 계획이며 수익을 보장하지 않습니다. 모든 수치는 기존 보고서의 모의·재현 결과입니다.</span>
+</footer>
+
+</div>

@@ -44,6 +44,21 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ProtectionError): self.policy.decide('A',False,expected=stale)
         self.assertIn('KRW-A',effective(self.policy.read()))
 
+    def test_unseen_order_created_before_release_protects_and_asks(self):
+        for side,market,state,volume in (('bid','KRW-A','done','1'),('ask','KRW-B','cancel','0')):
+            with self.subTest(side=side):
+                self.policy.decide(market,False,expected=self.policy.revision(market))
+                released=self.policy.revision(market)
+                row=dict(order('old-'+side,volume,state,market),side=side,created_at='1970-01-01T00:16:40+00:00')
+                self.assertEqual(self.policy.observe([row]),[market])
+                doc=self.policy.read()
+                self.assertIn(market,effective(doc));self.assertTrue(doc['manual'][market]['pending'])
+                self.assertGreater(self.policy.revision(market,doc),released)
+                with self.assertRaises(ProtectionError):self.policy.decide(market,False,expected=released)
+                self.policy.observe([row])
+                doc=self.policy.read()
+                self.assertIn(market,effective(doc));self.assertTrue(doc['manual'][market]['pending'])
+
     def test_manual_open_and_zero_fill_cancel_both_protect(self):
         self.policy.observe([order(volume='0',state='wait'),order('manual-b','0','cancel','KRW-B')])
         self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
@@ -242,7 +257,8 @@ class EndpointAndPanelTests(unittest.TestCase):
             worker.protection_policy.observe([order(market='KRW-BTC')])
             worker.d['positions']['KRW-BTC']={'qty':1,'cost':100,'stop':90}
             page=protection_panel.render(worker,{'KRW-BTC'}, {'port':8765,'token':'</script><bad>'})
-            self.assertIn('기본 자동 보호',page);self.assertIn('보호를 유지할까요?',page)
+            self.assertIn('기본 자동 보호',page);self.assertIn('보호 중입니다. 보호를 해제할까요?',page)
+            self.assertNotIn('보호를 유지할까요?',page);self.assertIn('자동 해제는 없',page)
             self.assertIn('보호 해제 확인',page);self.assertIn('봇 장부 보유 1개',page)
             self.assertNotIn('</script><bad>',page)
             self.assertIn('revision',page)

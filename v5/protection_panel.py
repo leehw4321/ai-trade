@@ -24,7 +24,7 @@ def render(live, account_markets=(), action=None):
                 else f'<button type="button" data-choice="protect" data-market="{e(market)}">보호하기</button>')
         keep=f'<button type="button" data-choice="protect" data-market="{e(market)}">보호 유지</button>'
         if is_protected and manual.get('pending'):
-            pending.append(f'<div class="ap-pending"><b>{name}</b> 직접 주문/보유 확인 · 보호를 유지할까요? {keep} {button}</div>')
+            pending.append(f'<div class="ap-pending"><b>{name}</b> 직접 주문/보유 감지 · 보호 중입니다. 보호를 해제할까요? 답하지 않으면 계속 보호합니다. {keep} {button}</div>')
         rows.append(f'<tr><td><b>{name}</b></td><td>{"보호 중" if is_protected else "봇 관리 허용"}</td><td>{e(str(manual.get("kind") or "사용자 지정")) if is_protected else "다음 봇 판단부터 관리"}</td><td>{button}</td></tr>')
     inhibited=len(set(live.d['positions'])&protected)
     warning=f'<p class="warn">봇 장부 보유 {inhibited}개 종목의 매도·손절·익절도 중단됩니다.</p>' if inhibited else ''
@@ -33,7 +33,7 @@ def render(live, account_markets=(), action=None):
     health={'checked_at':getattr(getattr(live,'_manual_detector',None),'last_global_success',0),'error':error}
     payload=json.dumps({'rows':data,'action':action,'health':health},ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
     return f'''<section id="asset-protection-board"><h2 class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span></h2>
-<p class="sub">직접 주문 종목은 우선 보호합니다. 해제하면 봇 매수·매도·손절·익절을 허용하며, 새 직접 주문을 감지하면 다시 보호합니다.</p>
+<p class="sub">업비트에서 직접 주문한 종목은 감지 즉시 종목 전체를 보호합니다. 자동 해제는 없으며, 직접 해제를 확인하기 전까지 봇은 그 종목을 매수·매도·손절·익절하지 않습니다. 해제한 뒤에도 새 직접 주문을 감지하면 다시 보호합니다.</p>
 {warning}{note}{''.join(pending)}
 <details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details>
 <div id="ap-confirm" hidden><b id="ap-question"></b><p>해제는 즉시 주문을 넣지 않습니다. 다음 봇 판단부터 관리하며, 보호 중에는 봇 손절도 하지 않습니다.</p><button type="button" id="ap-yes">보호 해제 확인</button> <button type="button" id="ap-no">취소</button></div>

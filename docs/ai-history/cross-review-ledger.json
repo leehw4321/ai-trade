@@ -1,9 +1,9 @@
 {
-  "updated_kst": "2026-11-03T17:34:15+09:00",
+  "updated_kst": "2026-11-03T17:53:46+09:00",
   "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
-  "previous_author": "ChatGPT",
-  "next_author": "Claude",
-  "next_reviewer": "ChatGPT",
+  "previous_author": "Claude",
+  "next_author": "ChatGPT",
+  "next_reviewer": "Claude",
   "items": [
     {
       "issue": "A-sync-process-guard",
@@ -143,6 +143,19 @@
         "E1unfrozen nottested",
         "noautomatedlivecodedeployment"
       ]
+    },
+    {
+      "issue": "manual-always-protect-before-release-question",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved_hash_verified_deployed",
+      "approved_hashes": {
+        "v5/asset_protection.py": "d9daefb275e1381a72c553de1050ec4d43a2953dc9e98950cfff2c2dac1e5222",
+        "v5/protection_panel.py": "bce6be4b8926dbd295af573bad69921a53fa7f66836a251ae6eb57f38ee8db26",
+        "v5/test_auto_protection.py": "546d889cbb598dffd36748ab0e3383e4d32ed0dc16662b4566496f9109483f23"
+      },
+      "execution": "317V5 tests passed; exact author replacements; normalstop/backup/sync/start/health; no unprotect/test orders",
+      "review_original": "manual-always-protect-author-2026-11-03.response.txt"
     }
   ],
   "pending": [

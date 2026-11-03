@@ -243,13 +243,9 @@ class Policy:
             for key,(_,item) in latest.items():
                 old = seen.get(key)
                 if old and old['revision'] == item['revision']: continue
-                # Pruned historic terminal orders never undo an explicit later release.
-                choice = doc.get('decisions', {}).get(item['market'], {})
-                try: created = dt.datetime.fromisoformat(item['created_at']).timestamp()
-                except ValueError: created = now
-                old_terminal = not old and item['state'] in ('done','cancel') and created < choice.get('at',0)
+                # Every newly observed direct order protects first and asks about release,
+                # even if it was created before an explicit release.
                 seen[key] = item
-                if old_terminal and choice.get('protected') is False: continue
                 market = item['market']
                 manual[market] = {'at':now,'event':key,'pending':True,'kind':'직접 주문 또는 출처 미확인 주문'}
                 self._choice(doc,market,True,'manual'); changed.append(market)

@@ -6,27 +6,20 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'v5'))
-from live import normalize_protected_market
+from asset_protection import Policy, effective, normalize as normalize_protected_market
 
 
 def update(app, action, symbols):
     file = app / 'data/user_protected_assets.json'
-    file.parent.mkdir(parents=True, exist_ok=True)
-    data = json.loads(file.read_text(encoding='utf-8')) if file.exists() else {'markets': []}
-    if not isinstance(data, dict) or not isinstance(data.get('markets'), list):
-        raise ValueError('보호 목록 형식 무효: 기존 보호를 덮어쓰지 않습니다')
-    markets = {normalize_protected_market(x) for x in data['markets']}
-    selected = {normalize_protected_market(x) for x in symbols}
-    if action == 'protect': markets |= selected
-    elif action == 'unprotect': markets -= selected
-    elif action != 'list': raise ValueError('unknown action')
-    if action != 'list':
-        data.update(markets=sorted(markets), updated_at=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds'),
-                    policy='user_managed_no_bot_orders')
-        temp = file.with_suffix('.tmp')
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        temp.replace(file)
-    return sorted(markets)
+    cfgfile=app/'config.json'
+    cfg=json.loads(cfgfile.read_text(encoding='utf-8-sig')) if cfgfile.exists() else {}
+    store=Policy(file,cfg.get('live',{}).get('protected_markets',[]),required=False)
+    if action not in ('protect','unprotect','list'): raise ValueError('unknown action')
+    if action!='list':
+        for symbol in symbols:
+            market=normalize_protected_market(symbol)
+            store.decide(market,action=='protect',origin='cli',expected=store.revision(market))
+    return sorted(effective(store.read(),store.configured))
 
 
 if __name__ == '__main__':

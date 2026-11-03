@@ -22,6 +22,8 @@ import math
 
 import strategy as st
 import upbit
+import asset_protection
+import manual_protection
 from paper import now_iso
 from session_guard import SessionLost
 
@@ -62,7 +64,8 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'manual_buy_max_krw': 100000,  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
             'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
-            'protected_markets': []}  # 사용자 지정 종목 전체를 자동 매매에서 제외
+            'protected_markets': [], 'auto_manual_protection': False,
+            'protection_ui': False}  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
 
 
 def parse(text):
@@ -152,19 +155,42 @@ class Live:
     def protected_markets(self):
         """Reload at each decision/submission; malformed state blocks submissions."""
         try:
-            configured = self.cfg.get('protected_markets', [])
-            if not isinstance(configured, list): raise ValueError('config protection list invalid')
-            if self.cfg.get('user_protection_required') and not self.protection_file.exists():
-                raise ValueError('required protection file missing')
-            saved = json.loads(self.protection_file.read_text(encoding='utf-8')) if self.protection_file.exists() else {'markets': []}
-            markets = saved['markets']
-            if not isinstance(markets, list): raise ValueError('saved protection list invalid')
-            return {normalize_protected_market(m) for m in configured + markets}
+            return asset_protection.effective(self.protection_policy.read(),self.protection_policy.configured)
         except (OSError, ValueError, KeyError, TypeError) as ex:
             raise ProtectedAssetError('사용자 보호 목록 확인 실패: 주문 보류 (' + type(ex).__name__ + ')') from None
 
     def is_protected(self, market):
         return normalize_protected_market(market) in self.protected_markets()
+
+    @property
+    def protection_policy(self):
+        configured=self.cfg.get('protected_markets',[])
+        if not isinstance(configured,list): raise asset_protection.ProtectionError('설정 보호 목록 형식 오류')
+        if not hasattr(self,'_protection_policy'):
+            self._protection_policy=asset_protection.Policy(self.protection_file,configured,
+                required=bool(self.cfg.get('user_protection_required')))
+        self._protection_policy.configured=configured
+        self._protection_policy.required=bool(self.cfg.get('user_protection_required'))
+        return self._protection_policy
+
+    @property
+    def manual_detector(self):
+        if not hasattr(self,'_manual_detector'):
+            self._manual_detector=manual_protection.Detector(self.protection_policy,self.folder)
+        return self._manual_detector
+
+    def scan_manual_orders(self, market=None, risk=False, amount=None, allow_protected=False):
+        if not self.cfg.get('auto_manual_protection'): return amount
+        try:
+            return self.manual_detector.scan(self.d,market,risk,amount,allow_protected)
+        except (asset_protection.ProtectionError,OSError,ValueError,TypeError) as error:
+            raise ProtectedAssetError(str(error)) from None
+
+    def set_user_protection(self, market, protect, revision=None):
+        if not protect: self.scan_manual_orders(market,allow_protected=True)
+        result=self.protection_policy.decide(market,protect,expected=revision)
+        self.record({'event':'사용자 보호 선택','market':result['market'],'protected':protect})
+        return True, ('보호 유지: 봇 주문·손절·익절 제외' if protect else '보호 해제: 다음 봇 판단부터 관리 허용')
 
     def assert_unprotected(self, market):
         if self.is_protected(market):
@@ -444,12 +470,14 @@ class Live:
             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
             if atr is None or not math.isfinite(atr) or atr <= 0:
                 raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
-            if validate_entry:
-                # The ATR lookup can take time or cross a candle boundary. Re-read the
-                # ask and source immediately before durable intent and submission.
-                book = upbit.orderbooks([market]).get(market, {})
-                why = self.entry_chase_block(market, entry_context, book.get('ask'))
-                if why: raise ValueError(why)
+        checked=self.scan_manual_orders(market,risk,amount)
+        if checked is not None: amount=checked
+        if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
+        if side=='bid' and validate_entry:
+            # Provenance and ATR lookups precede the final executable quote check.
+            book = upbit.orderbooks([market]).get(market, {})
+            why = self.entry_chase_block(market, entry_context, book.get('ask'))
+            if why: raise ValueError(why)
         self.assert_unprotected(market)  # ATR/quote requests may have taken time.
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}

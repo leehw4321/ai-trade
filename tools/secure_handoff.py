@@ -19,6 +19,10 @@ import tempfile
 import time
 import uuid
 import zipfile
+import sys
+
+sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'v5'))
+import asset_protection
 
 DEFAULT_OPENSSL = Path('C:/Program Files/Git/usr/bin/openssl.exe')
 AUTH_ENVELOPED_DATA_OID = '1.2.840.113549.1.9.16.1.23'
@@ -102,8 +106,12 @@ def inspect_final_zip(package, max_uncompressed_bytes=2 * 1024 ** 3):
             raise HandoffError('Mandatory user protection is missing')
         protection = archive.read(PROTECTION_PATH)
         protection_data = json.loads(protection)
-        protected = protected_names(protection_data.get('markets')) | protected_names(config.get('live', {}).get('protected_markets', []))
-        if 'KRW-DOGE' not in protected:
+        try:
+            protected = asset_protection.effective(protection_data,config.get('live', {}).get('protected_markets', []))
+            released = asset_protection.explicit_release(protection_data,'KRW-DOGE')
+        except (ValueError,TypeError):
+            raise HandoffError('User protection policy malformed') from None
+        if 'KRW-DOGE' not in protected and not released:
             raise HandoffError('DOGE whole-asset protection must survive handoff')
         baseline_present = 'runtime/pnl_baseline.json' in names
         baseline_sha = hashlib.sha256(archive.read('runtime/pnl_baseline.json')).hexdigest() if baseline_present else None
@@ -235,17 +243,20 @@ def approved_restore_path(name):
 def protection_union(app, archive):
     config = json.loads(archive.read('runtime/config.json'))
     protection = json.loads(archive.read(PROTECTION_PATH))
-    union = protected_names(config.get('live', {}).get('protected_markets', [])) | protected_names(protection.get('markets'))
+    local={}; saved={'markets':[]}
     local_config = Path(app) / 'config.json'
     if local_config.exists():
         local = json.loads(local_config.read_bytes())
-        union |= protected_names(local.get('live', {}).get('protected_markets', []))
     local_protection = Path(app) / 'data/user_protected_assets.json'
     if local_protection.exists():
-        union |= protected_names(json.loads(local_protection.read_bytes()).get('markets'))
+        saved=json.loads(local_protection.read_bytes())
+    try:
+        protection=asset_protection.merge(saved,protection,local.get('live',{}).get('protected_markets',[]),
+                                          config.get('live',{}).get('protected_markets',[]))
+    except (ValueError,TypeError): raise HandoffError('User protection merge failed') from None
+    union=asset_protection.effective(protection)
     config.setdefault('live', {}).update(user_protection_required=True, protected_markets=sorted(union))
-    protection.update(markets=sorted(union), policy='user_managed_no_bot_orders',
-                      handoff_merge_policy='preserve_union_source_and_receiver')
+    protection.update(policy='user_managed_no_bot_orders',handoff_merge_policy='latest_explicit_choice_or_protective_union')
     return config, protection
 
 

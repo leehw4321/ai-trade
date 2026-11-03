@@ -1,0 +1,167 @@
+"""Conservative manual-order detection. GET only, never cancels or submits orders."""
+from decimal import Decimal
+import json
+from pathlib import Path
+import time
+import urllib.parse
+import urllib.request
+
+from asset_protection import Policy, ProtectionError, effective, normalize
+
+EPS = Decimal('0.00000001')
+
+
+class HistoryClient:
+    def get(self, path, params):
+        import upbit
+        # Parameters here contain only ASCII market/state/count/page fields.
+        request = urllib.request.Request(upbit.BASE+path+'?'+urllib.parse.urlencode(params),
+            headers=upbit._auth(params))
+        with urllib.request.urlopen(request,timeout=3) as response: return json.load(response)
+
+    def accounts(self):
+        import upbit
+        return upbit.accounts()
+
+    def orders(self, market=None):
+        rows = []
+        for state in ('wait','watch'):
+            page = 1
+            while True:
+                params={'state':state,'limit':100,'page':page}
+                if market: params['market']=market
+                batch=self.get('/v1/orders/open',params)
+                if not isinstance(batch,list): raise ProtectionError('직접 주문 조회 형식 불명')
+                rows += batch
+                if len(batch)<100: break
+                page+=1
+                if page>100: raise ProtectionError('직접 미체결 조회 한도 초과')
+        for state in ('done','cancel'):
+            params={'state':state,'limit':1000,'order_by':'desc'}
+            if market: params['market']=market
+            batch=self.get('/v1/orders/closed',params)
+            if not isinstance(batch,list) or len(batch)>=1000:
+                raise ProtectionError('직접 주문 이력 한도·완전성 확인 필요')
+            rows += batch
+        return rows
+
+
+def user_identifiers(folder):
+    """Bot-screen direct orders retain v5 IDs, so their local reason identifies them."""
+    file=Path(folder)/'orders.jsonl'
+    if not file.exists(): return set()
+    result=set()
+    for line in file.read_text(encoding='utf-8').splitlines():
+        if not line.strip(): continue
+        row=json.loads(line)
+        if str(row.get('reason','')).startswith(('수동','화면')) and row.get('identifier'):
+            result.add(row['identifier'])
+    return result
+
+
+class Detector:
+    def __init__(self, policy, live_folder, client=None, clock=time.time):
+        self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
+        self.good={}
+        self.error=''
+        self.last_global_success=0
+
+    @staticmethod
+    def _inventory(rows):
+        result={}
+        for row in rows:
+            if row.get('currency')=='KRW': continue
+            market=normalize(str(row.get('currency','')))
+            qty,locked=Decimal(str(row['balance']))+Decimal(str(row['locked'])),Decimal(str(row['locked']))
+            if not qty.is_finite() or not locked.is_finite() or qty<0 or locked<0:
+                raise ProtectionError('보유 수량 확인 불가')
+            result[market]=(qty,locked)
+        return result
+
+    @staticmethod
+    def _owned(state,market):
+        pos=state.get('positions',{}).get(market)
+        if not pos: return Decimal(0),False
+        qty=Decimal(str(pos['qty']))
+        known=not pos.get('inherited') and pos.get('acquisition_source')!='explicitly_authorized_external_exchange_fill'
+        return qty,known
+
+    def _bootstrap(self,state,inventory,markets=None):
+        doc=self.policy.read(); result=[]
+        for market,(qty,locked) in inventory.items():
+            if qty<=EPS or markets is not None and market not in markets: continue
+            pending=state.get('pending_order')
+            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
+                continue  # Its own uncertain fills are settled first, never guessed to be manual.
+            owned,known=self._owned(state,market)
+            if not known or abs(qty-owned)>EPS or locked>EPS:
+                if market not in doc.get('bootstrap',{}): result.append(market)
+                elif (abs(qty-owned)>EPS or not state.get('positions',{}).get(market)):
+                    previous=doc.get('external_quantities',{}).get(market)
+                    external=qty-owned
+                    if previous is not None and abs(Decimal(str(previous))-external)<=EPS: continue
+                    if previous is not None: result.append(market)
+        return result
+
+    def _record_balance_evidence(self,state,inventory):
+        def change(doc):
+            prior=doc.setdefault('external_quantities',{})
+            for market,(qty,_) in inventory.items():
+                pending=state.get('pending_order')
+                if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):continue
+                # This is evidence for avoiding repeated bootstrap of an explicitly released holding.
+                # Signed residual handles withdrawals too. Even inherited ledger quantities
+                # explain the bot's OWN fills after the user authorizes management by release.
+                owned,_=self._owned(state,market)
+                if market in doc.get('bootstrap',{}): prior[market]=str(qty-owned)
+        self.policy.mutate(change)
+
+    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
+        market=normalize(market) if market else None
+        try:
+            inventory=self._inventory(self.client.accounts())
+        except Exception:
+            self.error='계좌 확인 불가: 직접 보유 보호 확인 대기'
+            raise ProtectionError(self.error) from None
+        doc=self.policy.read()
+        tracked=set(doc.get('bootstrap',{}))|{normalize(m) for m in state.get('positions',{})}
+        for m in ({market} if market else tracked)-set(inventory):inventory[m]=(Decimal(0),Decimal(0))
+        bootstrap=self._bootstrap(state,inventory,{market} if market else None)
+        if bootstrap:
+            doc=self.policy.read()
+            fresh=[m for m in bootstrap if m in doc.get('bootstrap',{})]
+            if fresh:
+                import datetime as dt
+                self.policy.observe([{'uuid':'balance:'+m+':'+str(self.policy.revision(m,doc)),'identifier':'external-balance','market':m,
+                    'side':'bid','state':'done','executed_volume':str(inventory[m][0]),'paid_fee':'0',
+                    'created_at':dt.datetime.fromtimestamp(self.clock(),dt.timezone.utc).isoformat()} for m in fresh])
+            self.policy.observe(bootstrap=bootstrap)
+        self._record_balance_evidence(state,{m:v for m,v in inventory.items() if market is None or m==market})
+        try:
+            orders=self.client.orders(market)
+            changed=self.policy.observe(orders,user_identifiers=user_identifiers(self.folder))
+            doc=self.policy.read()
+            checked={market} if market else set(inventory)|{normalize(o['market']) for o in orders}
+            for m in checked: self.good[m]={'revision':self.policy.revision(m,doc),'at':self.clock()}
+            self.error=''
+            if market is None:self.last_global_success=self.clock()
+        except Exception:
+            self.error='직접 주문 이력 확인 대기: 신규 주문 보류'
+            # Only already-proven BOT inventory may retain protective exits. Equality is
+            # stricter than <=: a manual partial sale must not expose the remaining quantity.
+            doc=self.policy.read()
+            prior=self.good.get(market)
+            qty,locked=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,known=self._owned(state,market)
+            if (market and risk and prior and known and abs(qty-owned)<=EPS and locked<=EPS
+                    and self.policy.revision(market,doc)==prior['revision']
+                    and market not in effective(doc,self.policy.configured)):
+                return min(float(qty),float(owned),float(amount)) if amount is not None else None
+            raise ProtectionError(self.error) from None
+        if market and not allow_protected and market in effective(doc,self.policy.configured):
+            raise ProtectionError('사용자 직접 주문·보유 기본 보호: 봇 주문 제외')
+        if market and amount is not None and risk:
+            qty,_=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,_=self._owned(state,market)
+            return min(float(qty),float(owned),float(amount))
+        return changed if not market else amount

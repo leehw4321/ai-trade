@@ -1,0 +1,269 @@
+"""User-owned asset protection policy. No exchange or order access."""
+from contextlib import contextmanager
+from copy import deepcopy
+from decimal import Decimal, InvalidOperation
+import datetime as dt
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import threading
+import time
+
+MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
+_LOCKS, _LOCKS_GUARD = {}, threading.Lock()
+USER_ORIGINS = {'user_ui', 'cli'}
+
+
+class ProtectionError(ValueError):
+    pass
+
+
+def normalize(value):
+    if not isinstance(value, str): raise ProtectionError('종목 형식 오류')
+    market = value.strip().upper()
+    if not market.startswith('KRW-'): market = 'KRW-' + market
+    if not MARKET.fullmatch(market): raise ProtectionError('종목 형식 오류')
+    return market
+
+
+def validate(doc):
+    if not isinstance(doc, dict) or not isinstance(doc.get('markets'), list):
+        raise ProtectionError('보호 목록 형식 오류')
+    for value in doc['markets']:
+        if normalize(value) != value: raise ProtectionError('보호 종목 표준 형식 오류')
+    decisions = doc.get('decisions', {})
+    if not isinstance(decisions, dict): raise ProtectionError('보호 결정 형식 오류')
+    for market, choice in decisions.items():
+        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
+        if (not isinstance(choice, dict) or type(choice.get('protected')) is not bool
+                or type(choice.get('at')) not in (int, float) or not math.isfinite(choice['at'])
+                or choice['at'] < 0 or choice.get('origin') not in USER_ORIGINS | {'manual', 'bootstrap'}):
+            raise ProtectionError('보호 결정 형식 오류')
+        if not choice['protected'] and choice['origin'] not in USER_ORIGINS:
+            raise ProtectionError('사용자 선택 없는 보호 해제')
+    for key in ('seen_orders', 'manual', 'revisions', 'bootstrap'):
+        if not isinstance(doc.get(key, {}), dict): raise ProtectionError('보호 상태 형식 오류')
+    for market, revision in doc.get('revisions', {}).items():
+        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
+        if type(revision) is not int or revision < 0: raise ProtectionError('보호 버전 오류')
+    for market, item in doc.get('manual', {}).items():
+        if (normalize(market) != market or not isinstance(item, dict)
+                or type(item.get('pending')) is not bool or not isinstance(item.get('kind'), str)
+                or type(item.get('at')) not in (int,float) or not math.isfinite(item['at'])):
+            raise ProtectionError('직접 주문 보호 기록 오류')
+    for key, item in doc.get('seen_orders', {}).items():
+        if (not isinstance(key,str) or not re.fullmatch('[a-f0-9]{64}',key)
+                or not isinstance(item,dict) or normalize(item.get('market')) != item['market']
+                or not isinstance(item.get('revision'),str) or not re.fullmatch('[a-f0-9]{64}',item['revision'])
+                or item.get('state') not in ('wait','watch','done','cancel')
+                or not isinstance(item.get('created_at'),str)
+                or type(item.get('seen_at')) not in (int,float) or not math.isfinite(item['seen_at'])):
+            raise ProtectionError('직접 주문 출처 기록 오류')
+        _decimal(item.get('volume'))
+    for market, value in doc.get('bootstrap',{}).items():
+        if normalize(market) != market or value is not True: raise ProtectionError('직접 보유 기록 오류')
+    if not isinstance(doc.get('external_quantities',{}),dict): raise ProtectionError('직접 보유 수량 오류')
+    for market,value in doc.get('external_quantities',{}).items():
+        if normalize(market) != market: raise ProtectionError('직접 보유 종목 오류')
+        try: quantity=Decimal(str(value))
+        except InvalidOperation: raise ProtectionError('직접 보유 수량 오류') from None
+        if not quantity.is_finite(): raise ProtectionError('직접 보유 수량 오류')
+    return doc
+
+
+def effective(doc, configured=()):
+    validate(doc)
+    result = {normalize(m) for m in list(configured) + doc['markets']}
+    for market, choice in doc.get('decisions', {}).items():
+        if choice['protected']: result.add(normalize(market))
+        else: result.discard(normalize(market))
+    return result
+
+
+def explicit_release(doc, market):
+    validate(doc)
+    choice = doc.get('decisions', {}).get(normalize(market), {})
+    return choice.get('protected') is False and choice.get('origin') in USER_ORIGINS
+
+
+def merge(left, right, left_configured=(), right_configured=()):
+    """Latest explicit choice wins; equally dated/unknown conflicts favor protection."""
+    validate(left); validate(right)
+    out = deepcopy(right)
+    markets = effective(left, left_configured) | effective(right, right_configured)
+    decisions = {}
+    for market in markets | set(left.get('decisions', {})) | set(right.get('decisions', {})):
+        choices = [d.get('decisions', {}).get(market) for d in (left, right)]
+        choices = [c for c in choices if c]
+        if choices:
+            selected = max(choices, key=lambda c: (c['at'], c['protected']))
+            decisions[market] = deepcopy(selected)
+            if selected['protected']: markets.add(market)
+            else: markets.discard(market)
+    out['decisions'], out['markets'] = decisions, sorted(markets)
+    for key in ('seen_orders', 'manual', 'bootstrap', 'external_quantities'):
+        out[key] = {**deepcopy(left.get(key, {})), **deepcopy(right.get(key, {}))}
+    for key,time_key in (('seen_orders','seen_at'),('manual','at')):
+        for name,item in left.get(key,{}).items():
+            other=out[key].get(name)
+            if other is None or item[time_key] > other[time_key]: out[key][name]=deepcopy(item)
+    # A transfer invalidates every rendered page from either machine, including a
+    # coincidentally equal counter. Revisions must never move backwards.
+    out['revisions']={m:max(left.get('revisions',{}).get(m,0),right.get('revisions',{}).get(m,0))+1
+        for m in set(left.get('revisions',{}))|set(right.get('revisions',{}))}
+    return validate(out)
+
+
+def _decimal(value):
+    try: result = Decimal(str(value or 0))
+    except InvalidOperation: raise ProtectionError('주문 수량 형식 오류') from None
+    if not result.is_finite() or result < 0: raise ProtectionError('주문 수량 형식 오류')
+    return format(result.normalize(), 'f')
+
+
+class Policy:
+    def __init__(self, file, configured=(), required=True, clock=time.time, lock_timeout=1.):
+        self.file = Path(file)
+        self.configured, self.required = list(configured), required
+        self.clock, self.lock_timeout = clock, lock_timeout
+        self.last_valid = None
+
+    def read(self):
+        try:
+            if not self.file.exists():
+                if self.required: raise ProtectionError('필수 보호 파일 없음')
+                doc = {'markets': []}
+            else: doc = json.loads(self.file.read_text(encoding='utf-8'))
+            validate(doc)
+        except (OSError, ValueError, TypeError) as error:
+            raise ProtectionError('보호 상태 확인 불가: 새 주문 보류') from None
+        self.last_valid = deepcopy(doc)
+        return doc
+
+    @contextmanager
+    def locked(self):
+        self.file.parent.mkdir(parents=True, exist_ok=True)
+        name = str(self.file.resolve())
+        with _LOCKS_GUARD: local = _LOCKS.setdefault(name, threading.RLock())
+        if not local.acquire(timeout=self.lock_timeout): raise ProtectionError('보호 목록 사용 중')
+        handle, acquired = None, False
+        try:
+            handle = self.file.with_suffix('.lock').open('a+b')
+            handle.seek(0, 2)
+            if not handle.tell(): handle.write(b'0'); handle.flush()
+            until = time.monotonic() + self.lock_timeout
+            while True:
+                try:
+                    handle.seek(0)
+                    if __import__('os').name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True; break
+                except OSError:
+                    if time.monotonic() >= until: raise ProtectionError('보호 목록 잠금 확인 불가') from None
+                    time.sleep(.02)
+            yield
+        finally:
+            if handle:
+                if acquired:
+                    handle.seek(0)
+                    if __import__('os').name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
+            local.release()
+
+    def mutate(self, change):
+        with self.locked():
+            doc = self.read()
+            before = json.dumps(doc, sort_keys=True)
+            result = change(doc)
+            if json.dumps(doc, sort_keys=True) != before:
+                doc['version'] = 2
+                doc['markets'] = sorted(effective(doc, self.configured))
+                doc['updated_at'] = dt.datetime.fromtimestamp(self.clock(),dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds')
+                validate(doc)
+                temp = self.file.with_suffix('.tmp')
+                temp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding='utf-8')
+                temp.replace(self.file)
+                self.last_valid = deepcopy(doc)
+            return result
+
+    def revision(self, market, doc=None):
+        return (self.read() if doc is None else doc).get('revisions', {}).get(normalize(market), 0)
+
+    def _choice(self, doc, market, protected, origin):
+        doc.setdefault('decisions', {})[market] = {'protected':protected,'origin':origin,'at':self.clock()}
+        revisions = doc.setdefault('revisions', {})
+        revisions[market] = revisions.get(market, 0) + 1
+        if market in doc.get('manual', {}): doc['manual'][market]['pending'] = origin not in USER_ORIGINS
+
+    def decide(self, market, protect, origin='user_ui', expected=None):
+        market = normalize(market)
+        if origin not in USER_ORIGINS or type(protect) is not bool: raise ProtectionError('사용자 보호 선택 오류')
+        def change(doc):
+            if not protect and (type(expected) is not int or expected != self.revision(market,doc)):
+                raise ProtectionError('새 직접 주문 또는 보호 변경이 있습니다. 새로고침 후 다시 확인하세요.')
+            self._choice(doc,market,protect,origin)
+            return {'market':market,'protected':protect,'revision':self.revision(market,doc)}
+        return self.mutate(change)
+
+    def observe(self, orders=(), bootstrap=(), user_identifiers=()):
+        user_identifiers = set(user_identifiers)
+        def change(doc):
+            seen = doc.setdefault('seen_orders', {})
+            manual = doc.setdefault('manual', {})
+            now = self.clock()
+            doc.setdefault('scan_started_at',now)
+            changed = []
+            latest = {}
+            for row in orders:
+                ident = row.get('identifier') or ''
+                if ident.startswith('v5-') and ident not in user_identifiers: continue
+                market = normalize(row.get('market'))
+                uid = row.get('uuid') or ident
+                if not isinstance(uid,str) or not uid: raise ProtectionError('주문 출처 식별 불가')
+                volume = _decimal(row.get('executed_volume'))
+                state = row.get('state')
+                if state not in ('wait','watch','done','cancel'): raise ProtectionError('주문 상태 불명')
+                key = hashlib.sha256(uid.encode()).hexdigest()
+                rev = hashlib.sha256(json.dumps([market,row.get('side'),state,volume,_decimal(row.get('paid_fee'))]).encode()).hexdigest()
+                item = {'market':market,'revision':rev,'volume':volume,'state':state,
+                        'created_at':str(row.get('created_at') or ''),'seen_at':now}
+                rank = (Decimal(volume),state in ('done','cancel'))
+                if key not in latest or rank > latest[key][0]: latest[key] = (rank,item)
+            for key,(_,item) in latest.items():
+                old = seen.get(key)
+                if old and old['revision'] == item['revision']: continue
+                # Pruned historic terminal orders never undo an explicit later release.
+                choice = doc.get('decisions', {}).get(item['market'], {})
+                try: created = dt.datetime.fromisoformat(item['created_at']).timestamp()
+                except ValueError: created = now
+                old_terminal = not old and item['state'] in ('done','cancel') and created < choice.get('at',0)
+                seen[key] = item
+                if old_terminal and choice.get('protected') is False: continue
+                market = item['market']
+                manual[market] = {'at':now,'event':key,'pending':True,'kind':'직접 주문 또는 출처 미확인 주문'}
+                self._choice(doc,market,True,'manual'); changed.append(market)
+            marked = doc.setdefault('bootstrap',{})
+            for value in bootstrap:
+                market = normalize(value)
+                if market in marked: continue
+                marked[market] = True
+                if explicit_release(doc,market): continue
+                manual[market] = {'at':now,'pending':True,'kind':'직접 보유 또는 출처 미확인 수량'}
+                self._choice(doc,market,True,'bootstrap'); changed.append(market)
+            if len(seen) > 10000:
+                old = sorted((k for k,v in seen.items() if v['state'] in ('done','cancel') and v['seen_at'] < now-7*86400), key=lambda k:seen[k]['seen_at'])
+                for key in old[:max(0,len(seen)-10000)]: del seen[key]
+                if len(seen) > 10000: raise ProtectionError('직접 주문 출처 기록 한도: 대사 필요')
+            return sorted(set(changed))
+        return self.mutate(change)

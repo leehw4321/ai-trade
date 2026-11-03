@@ -1,0 +1,40 @@
+# F4 re-review: approved, conditional on host hash verification
+
+This is a static review of the pasted text only. I did not run anything, search the workspace or compute hashes.
+
+## F4 fix in `manual_protection.py`
+
+The fix matches what I proposed and sits in the right place:
+
+- **Order:** It runs after the `accounts()` try block, so an accounts failure still raises before any zero row is filled in.
+- **Scope:** A market-scoped scan fills in only `{market}`. A global scan fills in the bootstrap keys plus the normalized position keys. I relied on your statement that bootstrap keys are normalized by `Policy.validate`.
+- **No false bootstrap:** `_bootstrap` skips `qty<=EPS`, so a zero row can never start a new bootstrap.
+- **Residual reset:** `_record_balance_evidence` records `str(Decimal(0)-owned)`, and only for bootstrap markets. With no position this gives `'0'`. A market-scoped scan of an untracked market adds a zero row, but it writes nothing because the market is not in the bootstrap set.
+- **History-failure path:** It reads `inventory.get(market, 0)` as before. With a zero row, `abs(qty-owned)<=EPS` fails when the bot owns anything, so it raises. Otherwise the amount comes out as `min(0, …) = 0`. Both outcomes are safe.
+- **Extra `good` entries:** Zero-filled markets now get revision snapshots during a global scan. This is harmless.
+
+## Regression test, traced by hand
+
+1. Start with no positions and A=1. A has no known owner, so it bootstraps and the residual is `'1'`.
+2. Release A.
+3. Remove the account row. A is zero-filled from the tracked set, the bootstrap is skipped and the residual becomes `'0'`. The assertion matches the exact string `str(Decimal('0'))`.
+4. Restore A=1. A is in the bootstrap set, the previous residual `'0'` differs from `1`, so A is appended. `fresh` then holds a new revision-keyed synthetic fill, which re-protects A.
+
+The re-protect relies on the same synthetic-fill path that the existing withdrawal-deficit test uses.
+
+The numeric correction `float(...)==1.` in `test_pending_own_fill_does_not_consume_external_residual_baseline` is correct. It compares by value, not by string representation.
+
+## Non-blocking note
+
+A full manual withdrawal of a bot-ledger position that is not in the bootstrap set still isn't marked protected, because there is nothing to protect. Risk exits cap at 0, so no order is ever sent for coins that don't exist. Fixing the ledger itself is a separate reconciliation concern, not part of F4.
+
+## Verdict
+
+| File | SHA-256 | Status |
+|---|---|---|
+| `manual_protection.py` | `277e93276d2c88a928170c05a1cb676e68709ece2c448a732c7af89b39b9718e` | **Approved** |
+| `test_auto_protection.py` | `2b483991848ca77b4d50dac7bdba65f2a226d1b550f9917620ec33b002ad7fa5` | **Approved** |
+
+The earlier approvals still stand: `asset_protection.py`, `apply_manual_protection.py`, `test_apply_manual_protection.py`, `protection_panel.py`, and the unchanged primary hashes.
+
+This approval depends on the host confirming that the bytes match these SHAs and that the suite passes; I can't check either. It covers the code only. Deployment remains the user's decision under their standing consent.

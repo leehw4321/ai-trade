@@ -1,0 +1,56 @@
+# Final re-review: rejected, one blocker left (F4)
+
+F1, F2 and F3 are resolved as described. Your inherited-to-known reasoning is correct, and my earlier "subtract only when known" snippet would have falsely re-protected. I'm withdrawing it.
+
+## F4 (blocker): a full withdrawal is invisible when Upbit omits the account row
+
+`_bootstrap` and `_record_balance_evidence` only look at markets present in `accounts()`. Upbit does not guarantee a row for a currency with zero balance and zero locked. That causes two problems:
+
+- **Stale residual:** After a release with residual `1`, a full withdrawal that drops the row leaves `external_quantities['KRW-A']='1'` unchanged. A later re-deposit of the same `1` then matches the stale baseline, so the market is not re-protected. This is the withdrawal class F2 was meant to cover. `test_withdrawal_deficit_reprotects...` only covers the case where the row survives.
+- **Ledger deficit:** A ledger market with no account row is never evaluated.
+
+**Minimal fix** in `manual_protection.py`, inside `scan`, immediately after the `accounts()` try block:
+
+```python
+        doc=self.policy.read()
+        tracked=set(doc.get('bootstrap',{}))|{normalize(m) for m in state.get('positions',{})}
+        for m in ({market} if market else tracked)-set(inventory): inventory[m]=(Decimal(0),Decimal(0))
+```
+
+Why this is enough:
+- Because of `qty<=EPS`, zero rows never create a new bootstrap.
+- The evidence step then records `0 - owned`.
+- A re-deposit then differs from that baseline and re-protects.
+
+**Required regression** in `DetectionTests`:
+
+```python
+    def test_full_withdrawal_with_missing_account_row_resets_residual(self):
+        self.state['positions']={};self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.api.rows=[];self.detector.scan(self.state)
+        self.assertEqual(self.policy.read()['external_quantities']['KRW-A'],'0')
+        self.api.rows=[{'currency':'A','balance':'1','locked':'0'}];self.detector.scan(self.state)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+```
+
+## Non-blocking notes (record, no change needed)
+
+- **Legacy bootstrap entries:** If a bootstrap entry has no `external_quantities`, the first scan silently sets the baseline. That is fine because nothing has been deployed, but production must not start with pre-existing bootstrap entries that lack quantities.
+- **Concurrent scans:** The window between `_bootstrap` reading and evidence being written is not under one lock. The only race I can construct overwrites a stale residual, which causes an extra re-protect. That fails in the safe direction, so I accept it.
+
+## Hash status
+
+This is conditional on the bytes matching your listed SHA-256 values. I can't compute hashes with tools disabled, so the host must verify them.
+
+| File | SHA-256 | Status |
+|---|---|---|
+| `asset_protection.py` | `876181c00083a8fc5f9db700d15f1a1af4b46b0b52e3e419e7b40dca47e94459` | Approved |
+| `apply_manual_protection.py` | `83922a3b60bb7b82bc70380c4319d05efc8f10fe37881575939bc7804af12173` | Approved |
+| `test_apply_manual_protection.py` | `efef88f7528cd1d28b054d4264a5c2a622fa4ee8c9536d620ac44077f44ac6b1` | Approved |
+| `manual_protection.py` | `915f6fe0…9050` | **Not approved** (F4) |
+| `test_auto_protection.py` | `0099c908…d632cd8e8` | **Not approved** (needs the F4 test) |
+
+The previously approved `protection_panel.py` and unchanged primary hashes stand.
+
+**Deployment is not approved yet.** Once only the F4 fix and its test are added, and the full suite passes in the isolated copy, send the two new hashes for a short final check. Whether to deploy after that is the user's decision under their standing consent; this review only covers the code.

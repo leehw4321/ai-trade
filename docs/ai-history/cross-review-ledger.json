@@ -1,9 +1,9 @@
 {
-  "updated_kst": "2026-11-03T15:59:15+09:00",
+  "updated_kst": "2026-11-03T17:23:49+09:00",
   "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
-  "previous_author": "Claude",
-  "next_author": "ChatGPT",
-  "next_reviewer": "Claude",
+  "previous_author": "ChatGPT",
+  "next_author": "Claude",
+  "next_reviewer": "ChatGPT",
   "items": [
     {
       "issue": "A-sync-process-guard",
@@ -106,6 +106,23 @@
       },
       "execution": "14 focused CLI tests, 57 related tool tests passed; no trader restart/config/order changes",
       "patch_adaptation": "format only; 5 exact-once old-context hunks; original and regenerated diff preserved locally"
+    },
+    {
+      "issue": "MANUAL-PROTECT-v1",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "approved_hash_verified_deployed",
+      "approved_hashes": {
+        "live.py": "d6e8014fa00dbabbda3fecb6f5ada829fb893418c884f9df9e38484b85ca8640",
+        "test_auto_protection.py": "2b483991848ca77b4d50dac7bdba65f2a226d1b550f9917620ec33b002ad7fa5",
+        "asset_protection.py": "876181c00083a8fc5f9db700d15f1a1af4b46b0b52e3e419e7b40dca47e94459",
+        "protection_panel.py": "19228db72c2ee7b2310b9d159dff70d2931b277318457c509fa410993255bd27",
+        "manual_orders.py": "d4bcbdeca299932d788b4221c3a1310e7e7436ff89d5f45c926766dd16d40af3",
+        "manual_protection.py": "277e93276d2c88a928170c05a1cb676e68709ece2c448a732c7af89b39b9718e",
+        "bot.py": "73bf798df313ba379844a654dafae3cebe652e33fe870cedcaa37da21bbd16cb"
+      },
+      "execution": "316V5/118tools/4broker tests; normal stop/backup/sync/start; livepanel scan+ping+BTC/DOGE+riskbasis verified",
+      "review_original": "manual-protection-f4-full-2026-11-03.response.txt"
     }
   ],
   "pending": [

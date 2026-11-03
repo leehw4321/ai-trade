@@ -1,0 +1,17 @@
+**Verdict: APPROVE** this test-only change, with the caveats below.
+
+**Why it's sound**
+- The old assertion checked the string format (`'1'`), not the value. `Decimal` keeps trailing zeros, so `'1.0'` is a correct way to store a residual of 1, and the failure was in the test, not the production code.
+- `float('1.0') == 1.0` is exact, so the new assertion has no rounding risk for this value.
+- Disclosing the 314/315 mismatch and rerunning the full suite is the right way to handle it.
+
+**Non-blocking suggestion**
+Compare as `Decimal` to match production semantics and avoid float in a money/quantity path:
+```python
+self.assertEqual(Decimal(self.policy.read()['external_quantities']['KRW-A']), Decimal('1'))
+```
+Either form is acceptable for this case.
+
+**What I did not verify**
+- I didn't hash the file or rerun the suite. The SHA `e435e2ab…407ce44c` and the "315 V5 / 118 tool / 4 broker passed" result are as reported by the host. Before deploying, someone should confirm the committed file matches that SHA, for example with `Get-FileHash -Algorithm SHA256 test_auto_protection.py`.
+- This approval covers only this assertion change. The production files still need the separate final review's approval before deployment.

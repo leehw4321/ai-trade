@@ -16,6 +16,7 @@ import traceback
 
 import manual_orders
 import position_popup
+import protection_panel
 import strategy as st
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -354,7 +355,8 @@ class Bot:
         # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
-        blocks = self.real_block(prices) + self.live_block(prices) + \
+        protection_top=protection_panel.render(self.live,((self.real or {}).get('coins') or {}),self.protection_action())
+        blocks = protection_top + self.real_block(prices) + self.live_block(prices) + \
             '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
@@ -415,12 +417,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             self.init_t0()
         self.align_timeframe(time.time())
         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
-        last_snap = last_stop = last_live = last_display = last_trail = 0
+        last_snap = last_stop = last_live = last_display = last_trail = last_manual_scan = 0
         stop_iv = min(self.p.stop_seconds, 10) if self.live.cfg['enabled'] and self.live.cfg.get('profit_guard_enabled') is True else self.p.stop_seconds
         self.manual_server = None
-        if self.live.cfg['enabled'] and self.live.cfg.get('manual_ui'):
-            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT))
-            if srv.start():
+        if self.live.cfg['enabled'] and (self.live.cfg.get('manual_ui') or self.live.cfg.get('protection_ui')):
+            kinds=set()
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
+            if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
+            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
+            started=srv.start()
+            if not started and self.live.cfg.get('protection_ui'):
+                srv=manual_orders.ManualOrderServer(0,allowed_kinds=kinds)
+                started=srv.start()
+            if started:
                 self.manual_server = srv
                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
             else:
@@ -432,7 +441,13 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 break
             now = time.time()
             try:
+                if self.live.cfg.get('auto_manual_protection') and now-last_manual_scan>=15:
+                    try: self.live.scan_manual_orders()
+                    except Exception as ex: self.log('직접 주문 보호 확인 대기: '+type(ex).__name__)
+                    last_manual_scan=now
                 self.handle_manual_requests()
+                if getattr(self,'_protection_ui_dirty',False):
+                    last_display=0; self._protection_ui_dirty=False
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
@@ -487,7 +502,11 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         """화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."""
         srv = getattr(self, 'manual_server', None)
         cap = min(self.live.cfg.get('manual_buy_max_krw', 100000), self.live.cfg['max_order_krw'])
-        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv else None
+        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv and self.live.cfg.get('manual_ui') else None
+
+    def protection_action(self):
+        srv=getattr(self,'manual_server',None)
+        return {'port':srv.port,'token':srv.token} if srv and self.live.cfg.get('protection_ui') else None
 
     def handle_manual_requests(self):
         """화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."""
@@ -496,13 +515,24 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             return
         for req in srv.drain():
             try:
-                if req.kind == 'buy':
+                if req.kind in ('protect','unprotect'):
+                    ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
+                    label='사용자 보호 선택'; self._protection_ui_dirty=True
+                elif req.kind == 'buy':
                     ok, msg = self.live.add_to_position(req.market, req.krw, self.markets or upbit.krw_markets())
                     label = f'수동 추가 매수 {req.krw:,}원'
-                else:
+                    if self.live.cfg.get('auto_manual_protection'):
+                        self.live.protection_policy.decide(req.market,True)
+                        self._protection_ui_dirty=True
+                elif req.kind=='liquidate':
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     ok, msg = self.live.liquidate_position(req.market, prices)
                     label = '수동 강제 청산'
+                    if self.live.cfg.get('auto_manual_protection'):
+                        self.live.protection_policy.decide(req.market,True)
+                        self._protection_ui_dirty=True
+                else:
+                    req.finish(False,'허용되지 않은 요청'); continue
                 req.finish(ok, msg)
                 self.log(f'{label} {req.market}: {"성공" if ok else "보류"} · {msg}')
             except SessionLost as ex:

@@ -1,0 +1,11 @@
+Actual Claude short final F4 review. Your previous actual final-review rejected only F4 (missing zero-account rows), explicitly accepted F1/F2/F3 and inherited-minus-ledger reasoning, approved asset_protection.py/apply_manual_protection.py/test_apply_manual_protection.py, and retained other prior approved sourcehashes. No live deployment yet.
+We implemented YOUR exact minimal F4 patch immediately after accounts validation, before bootstrap:
+        doc=self.policy.read()
+        tracked=set(doc.get('bootstrap',{}))|{normalize(m) for m in state.get('positions',{})}
+        for m in ({market} if market else tracked)-set(inventory):inventory[m]=(Decimal(0),Decimal(0))
+Added YOUR exact fullwithdrawal->missingaccountrow->sameamountredeposit regression (only omitted spaces). It passes and re-protects. No other productioncode changed since your final-review.
+Test-only residual '1' vs '1.0' assertion was separately actually approved by you in manual-protection-test-correction-2026-11-03.response.json; it now compares float(...) to1.0, no other assertion change. Original premature315pass claim was explicitly corrected in that request. Current ACTUAL completed isolatedsuite316V5/118tools/4broker PASS. Host can provide exact logs locally; do not claim you executed them.
+Please answer concisely: approve/reject these two new hashes, and whether the reviewed protection deployment may now proceed within standing userconsent. Allpreviousapprovedhashes unchanged; runtimeBTC/DOGE and riskbaseline remain protected/preserved. No extra scope or modelchanges.
+
+manual_protection.py SHA256 277e93276d2c88a928170c05a1cb676e68709ece2c448a732c7af89b39b9718e
+test_auto_protection.py SHA256 2b483991848ca77b4d50dac7bdba65f2a226d1b550f9917620ec33b002ad7fa5

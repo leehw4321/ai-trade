@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0"
-start "" pythonw tools	ake_over.py
+start "" pythonw tools\take_over.py

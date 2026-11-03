@@ -78,10 +78,12 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(self.record()['category'], 'git_process_unavailable')
 
     def test_network_failure_is_classified(self):
-        result = subprocess.CompletedProcess([], 128, b'', b'Could not resolve host: private.example')
-        with patch('session_guard.subprocess.run', return_value=result):
+        make = lambda *a, **k: subprocess.CompletedProcess([], 128, b'', b'Could not resolve host: private.example')
+        with patch('session_guard.subprocess.run', side_effect=make), patch.object(self.store, 'sleep'):
             with self.assertRaises(SessionLost): self.store.git('fetch')
-        self.assertEqual(self.record()['category'], 'network_or_tls')
+        lines = self.log.read_text(encoding='utf-8').strip().splitlines()
+        self.assertEqual(len(lines), 3)  # the first try plus two quick retries are each recorded
+        self.assertEqual(json.loads(lines[-1])['category'], 'network_or_tls')
 
     def test_success_does_not_create_error_log(self):
         with patch('session_guard.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'ok', b'')):

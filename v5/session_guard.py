@@ -22,6 +22,7 @@ class SessionUnverified(SessionLost):
 
 READ_RETRY_DELAYS = (1, 3)  # quick network errors on read-only calls are retried before giving up
 LEASE_MARGIN = 20  # stop trusting our own lease this many seconds before it expires
+CHECK_SECONDS = 30  # background ownership check; every order is still checked right before it is sent
 
 
 class GitStore:
@@ -273,7 +274,7 @@ class SessionGuard:
     def start(self):
         def watch():
             last_renew = self.clock()
-            while not self.closed.wait(10):
+            while not self.closed.wait(CHECK_SECONDS):
                 try:
                     with self.mutex:
                         self.assert_owner()
@@ -288,7 +289,7 @@ class SessionGuard:
                             last_renew = self.clock()
                 except SessionUnverified as ex:
                     if self.lease_valid():
-                        continue  # retry in 10 s; same fail-closed rule once the lease can no longer be trusted
+                        continue  # retry at the next check; same fail-closed rule once the lease can no longer be trusted
                     self.reason = str(ex); self.lost.set()
                     return
                 except Exception as ex:

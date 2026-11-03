@@ -1,0 +1,20 @@
+{
+  "id": "CONDITIONAL-REENTRY-20261103",
+  "status": "not_ready_pending_claude_review",
+  "live_change": false,
+  "scope": "all_eligible_markets_not_mplx_only",
+  "proposal": "separate held management, add-lot sizing, conditional reentry; examine short-term extension instead of unconditional long-lookback chase veto",
+  "unresolved": [
+    "entry_definition",
+    "exit_definition",
+    "lot_accounting",
+    "risk_budget",
+    "evaluation_thresholds"
+  ],
+  "compare_gates_separately": [
+    "profit_wait_2h",
+    "dip_1atr",
+    "chase_18h_15pct"
+  ],
+  "evidence": "docs/ai-history/2026-11-03-mplx-reentry.md"
+}

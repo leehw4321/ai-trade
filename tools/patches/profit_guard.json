@@ -1,0 +1,7 @@
+{
+  "live": {
+    "profit_guard_enabled": true,
+    "profit_guard_arm_pct": 0.02,
+    "profit_guard_giveback": 0.4
+  }
+}

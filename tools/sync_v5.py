@@ -36,7 +36,7 @@ def bot_running():
     import re
     ps = ("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
           "Get-CimInstance Win32_Process | Where-Object { $_.Name -in 'python.exe','pythonw.exe' } "
-          "| ForEach-Object { 'P:' + $_.CommandLine }; 'END'")
+          "| ForEach-Object { 'P:' + ($_.CommandLine -replace '[\\r\\n\\v\\f\\x1c-\\x1e\\x85\\u2028\\u2029]', ' ') }; 'END'")
     try:
         r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps],
                            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15)

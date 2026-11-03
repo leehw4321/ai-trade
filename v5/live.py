@@ -47,7 +47,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'partial_r': 2.0, 'partial_frac': 0.3333,
             'manual_ui': False,  # True면 화면의 '강제 청산' 버튼을 받는 127.0.0.1 전용 서버를 연다. 사용자가 설정으로 켜야만 동작
             'manual_port': 8765,
-            'manual_buy_max_krw': 100000}  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
+            'manual_buy_max_krw': 100000,  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
+            'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
+            'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4}
 
 
 def parse(text):
@@ -324,7 +326,7 @@ class Live:
                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
                 else:
                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
-                    for k in ('entry', 'atr', 'stop0', 'last_bar', 'peak'):
+                    for k in ('entry', 'atr', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased'):
                         if k in old: new[k] = old[k]
                     new['trail'] = False
                 self.d['positions'][m] = new
@@ -668,28 +670,83 @@ class Live:
         return ''
 
     def rebase_adopted_stops(self, prices):
-        """인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음)."""
+        """인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음).
+        실시간 보호 기준인 stop0에도 같은 상한을 한 번 적용한다(stop0_rebased)."""
         if not self.p.stop_max_pct > 0: return
-        changed = []
+        changed, changed0 = [], []
         for m, pos in self.d['positions'].items():
             px = prices.get(m)
-            if pos.get('stop_rebased') or type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
-            new = st.cap_stop(px, pos['stop'], self.p)
-            pos['stop_rebased'] = True
-            if new > pos['stop']:
-                changed.append((m, pos['stop'], new))
-                pos['stop'] = new
+            if type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
+            if not pos.get('stop_rebased'):
+                new = st.cap_stop(px, pos['stop'], self.p)
+                pos['stop_rebased'] = True
+                if new > pos['stop']:
+                    changed.append((m, pos['stop'], new))
+                    pos['stop'] = new
+            if 'stop0' in pos and not pos.get('stop0_rebased'):
+                new = st.cap_stop(px, pos['stop0'], self.p)
+                pos['stop0_rebased'] = True
+                if new > pos['stop0']:
+                    changed0.append((m, pos['stop0'], new))
+                    pos['stop0'] = new
         if changed:
             for m, old, new in changed:
                 self.record({'event': '손절가 상한 적용', 'market': m, 'old_stop': old, 'new_stop': new,
                              'rule': f'손절가는 현재가의 -{self.p.stop_max_pct:.0%}보다 멀 수 없음(결정 D-12)'})
-        if changed or self.d['positions']: self.save()
+        for m, old, new in changed0:
+            self.record({'event': '실시간 손절가 상한 적용', 'market': m, 'old_stop0': old, 'new_stop0': new,
+                         'rule': f'실시간 보호 손절(stop0)도 현재가의 -{self.p.stop_max_pct:.0%}보다 멀 수 없음(결정 D-12)'})
+        if changed or changed0 or self.d['positions']: self.save()
 
     def stop_limit(self, pos):
-        """EXIT-T1 대상은 초기 고정 손절만 실시간 가격으로 보호하고, 상향된 손절가는 확정 1분봉에서 평가한다."""
+        """EXIT-T1 대상은 초기 고정 손절만 실시간 가격으로 보호하고, 상향된 손절가는 확정 1분봉에서 평가한다.
+        profit_guard_enabled이면 이익 보호선(profit_guard_stop)도 실시간 가격으로 함께 평가한다."""
         if self.cfg.get('trail_enabled') and pos.get('trail'):
-            return pos.get('stop0', pos['stop'])
-        return pos['stop']
+            base = pos.get('stop0', pos['stop'])
+        else:
+            base = pos['stop']
+        g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
+        return max(base, g) if type(g) in (int, float) and math.isfinite(g) else base
+
+    def update_profit_guard(self, prices):
+        """도입 후 관측한 고점이 평단 대비 arm_pct 이상이면 고점 이익의 (1-giveback)를 보존하는 보호선을 올린다(내리지 않음).
+        수수료 바닥은 전략 수수료 추정치이며 실제 체결가를 보장하지 않는다."""
+        if self.cfg.get('profit_guard_enabled') is not True: return
+        a = self.cfg.get('profit_guard_arm_pct', 0.02)
+        g = self.cfg.get('profit_guard_giveback', 0.4)
+        if isinstance(a, bool) or isinstance(g, bool) or isinstance(self.p.fee, bool): return
+        try: arm, give, fee = float(a), float(g), float(self.p.fee)
+        except (TypeError, ValueError, OverflowError, AttributeError): return
+        if not (math.isfinite(arm) and arm > 0 and math.isfinite(give) and 0 < give < 1
+                and math.isfinite(fee) and fee >= 0): return
+        ok = lambda x: type(x) in (int, float) and math.isfinite(x) and x > 0
+        changed = False
+        for m, pos in self.d['positions'].items():
+            px, entry, q = prices.get(m), pos.get('entry'), pos.get('qty')
+            if ok(q) and ok(pos.get('cost')): entry = pos['cost'] / q
+            if not (ok(px) and ok(entry) and ok(q)): continue
+            try: c = float(st.cost(m, self.p))
+            except (TypeError, ValueError, OverflowError): continue
+            floor = 1 + 2 * fee + c
+            if not (math.isfinite(c) and c >= 0 and math.isfinite(floor)): continue
+            old_peak = pos.get('profit_guard_peak') if pos.get('profit_guard_v') == 1 else None
+            if old_peak is None:
+                pos['profit_guard_v'] = 1
+                changed = True
+            peak = max(old_peak if ok(old_peak) else 0, entry, px)
+            if peak != old_peak:
+                pos['profit_guard_peak'] = peak
+                changed = True
+            if peak < entry * (1 + arm): continue
+            old = pos.get('profit_guard_stop')
+            old = old if ok(old) else 0
+            new = max(old, entry * floor, entry + (peak - entry) * (1 - give))
+            if new > old:
+                if not old:
+                    self.record({'event': '이익보호 시작', 'market': m, 'entry': entry, 'peak': peak, 'guard_stop': new})
+                pos['profit_guard_stop'] = new
+                changed = True
+        if changed: self.save()
 
     def adopt_trail_init(self):
         """인수 보유분(entry 없음)에 추적 기준을 한 번 만든다. E=거래소 평균 매수가(cost/qty), A=현재 15분 ATR, 고점=편입 이후 확정 15분봉 고점.
@@ -837,6 +894,7 @@ class Live:
         if not self.cfg['enabled']: return
         self.recover_all_pending()
         self.rebase_adopted_stops(prices)
+        self.update_profit_guard(prices)
         candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
                       if m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
                       and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0
@@ -847,10 +905,12 @@ class Live:
             available = float(balances.get(m[4:], {}).get('balance', 0))
             volume = min(pos['qty'], available)
             if volume * prices[m] < 5000: continue
+            g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
+            why = '이익보호' if g is not None and self.stop_limit(pos) == g else '손절'
             try:
-                o = self._trade('ask', m, volume, '손절', risk=True)
+                o = self._trade('ask', m, volume, why, risk=True)
                 v, funds, fee = self._fill(o)
-                self.share(f'{m[4:]} 손절 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+                self.share(f'{m[4:]} {why} 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
             except SessionLost:
                 raise
             except Exception as error:

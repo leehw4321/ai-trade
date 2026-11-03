@@ -395,7 +395,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             self.init_t0()
         self.align_timeframe(time.time())
         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
-        last_snap = last_stop = last_live = last_display = 0
+        last_snap = last_stop = last_live = last_display = last_trail = 0
+        stop_iv = min(self.p.stop_seconds, 10) if self.live.cfg['enabled'] and self.live.cfg.get('profit_guard_enabled') is True else self.p.stop_seconds
         self.manual_server = None
         if self.live.cfg['enabled'] and self.live.cfg.get('manual_ui'):
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT))
@@ -415,10 +416,12 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
-                if held and now - last_stop >= self.p.stop_seconds:
+                if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
-                    self.live.trail_check()
-                    self.live.stop_check(live)
+                    self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
+                    if now - last_trail >= self.p.stop_seconds:
+                        self.live.trail_check()
+                        last_trail = now
                     self.live.check_resume_request(live)
                     self.live.check_loss(live)
                     for lg in self.ledgers.values():
@@ -455,7 +458,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 traceback.print_exc()
                 last_snap = 0 if now - last_snap >= 300 else last_snap
                 time.sleep(30)
-            time.sleep(10)
+            time.sleep(2)
         if self.manual_server:
             self.manual_server.stop()
         self.log('중지.txt 확인 · 봇 종료')

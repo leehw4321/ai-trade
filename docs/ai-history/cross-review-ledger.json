@@ -1,5 +1,5 @@
 {
-  "updated_kst": "2026-11-03 11:40 KST",
+  "updated_kst": "2026-11-03T12:24:00+09:00",
   "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
   "previous_author": "ChatGPT",
   "next_author": "Claude",
@@ -50,6 +50,22 @@
       "execution": "approved hashes verified; read-only once and watch started",
       "live_deployment": "independent report only",
       "review_source": "2026-11-03-warning-policy.md"
+    },
+    {
+      "issue": "WAVES-profit-guard",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "execution": "224 V5 tests passed; source deployed and hashes matched",
+      "review": "2026-11-03-waves-profit-guard.md",
+      "live_deployment": "complete 2026-11-03T12:23:29+09:00"
+    },
+    {
+      "issue": "WAVES-targeted-deploy",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "execution": "reviewed script hashes; first rollback then successful retry after Claude sync normalization fix",
+      "live_deployment": "complete",
+      "ledger_restore": false
     }
   ],
   "pending": [

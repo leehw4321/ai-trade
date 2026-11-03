@@ -46,6 +46,11 @@ class Params:
     trail_start_r: float = 2.0    # 이 R배수부터 추적·반납 상한 적용
     trail_m: float = 2.0          # 추적 손절 = 고점 − m×ATR
     giveback: float = 0.5         # 고점 이익 중 이 비율 이상 반납하면 청산 (0이면 끔)
+    # 장세 필터(2026-11-04 사용자 지시·ChatGPT 합의 요청): 켜면 시장 균등지수가 상승일 때만 신규 매수한다. 매도·손절·이익보호는 그대로.
+    regime_filter: bool = False
+    regime_bars: int = 96         # 균등지수 기간(15분봉 96개 = 24시간)
+    regime_min_markets: int = 20  # 지수 계산에 필요한 최소 종목 수. 모자라면 신규 매수 보류
+    regime_expires: float = 0.0   # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
 
     @classmethod
@@ -73,6 +78,34 @@ def relative_strength(bars, L):
     if len(bars) <= L or bars[-1 - L]['c'] <= 0:
         return None
     return bars[-1]['c'] / bars[-1 - L]['c'] - 1
+
+
+def market_index(bars_by_market, n, min_markets=20):
+    """종목들의 최근 n개 봉 상승률의 단순 평균(균등지수 수익률). 자료가 부족·불일치하면 None.
+
+    비정상 값(NaN·무한대·0 이하)은 제외한다. 대다수 종목과 마지막 봉 시각 또는 n봉 전 봉 시각이 다른 종목(결측·정지)도 제외한다.
+    """
+    if type(n) is not int or n < 1 or type(min_markets) is not int or min_markets < 1:
+        raise ValueError('regime_bars와 regime_min_markets는 1 이상의 정수여야 합니다')
+    rows = []
+    for bars in bars_by_market.values():
+        if len(bars) <= n:
+            continue
+        try:
+            last, first = float(bars[-1]['c']), float(bars[-1 - n]['c'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(last) and math.isfinite(first)) or last <= 0 or first <= 0:
+            continue
+        rows.append(((bars[-1].get('t'), bars[-1 - n].get('t')), last / first - 1))
+    if not rows:
+        return None
+    counts = {}
+    for key, _ in rows:
+        counts[key] = counts.get(key, 0) + 1
+    common = max(counts, key=counts.get)
+    values = [r for key, r in rows if key == common]
+    return sum(values) / len(values) if len(values) >= min_markets else None
 
 
 def rank(bars_by_market, p):

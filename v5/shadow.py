@@ -35,7 +35,7 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝 
 GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
 
 
-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None):
+def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -76,7 +76,21 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
-    for r in ranked[:scan]:
+    regime_closed = False
+    if getattr(base, 'regime_filter', False):
+        expires = getattr(base, 'regime_expires', 0.0)
+        if expires and time.time() >= expires:
+            regime_closed = True
+            reasons.append('장세 필터 임시 적용 기간 만료 → 신규 매수 전부 보류 (재검토·재결정 전에는 재개하지 않음)')
+        elif type(market_index) not in (int, float) or not math.isfinite(market_index):
+            regime_closed = True
+            reasons.append('장세 필터: 시장 지수 자료 부족·비정상 → 신규 매수 보류')
+        elif market_index <= 0:
+            regime_closed = True
+            reasons.append(f'장세 필터: 시장 균등지수 {base.regime_bars * base.tf // 60}시간 {market_index:+.2%} ≤ 0 → 신규 매수 보류 (보유 관리·매도는 그대로)')
+        else:
+            reasons.append(f'장세 필터 통과: 시장 균등지수 {market_index:+.2%} > 0')
+    for r in ([] if regime_closed else ranked[:scan]):
         if len(picks) >= want:
             break
         if r['market'] in originally_held or r['market'] in sell_queued:
@@ -273,7 +287,8 @@ class Shadow:
         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
-        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'))
+        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
+                                 market_index=getattr(self, 'market_index', None))
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME
@@ -289,7 +304,7 @@ class Shadow:
             entry_context[row['market']] = {'market': row['market'], 'signal_close': close,
                 'anchor_close': anchor, 'rs': rs, **provenance}
         self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons,
-                     'entry_context': entry_context, **provenance}
+                     'entry_context': entry_context, 'market_index': getattr(self, 'market_index', None), **provenance}
         tmp = DATA / 'proposal.tmp'
         tmp.write_text(json.dumps(self.prop, ensure_ascii=False, indent=1), encoding='utf-8')
         tmp.replace(DATA / 'proposal.json')
@@ -325,6 +340,8 @@ class Shadow:
         uni = set(universe)
         entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
         self.base_ranked = st.rank({m: b for m, b in bars.items() if m in uni}, self.base)
+        self.market_index = st.market_index({m: b for m, b in bars.items() if m in uni}, self.base.regime_bars,
+                                            self.base.regime_min_markets)
         self.rs_out = {m: st.relative_strength(b, self.base.L) for m, b in bars.items() if m not in uni}
         self.entry_ok = entry_ok
         need_books = set()

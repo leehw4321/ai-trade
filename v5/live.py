@@ -593,7 +593,8 @@ class Live:
         self.save()
         try:
             result = self.execute((label, text), markets,
-                                  entry_context=prop.get('entry_context'), automatic=True)
+                                  entry_context=prop.get('entry_context'), automatic=True,
+                                  market_index=prop.get('market_index'))
         except Exception as ex:
             result = f'중단: {type(ex).__name__}: {ex}'
         self.d['executed'][key]['result'] = result
@@ -601,18 +602,30 @@ class Live:
         self.record({'event': '주문안 처리', 'id': label, 'plan': text, 'result': result})
         self.share(f'{label} (사용자 위임으로 자동 실행) 「{text}」 → {result}')
 
-    def execute(self, plan, markets, entry_context=None, automatic=False):
+    def execute(self, plan, markets, entry_context=None, automatic=False, market_index=None):
         if self.has_uncertain_orders(): return '미확정 주문 대사 중: 새 주문안 보류'
         orders = parse(plan[1])
         protected = self.protected_markets()
         protected_orders = [m for _, m, _ in orders if m in protected]
         orders = [(side, m, amount) for side, m, amount in orders if m not in protected]
+        regime_blocked = []
+        if automatic and getattr(self.p, 'regime_filter', False):
+            # 수신 쪽에서도 장세 필터를 강제한다: 오래된 생성기나 필터 정보 누락 주문안이 신규 매수를 만들지 못하게 한다. 매도는 그대로.
+            expires = getattr(self.p, 'regime_expires', 0.0)
+            expired = bool(expires) and time.time() >= expires
+            if expired or not (type(market_index) in (int, float) and math.isfinite(market_index) and market_index > 0):
+                regime_blocked = [m for side, m, _ in orders if side == 'buy']
+                orders = [o for o in orders if o[0] != 'buy']
+                if regime_blocked:
+                    self.record({'event': '장세 필터 매수 차단', 'markets': regime_blocked, 'market_index': market_index})
         sold_markets = {m for side, m, _ in orders if side == 'sell'}
         bought_markets = {m for side, m, _ in orders if side == 'buy'}
         if sold_markets & bought_markets:
             # Reject before the first account request or order; old generators cannot sell then rebuy.
             return '실행 거부: 동일 주문안 매도·매수 종목 충돌 ' + ', '.join(sorted(sold_markets & bought_markets))
         if not orders:
+            if regime_blocked:
+                return '장세 필터: 신규 매수 차단 ' + ', '.join(sorted(set(regime_blocked)))
             return ('사용자 보호 종목 주문 제외: ' + ', '.join(sorted(set(protected_orders)))) if protected_orders else '주문 없음 (매도 없음·매수 없음)'
         acc = {r['currency']: r for r in upbit.accounts()}
         tick = upbit.tickers([m for _, m, _ in orders])

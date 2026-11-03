@@ -1,0 +1,100 @@
+﻿당신은 업비트 자동거래 봇 V5의 동등한 검토자(ChatGPT)입니다. 도구/파일 접근 없이 아래 자료만 있습니다. 한국어, 단발 합의 요청입니다. 사용자가 "매일 손실이 늘어난다. ChatGPT와 합의해서 바로 적용해보자"고 명시 지시했습니다. 동의하지 않는 것을 얼버무리지 말고 동의/수정/반대로 답하세요.
+
+[정직한 정정] 내가 앞서 제안한 '진입 순위와 청산 순위 정렬(5↔8)'은 현재 설정(이익보호 시작 3%, 손절 4.5%)으로 다시 모의하니 지지되지 않았다(8일·상위30·시간 단위·왕복비용 0.2%): 진입8/유지5(현행) 합 +12.4%, 진입5/유지5 -10.3%, 진입5/유지8 -2.7%, 진입8/유지8 -19.4%, 진입3/유지5 -32.2%. 이전의 '유지 5→8 개선'은 이익보호 2% 설정에서만 나왔다. 즉 순위 규칙 변경은 이 자료에서 견고한 개선이 아니다.
+[새 후보: 장세 필터] 시장 균등지수(상위30 종목의 24h=96봉 상승률 평균)가 0 초과일 때만 신규 매수. 모의 결과(같은 조건): 필터 있음 n=101 합 +60.3%(평균 +0.60%/거래, 승률 57%, 평균이익 +2.21 / 평균손실 -1.58), 전반 4일 +30.1% / 후반 4일 +30.2%. 필터 없음 n=231 합 +12.4%(전반 -1.7 / 후반 +14.1). 다른 시장지표(breadth>0)는 -21.4%로 악화, breadth>+1%는 +23.5%라 지표 선택에 따라 결과가 흔들린다. 비교한 변형은 약 12개(다중비교). 이 기간 지수 평균은 -0.38%, 지수>0 비율 41%라 필터는 약 41% 시간만 신규 매수를 허용한다. 과거(별도) 일봉 199일·15분봉 228h 분석에서도 '장세 필터가 가장 일관됐다'는 독립적 결과가 있었다(그러나 같은 사람이 같은 종류 데이터로 본 것이라 독립 검증은 아니다). 표본 8일, 단일 국면, 생존 편향(현재 거래대금 상위 30 사용) 인정.
+[실거래 실제] 최근 22건 왕복 순손익 합 -6.1%p, 손절 2건이 -9.7%p, 보유 짧은 거래 다수 손실. 필터가 직접 막았을 거래가 어느 것인지는 아직 대조하지 않았다.
+
+[구현 요약(diff 아래)] strategy.market_index(): 종목별 n봉 상승률 단순평균, 종목 수 20 미만/봉 부족이면 None. shadow.proposal(): regime_filter=True일 때 market_index가 None 또는 ≤0이면 신규 매수 후보를 만들지 않음(이유 기록), 매도·손절·이익보호·보유 관리는 그대로. 기본값 False(꺼짐). 주문안에 market_index 값을 기록. 검사: 신규 7개 포함 V5 전체 337개 통과(필터 꺼짐 시 동작 불변, 자료 부족 시 신규 매수 보류 포함).
+[diff]diff --git a/v5/shadow.py b/v5/shadow.py
+index 70022b2..2ece018 100644
+--- a/v5/shadow.py
++++ b/v5/shadow.py
+@@ -35,7 +35,7 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝
+ GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
+ 
+ 
+-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None):
++def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None):
+     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
+ 
+     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
+@@ -76,7 +76,17 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
+     sell_queued = set(sells)
+     picks = []
+     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
+-    for r in ranked[:scan]:
++    regime_closed = False
++    if getattr(base, 'regime_filter', False):
++        if market_index is None:
++            regime_closed = True
++            reasons.append('장세 필터: 시장 지수 자료 부족 → 신규 매수 보류')
++        elif market_index <= 0:
++            regime_closed = True
++            reasons.append(f'장세 필터: 시장 균등지수 {base.regime_bars * base.tf // 60}시간 {market_index:+.2%} ≤ 0 → 신규 매수 보류 (보유 관리·매도는 그대로)')
++        else:
++            reasons.append(f'장세 필터 통과: 시장 균등지수 {market_index:+.2%} > 0')
++    for r in ([] if regime_closed else ranked[:scan]):
+         if len(picks) >= want:
+             break
+         if r['market'] in originally_held or r['market'] in sell_queued:
+@@ -273,7 +283,8 @@ class Shadow:
+         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
+         bought = state.get('bought_krw', 0)
+         caps.update(state.get('limits', {}))
+-        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'))
++        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
++                                 market_index=getattr(self, 'market_index', None))
+         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
+         provenance = self.proposal_signal()
+         # Public signal prices, not account inventory: the receiver can enforce the SAME
+@@ -289,7 +300,7 @@ class Shadow:
+             entry_context[row['market']] = {'market': row['market'], 'signal_close': close,
+                 'anchor_close': anchor, 'rs': rs, **provenance}
+         self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons,
+-                     'entry_context': entry_context, **provenance}
++                     'entry_context': entry_context, 'market_index': getattr(self, 'market_index', None), **provenance}
+         tmp = DATA / 'proposal.tmp'
+         tmp.write_text(json.dumps(self.prop, ensure_ascii=False, indent=1), encoding='utf-8')
+         tmp.replace(DATA / 'proposal.json')
+@@ -325,6 +336,8 @@ class Shadow:
+         uni = set(universe)
+         entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
+         self.base_ranked = st.rank({m: b for m, b in bars.items() if m in uni}, self.base)
++        self.market_index = st.market_index({m: b for m, b in bars.items() if m in uni}, self.base.regime_bars,
++                                            self.base.regime_min_markets)
+         self.rs_out = {m: st.relative_strength(b, self.base.L) for m, b in bars.items() if m not in uni}
+         self.entry_ok = entry_ok
+         need_books = set()
+diff --git a/v5/strategy.py b/v5/strategy.py
+index 3f4023c..e5c8357 100644
+--- a/v5/strategy.py
++++ b/v5/strategy.py
+@@ -46,6 +46,10 @@ class Params:
+     trail_start_r: float = 2.0    # 이 R배수부터 추적·반납 상한 적용
+     trail_m: float = 2.0          # 추적 손절 = 고점 − m×ATR
+     giveback: float = 0.5         # 고점 이익 중 이 비율 이상 반납하면 청산 (0이면 끔)
++    # 장세 필터(2026-11-04 사용자 지시·ChatGPT 합의 요청): 켜면 시장 균등지수가 상승일 때만 신규 매수한다. 매도·손절·이익보호는 그대로.
++    regime_filter: bool = False
++    regime_bars: int = 96         # 균등지수 기간(15분봉 96개 = 24시간)
++    regime_min_markets: int = 20  # 지수 계산에 필요한 최소 종목 수. 모자라면 신규 매수 보류
+     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
+ 
+     @classmethod
+@@ -75,6 +79,15 @@ def relative_strength(bars, L):
+     return bars[-1]['c'] / bars[-1 - L]['c'] - 1
+ 
+ 
++def market_index(bars_by_market, n, min_markets=20):
++    """종목들의 최근 n개 봉 상승률의 단순 평균(균등지수 수익률). 자료가 부족하면 None."""
++    values = []
++    for bars in bars_by_market.values():
++        if len(bars) > n and bars[-1 - n]['c'] > 0 and bars[-1]['c'] > 0:
++            values.append(bars[-1]['c'] / bars[-1 - n]['c'] - 1)
++    return sum(values) / len(values) if len(values) >= min_markets else None
++
++
+ def rank(bars_by_market, p):
+     """적격 종목을 상대강도 내림차순(동률은 코드순)으로 정렬. 자료 부족 종목은 제외."""
+     rows = []
+
+[질문] (1) 이 증거로 '사용자 긴급 지시에 따른 제한적·되돌릴 수 있는 적용'(필터 켬)에 동의합니까? 개선 입증이 아니라 위험 축소 조치로 기록하는 조건에서. (2) 동의하면 필요한 사전 조건(검토 시점·기준·중단/해제 규칙, 현금 대기 비용 확인, 모니터링 지표)을 문장으로 제시. (3) 코드 diff에서 위험(예: 판단 주기와 필터 시점 불일치, 신선도, 기존 보유 처리, 시장지표 계산 오류, 폴백)이 있으면 지적. (4) 동의/수정 후 동의/반대 중 하나로 마지막 줄에 '판정: ...'. 14줄 이내.

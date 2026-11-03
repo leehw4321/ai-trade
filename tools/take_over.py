@@ -128,7 +128,7 @@ def start_bot():
     for name in ('stop.txt', 'stop_shadow.txt', '중지.txt'):
         (APP / name).unlink(missing_ok=True)
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    for script in ('bot.py', 'shadow.py', 'account_sync.py'):
+    for script in ('bot.py', 'shadow.py', 'account_sync.py', 'exit_study.py'):
         if (APP / script).exists():
             subprocess.Popen([str(PYW), script], cwd=APP, creationflags=flags, close_fds=True)
     for _ in range(90):

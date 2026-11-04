@@ -14,7 +14,8 @@ LATEST.md가 현재 상태·규칙 한 장이고, 이 문서는 "오늘 무엇�
 | 아침~낮 | 봇이 GitHub 일시 오류로 꺼지던 문제 완화, 정시 슬롯 주문안(재시작 추가 주문 없음), 손절 4.5%·이익보호 3%·건당 약 7.8만 원, 장세 필터(만료 11-07 07:51), 신규 매수 재개 | session_guard, shadow, strategy, 설정 패치 |
 | 16:26 | 집 PC로 이전: 계좌 인수(새 기준). 이후 BMT 보호창 오표시 수정 | take_over, manual_protection |
 | 18:22 | 연속성 복원(거래소 체결 이력에서 재진입 기록·원 평단 복원) + 새 진입 R을 15분 ATR로 | continuity.py, live.py |
-| 18:45 | **진입 범위·유지 순위 5→8**(사용자 지시, ChatGPT 검산 생략). 되돌리기: `strategy.M`, `entry_scan`을 5로 패치 | patches/rank_8.json |
+| 18:45 | **진입 범위·유지 순위 5→8**(사용자 지시, ChatGPT 검산 생략). 되돌리기: `strategy.M`, `entry_scan`을 5로 패치 | patches/rank_8.json(22:15 삭제, 아래로 대체) |
+| 22:15 | **진입 7위·유지 9위**(사용자 지시: 8위 매수 직후 9위로 밀려 바로 매도되는 경향 방지, 검산 생략). 배포로 재시작. 패치 파일명은 정렬 순서가 중요해 rank_8.json을 지우고 새 이름 사용 | patches/rank_entry7_hold9.json |
 | 18:57 | 동시 보유 6개 이상 경보(알림만, 주문 제한 없음) | live.check_concurrent |
 | 19:28 | **실행권 방식 변경**: 봇은 장애·양도에도 종료하지 않고 대기(주문만 막음), 주문 직전에만 확인(매수는 확인 실패 시 막고 손절 매도는 허용, 상한 3시간), 화면 램프+`이 PC에 실행권 받기` 버튼, 사용자 보호 창 접기 | session_guard, bot, manual_orders, protection_panel, take_over --button |
 

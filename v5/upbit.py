@@ -196,7 +196,7 @@ def market_sell(market, volume, identifier=None):
 
 def _post_order(params):
     if ORDER_GUARD is not None:
-        ORDER_GUARD()
+        ORDER_GUARD(params.get('side'))
     req = urllib.request.Request(BASE + '/v1/orders', data=json.dumps(params).encode(), method='POST',
                                  headers={'Content-Type': 'application/json', **_auth(params)})
     try:

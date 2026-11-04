@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect'}
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
@@ -76,6 +76,8 @@ class ManualOrderServer:
             return 400, '요청 형식 오류'
         if not isinstance(doc, dict) or not hmac.compare_digest(str(doc.get('token', '')), self.token):
             return 403, '인증 실패: 화면을 새로고침한 뒤 다시 시도하세요'
+        if kind == 'grant':  # 이 PC에 실행권 받기: 종목이 필요 없다
+            return (200, (None, None)) if doc.get('confirm') is True else (400, '확인되지 않은 요청')
         market = doc.get('market')
         if doc.get('confirm') is not True or not isinstance(market, str) or not MARKET.match(market):
             return 400, '확인되지 않은 요청'

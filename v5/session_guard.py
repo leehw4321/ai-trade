@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import socket
 from pathlib import Path
 import subprocess
 import threading
@@ -20,6 +21,11 @@ class SessionUnverified(SessionLost):
     """GitHub could not be reached, so ownership could not be checked. Not proof that ownership changed."""
 
 
+class NotOwner(SessionLost):
+    """다른 PC가 실행권을 갖고 있어 이 PC는 주문하지 않는다. 오류가 아니라 정상적인 대기 상태."""
+
+
+SELL_BLIND_MAX = 3 * 3600  # GitHub를 확인하지 못해도 마지막으로 확인된 실행권자는 이 시간까지 매도(손절)만 허용한다
 READ_RETRY_DELAYS = (1, 3)  # quick network errors on read-only calls are retried before giving up
 LEASE_MARGIN = 20  # stop trusting our own lease this many seconds before it expires
 CHECK_SECONDS = 30  # background ownership check; every order is still checked right before it is sent
@@ -152,13 +158,33 @@ def notify(message):
         root.destroy()
 
 
+def pc_identity(root):
+    """이 설치(PC)의 고정 식별자. 봇을 다시 켜도 같은 PC임을 알아보는 데 쓴다(실행권 기록의 owner는 '식별자:프로세스')."""
+    path = Path(root) / 'data' / 'pc_id.txt'
+    try:
+        found = path.read_text(encoding='utf-8').strip()
+        if found:
+            return found
+    except OSError:
+        pass
+    ident = uuid.uuid4().hex[:12]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(ident, encoding='utf-8')
+    except OSError:
+        pass
+    return ident
+
+
 class SessionGuard:
     def __init__(self, root, cfg=None, store=None, clock=time.time):
         self.root = Path(root)
         self.cfg = cfg or {}
         self.store = store or GitStore(self.root / 'data' / 'session_git', self.cfg.get('remote', DEFAULT_REMOTE))
         self.clock = clock
-        self.token = str(uuid.uuid4())
+        self.pc = str(self.cfg.get('pc_id') or pc_identity(self.root))
+        self.pc_name = socket.gethostname()
+        self.token = f'{self.pc}:{uuid.uuid4()}'
         self.closed = threading.Event()
         self.lost = threading.Event()
         self.mutex = threading.RLock()
@@ -166,7 +192,11 @@ class SessionGuard:
         self.acquired = False
         self.thread = None
         self.required_checkpoint = ''
-        self.lease_until = 0  # expiry of the last lease we wrote ourselves; ownership is trusted only until then
+        self.lease_until = 0  # expiry of the last lease we wrote ourselves
+        self.status = 'idle'   # idle | owner | other | free | unverified  (화면 램프용)
+        self.last_ok = 0.0     # 마지막으로 실행권을 확인한 시각
+        self.blind_since = 0.0 # GitHub를 확인하지 못하기 시작한 시각
+        self.other_pc = ''     # 지금 실행권을 가진 다른 PC 이름(알면)
 
     def lease_valid(self):
         return self.clock() < self.lease_until - LEASE_MARGIN
@@ -184,7 +214,7 @@ class SessionGuard:
                 raise SessionLost('인계·장부 대사 적용 중이거나 복구 확인이 필요합니다. 주문을 시작하지 않습니다.')
 
     def record(self, **values):
-        state = {'owner': self.token, 'updated': self.clock(), 'expires': self.clock() + 180,
+        state = {'owner': self.token, 'pc': self.pc_name, 'updated': self.clock(), 'expires': self.clock() + 180,
                  'request': '', 'checkpoint': self.required_checkpoint or self.checkpoint_hash()}
         state.update(values)
         return state
@@ -192,9 +222,11 @@ class SessionGuard:
     def acquire(self, confirm=confirm_takeover, wait_seconds=240):
         self.assert_transition_clear()
         oid, state = self.store.read()
-        if state.get('owner') and not confirm():
+        # 같은 PC에서 봇을 다시 켠 경우(이전 프로세스는 단일 실행 잠금 때문에 이미 없다): 기다림·확인 없이 이어받는다.
+        reclaim = bool(state.get('owner')) and self._same_pc(state['owner']) and not state.get('request')
+        if state.get('owner') and not reclaim and not confirm():
             return False
-        if state.get('owner'):
+        if state.get('owner') and not reclaim:
             wanted = dict(state, request=self.token)
             if not self.store.cas(oid, wanted):
                 raise SessionLost('다른 PC가 연결 상태를 바꿨습니다. 다시 실행해 주세요.')
@@ -216,7 +248,7 @@ class SessionGuard:
             raise SessionLost('다른 PC로 연결을 넘기는 중입니다. 잠시 뒤 다시 실행해 주세요.')
         # Moving control is not moving the live ledger. Require its exact checkpoint before live trading.
         expected = state.get('checkpoint', '')
-        self.required_checkpoint = expected if expected and self.checkpoint_hash() != expected else ''
+        self.required_checkpoint = expected if expected and not reclaim and self.checkpoint_hash() != expected else ''
         if self.cfg.get('live_enabled') and self.required_checkpoint:
             # Explicit account adoption creates a NEW baseline; it never claims to restore old history.
             file = self.root / 'data' / 'live' / 'live.json'
@@ -248,55 +280,116 @@ class SessionGuard:
             raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
         self.lease_until = claim['expires']
         self.acquired = True
+        self.status, self.last_ok, self.blind_since, self.other_pc = 'owner', self.clock(), 0.0, ''
         self.assert_transition_clear()
         return True
 
-    def assert_owner(self):
+    def _same_pc(self, owner):
+        return isinstance(owner, str) and owner.startswith(self.pc + ':')
+
+    def _note_state(self, state):
+        """읽은 기록으로 램프 상태를 갱신한다(내가 소유자인지, 다른 PC인지, 아무도 아닌지)."""
+        owner = state.get('owner')
+        self.last_ok, self.blind_since = self.clock(), 0.0
+        if owner == self.token and self.acquired:
+            self.status, self.other_pc = 'owner', ''
+        elif owner:
+            self.status, self.other_pc = 'other', str(state.get('pc') or '다른 PC')
+        else:
+            self.status, self.other_pc = 'free', ''
+
+    def _mark_unverified(self, ex):
+        if not self.blind_since:
+            self.blind_since = self.clock()
+        if self.acquired:
+            self.status = 'unverified'
+        self.reason = str(ex)
+
+    def _give_up(self, state, why):
+        """실행권을 잃었거나 양도 요청을 받았다: 주문을 멈추고 대기 상태로 둔다(봇은 종료하지 않는다). 요청이 있으면 비워 준다."""
+        if state.get('owner') == self.token and state.get('request'):
+            try:
+                oid, fresh = self.store.read()
+                if fresh.get('owner') == self.token:
+                    self.store.cas(oid, self.record(owner='', expires=0, request=fresh.get('request', ''),
+                                                    checkpoint=self.required_checkpoint or self.checkpoint_hash()))
+            except SessionLost:
+                pass  # 비우지 못하면 요청한 쪽이 만료까지 기다린다. 이 PC는 어쨌든 주문하지 않는다.
+        self.acquired = False
+        self.status = 'other'
+        self.other_pc = str(state.get('pc') or '다른 PC')
+        self.reason = why
+
+    def assert_owner(self, side=None):
+        """주문 직전 확인. 실행권자가 아니면 NotOwner. 확인 자체를 못 하면 매수는 막고, 매도(손절)는 마지막 확인이 실행권자였을 때만 허용한다."""
         with self.mutex:
             self.assert_transition_clear()
-            if not self.acquired or self.lost.is_set():
-                raise SessionLost(self.reason or '이 PC에 주문 실행 권한이 없습니다.')
+            if not self.acquired:
+                raise NotOwner(self.reason or '이 PC에는 실행권이 없습니다(다른 PC가 실행 중이거나 아직 받지 않음).')
             try:
-                _, state = self.store.read()
-                if (state.get('owner') != self.token or state.get('request')
-                        or self.clock() >= state.get('expires', 0)):
-                    raise SessionLost('다른 PC로 연결이 변경되어 이 PC의 주문을 중단합니다.')
+                oid, state = self.store.read()
             except SessionUnverified as ex:
-                # Only "could not reach GitHub". Orders are blocked now (nothing can be verified), but we keep
-                # our lease alive until it would expire anyway; no other PC may take over before then.
-                if not self.lease_valid():
-                    self.reason = str(ex); self.lost.set()
-                raise SessionUnverified(str(ex)) from ex
+                self._mark_unverified(ex)
+                if side == 'ask' and self.last_ok and self.clock() - self.last_ok < SELL_BLIND_MAX:
+                    return  # 손절·청산은 실행권 확인 장애 때문에 막지 않는다(마지막 확인 때 이 PC가 실행권자였다)
+                raise
+            except SessionLost as ex:
+                self._mark_unverified(ex)
+                raise
             except Exception as ex:
-                self.reason = str(ex); self.lost.set()
-                raise SessionLost(self.reason) from ex
+                self._mark_unverified(ex)
+                raise SessionUnverified(f'실행권 확인 중 오류({type(ex).__name__}). 주문을 중단합니다.') from ex
+            if state.get('owner') != self.token or state.get('request'):
+                self._give_up(state, '다른 PC로 실행권이 넘어가 이 PC는 주문하지 않습니다.')
+                raise NotOwner(self.reason)
+            self._note_state(state)
+            if self.clock() >= state.get('expires', 0) - 60:  # 장애로 갱신이 밀렸으면 지금 갱신한다(기록이 아직 내 것이므로 안전)
+                self._renew(oid)
+
+    def _renew(self, oid):
+        renewed = self.record()
+        try:
+            if self.store.cas(oid, renewed):
+                self.lease_until = renewed['expires']
+                return True
+        except SessionLost:
+            pass
+        return False
+
+    def check_now(self):
+        """주기 확인(감시 스레드). 어떤 실패도 봇을 끄지 않는다."""
+        with self.mutex:
+            try:
+                oid, state = self.store.read()
+            except Exception as ex:
+                self._mark_unverified(ex)
+                return self.status
+            if self.acquired:
+                if state.get('owner') != self.token or state.get('request'):
+                    self._give_up(state, '다른 PC가 실행권을 요청하거나 가져가 이 PC는 주문을 멈춥니다.')
+                else:
+                    self._note_state(state)
+                    self._renew(oid)
+            else:
+                self._note_state(state)
+            return self.status
 
     def start(self):
         def watch():
-            last_renew = self.clock()
             while not self.closed.wait(CHECK_SECONDS):
                 try:
-                    with self.mutex:
-                        self.assert_owner()
-                        if self.clock() - last_renew >= 60:
-                            oid, state = self.store.read()
-                            if state.get('owner') != self.token or state.get('request'):
-                                raise SessionLost('실행 연결 양도 요청을 받았습니다.')
-                            renewed = self.record()
-                            if not self.store.cas(oid, renewed):
-                                raise SessionLost('실행 연결 갱신에 실패했습니다.')
-                            self.lease_until = renewed['expires']
-                            last_renew = self.clock()
-                except SessionUnverified as ex:
-                    if self.lease_valid():
-                        continue  # retry at the next check; same fail-closed rule once the lease can no longer be trusted
-                    self.reason = str(ex); self.lost.set()
-                    return
-                except Exception as ex:
-                    self.reason = str(ex); self.lost.set()
-                    return
+                    self.check_now()
+                except Exception as ex:  # 감시 스레드는 절대 죽지 않는다
+                    self.reason = type(ex).__name__
         self.thread = threading.Thread(target=watch, daemon=True)
         self.thread.start()
+
+    def snapshot(self):
+        """화면 램프용 요약."""
+        now = self.clock()
+        return {'status': self.status, 'owner': bool(self.acquired), 'other_pc': self.other_pc, 'pc': self.pc_name,
+                'blind_seconds': int(now - self.blind_since) if self.blind_since else 0,
+                'checked_ago': int(now - self.last_ok) if self.last_ok else None, 'reason': self.reason}
 
     def release(self):
         self.closed.set()

@@ -31,8 +31,11 @@ class SessionTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def guard(self, live=False):
-        return sg.SessionGuard(self.root, {'live_enabled': live}, store=self.store, clock=lambda: 1000)
+    n = 0
+
+    def guard(self, live=False, pc=None):
+        SessionTests.n += 1  # 기본은 서로 다른 PC로 본다(두 PC 시뮬레이션). 같은 PC 재시작은 pc= 로 명시.
+        return sg.SessionGuard(self.root, {'live_enabled': live, 'pc_id': pc or f'pc{SessionTests.n}'}, store=self.store, clock=lambda: 1000)
 
     def test_decline_keeps_existing_session(self):
         old = self.guard(); self.assertTrue(old.acquire())
@@ -60,14 +63,42 @@ class SessionTests(unittest.TestCase):
         new.release()
         self.assertEqual(self.store.state['request'], '')
 
-    def test_network_failure_blocks_order_before_http(self):
+    def test_network_failure_blocks_buy_before_http_but_keeps_running(self):
         owner = self.guard(); owner.acquire()
         with patch.object(self.store, 'read', side_effect=OSError('offline')), \
              patch.object(upbit, 'ORDER_GUARD', owner.assert_owner), \
              patch.object(upbit.urllib.request, 'urlopen') as http:
             with self.assertRaises(sg.SessionLost): upbit.market_buy('KRW-BTC', 5000)
             http.assert_not_called()
-        self.assertTrue(owner.lost.is_set())
+        self.assertFalse(owner.lost.is_set())
+        self.assertEqual(owner.status, 'unverified')
+
+    def test_unverifiable_sell_is_allowed_for_the_last_verified_owner(self):
+        owner = self.guard(); owner.acquire()
+        with patch.object(self.store, 'read', side_effect=sg.SessionUnverified('offline')), \
+             patch.object(upbit, 'ORDER_GUARD', owner.assert_owner), \
+             patch.object(upbit, '_auth', return_value={}), \
+             patch.object(upbit.urllib.request, 'urlopen') as http:
+            http.return_value.__enter__.return_value.read.return_value = b'{}'
+            try: upbit.market_sell('KRW-BTC', 0.001)
+            except Exception: pass
+            self.assertTrue(http.called)
+
+    def test_same_pc_restart_reclaims_without_asking_or_checkpoint(self):
+        first = self.guard(live=True, pc='home'); self.store.state = {'owner': first.token, 'expires': 99999, 'request': '', 'checkpoint': 'stale-hash'}
+        second = self.guard(live=True, pc='home')
+        self.assertTrue(second.acquire(confirm=lambda: self.fail('같은 PC 재시작은 확인창을 띄우지 않는다')))
+        self.assertEqual(self.store.state['owner'], second.token)
+
+    def test_other_pc_request_makes_owner_yield_without_exiting(self):
+        old = self.guard(); old.acquire()
+        self.store.state = dict(self.store.state, request='pcZ:new', pc='home')
+        old.check_now()
+        self.assertFalse(old.acquired)
+        self.assertEqual(self.store.state['owner'], '')
+        self.assertEqual(self.store.state['request'], 'pcZ:new')
+        self.assertFalse(old.lost.is_set())
+        with self.assertRaises(sg.NotOwner): old.assert_owner()
 
     def test_paper_session_preserves_unmigrated_live_checkpoint(self):
         self.store.state = {'owner': '', 'request': '', 'checkpoint': 'private-ledger-hash'}

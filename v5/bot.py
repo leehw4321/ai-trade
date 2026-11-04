@@ -274,10 +274,80 @@ class Bot:
             self.log('실제 계좌 조회 실패 (최종 성공 자료 유지): ' + self.real_error)
         self.write_status(self.prices(), next_close)
 
+    def can_act(self):
+        """이 PC가 실행권을 가졌나(캐시된 판단). 실제 주문 직전에는 session_guard가 GitHub에서 다시 확인한다."""
+        g = getattr(self, 'session_guard', None)
+        return g is None or bool(g.acquired)
+
+    GRANT_FILE = DATA / 'grant_status.json'
+
+    def grant_status(self):
+        try:
+            return json.loads(self.GRANT_FILE.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return {}
+
+    def request_grant(self):
+        """화면 '이 PC에 실행권 받기' 버튼: 이전 도구(take_over)를 별도 프로세스로 시작한다. 이 봇은 도구가 멈추고 다시 켠다."""
+        g = getattr(self, 'session_guard', None)
+        if g is not None and g.acquired:
+            return True, '이 PC에 이미 실행권이 있습니다.'
+        tool = ROOT.parents[2] / 'ai-trade' / 'tools' / 'take_over.py'
+        if not tool.exists():
+            return False, '실행권 이전 도구(take_over.py)를 찾지 못했습니다.'
+        pyw = Path(sys.executable).with_name('pythonw.exe')
+        exe = str(pyw if pyw.exists() else sys.executable)
+        self.GRANT_FILE.write_text(json.dumps({'state': 'running', 'time': now_iso(), 'message': '실행권 이전을 시작했습니다.'}, ensure_ascii=False), encoding='utf-8')
+        subprocess.Popen([exe, str(tool), '--button'], cwd=str(tool.parents[1]),
+                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
+        return True, '실행권 이전을 시작했습니다. 다른 PC 봇이 멈춘 뒤 이 PC 봇이 다시 시작됩니다(1~4분). 화면이 바뀌면 램프를 확인하세요.'
+
+    def ownership_html(self):
+        """실행권 램프와 '이 PC에 실행권 받기' 버튼. 램프: 초록=이 PC, 빨강=다른 PC/없음, 노랑=확인 불가."""
+        g = getattr(self, 'session_guard', None)
+        if g is None:
+            return ''
+        e = html.escape
+        snap = g.snapshot()
+        st = snap['status']
+        if snap['owner'] and st == 'unverified':
+            color, text = '#d9a400', f"확인 불가 · GitHub 응답 없음 {snap['blind_seconds'] // 60}분째 (이 PC가 마지막 실행권자: 매수 보류, 손절 매도는 허용)"
+        elif snap['owner']:
+            color, text = '#2e9e5b', f"이 PC({e(snap['pc'])})에 있음" + (f" · {snap['checked_ago']}초 전 확인" if snap['checked_ago'] is not None else '')
+        elif st == 'other':
+            color, text = '#d64545', f"다른 PC({e(snap['other_pc'] or '?')})에 있음 · 이 PC는 주문하지 않고 지켜보기만 합니다"
+        elif st == 'free':
+            color, text = '#d64545', '아무도 갖고 있지 않음 · 이 PC는 주문하지 않습니다'
+        else:
+            color, text = '#d9a400', '확인 중' + (f" · {e(snap['reason'])}" if snap['reason'] else '')
+        gs = self.grant_status()
+        result = ''
+        if gs.get('state') == 'running':
+            result = f"<span class=muted>⏳ 이전 진행 중 ({e(str(gs.get('time', ''))[5:16].replace('T', ' '))})</span>"
+        elif gs.get('state') == 'done':
+            result = f"<b class=up>✔ 넘어옴</b> <span class=muted>{e(str(gs.get('time', ''))[5:16].replace('T', ' '))} · {e(str(gs.get('message', '')))}</span>"
+        elif gs.get('state') == 'failed':
+            result = f"<b class=dn>✘ 넘어오지 않음</b> <span class=muted>{e(str(gs.get('time', ''))[5:16].replace('T', ' '))} · {e(str(gs.get('message', '')))}</span>"
+        srv = getattr(self, 'manual_server', None)
+        act = json.dumps({'port': srv.port, 'token': srv.token}) if srv else 'null'
+        disabled = ' disabled' if snap['owner'] else ''
+        label = '이 PC가 실행권 보유 중' if snap['owner'] else '이 PC에 실행권 받기'
+        return (f"<div id=own-box style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)'>"
+                f"<span style='display:inline-block;width:16px;height:16px;border-radius:50%;background:{color}'></span>"
+                f"<b>실행권</b><span>{text}</span>"
+                f"<button id=own-btn type=button{disabled}>{label}</button><span id=own-res>{result}</span></div>"
+                "<script>(function(){var A=" + act.replace('<', '\\u003c') + ",b=document.getElementById('own-btn'),r=document.getElementById('own-res');"
+                "if(!b)return;if(!A){b.disabled=true;b.title='봇 제어 연결을 기다리는 중';return}"
+                "b.addEventListener('click',function(){if(!confirm('다른 PC 봇은 주문을 멈추고, 이 PC가 실행권을 받습니다.\\n이 PC 봇은 잠시 재시작되고 계좌 전체를 새 기준으로 인수합니다(손절선은 다시 계산).\\n진행할까요?'))return;"
+                "b.disabled=true;r.textContent='⏳ 요청 중…';"
+                "fetch('http://127.0.0.1:'+A.port+'/grant',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,confirm:true})})"
+                ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'⏳ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
+                ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})();</script>")
+
     def live_block(self, prices):
         e, L, c = html.escape, self.live.d, self.live.cfg
         if not c['enabled']:
-            return ''
+            return f"<section><h2 class=lg>실거래 (꺼짐)</h2>{self.ownership_html()}<div class=sub>이 PC의 실거래 설정이 꺼져 있습니다. 실행권을 받으면 설정을 맞추고 계좌를 인수해 시작합니다.</div></section>" if getattr(self, 'session_guard', None) else ''
         loss = self.live.raw_loss(prices) - L.get('risk_loss_offset', 0.)
         rows = ''.join(
             f"<tr{position_popup.row_attrs(m, p['qty'] * prices.get(m, 0) < 5000)}><td>{e(m[4:])}</td><td class=n>{p['qty']:,.8g}</td><td class=n>{p['cost']:,.0f}</td>"
@@ -297,7 +367,7 @@ class Bot:
         protected = self.live.protected_markets()
         protection = ('<div class=warn><b>사용자 보호 종목: ' + e(', '.join(sorted(m[4:] for m in protected)))
                       + '</b> · 자동 매수·매도·손절·익절 및 봇 화면 주문 제외 · 거래소 직접 주문은 유지</div>') if protected else ''
-        return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
+        return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{self.ownership_html()}{halt}{adoption}
 {protection}
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
 <div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
@@ -497,13 +567,13 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         # 사용자 지시(2026-11-04): 손절 기준을 넘으면 인식 즉시 매도. 실거래 중이면 3초마다 실시간 가격 확인.
         stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
-        if self.live.cfg['enabled'] and (self.live.cfg.get('manual_ui') or self.live.cfg.get('protection_ui')):
-            kinds=set()
+        if True:
+            kinds={'grant'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
-            if not started and self.live.cfg.get('protection_ui'):
+            if not started:
                 srv=manual_orders.ManualOrderServer(0,allowed_kinds=kinds)
                 started=srv.start()
             if started:
@@ -511,17 +581,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
             else:
                 self.log(f'화면 강제 청산 서버를 열지 못함(포트 {srv.port} 사용 중): 청산 버튼 비활성')
-        if self.live.cfg['enabled']:
+        if self.live.cfg['enabled'] and self.can_act():
             try: self.live.restore_continuity()
             except Exception as ex: self.log(f'연속성 복원 오류(무시하고 계속): {type(ex).__name__}')
         while not (STOP.exists() or STOP_ASCII.exists()):
             guard = getattr(self, 'session_guard', None)
-            if guard and guard.lost.is_set():
-                self.log('실행 연결 종료: ' + guard.reason)
-                break
+            if guard and guard.status != getattr(self, '_last_lamp', None):  # 실행권 램프가 바뀌면 화면을 바로 새로 쓴다
+                if getattr(self, '_last_lamp', None) is not None:
+                    self.log(f'실행권 상태 변경: {self._last_lamp} → {guard.status}' + (f' ({guard.reason})' if guard.reason else ''))
+                self._last_lamp = guard.status
+                last_display = 0
             now = time.time()
             try:
-                if self.live.cfg.get('auto_manual_protection') and now-last_manual_scan>=15:
+                if self.live.cfg.get('auto_manual_protection') and now-last_manual_scan>=15 and self.can_act():
                     try: self.live.scan_manual_orders()
                     except Exception as ex: self.log('직접 주문 보호 확인 대기: '+type(ex).__name__)
                     last_manual_scan=now
@@ -533,14 +605,15 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
                 if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
-                    self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
-                    if now - last_trail >= self.p.stop_seconds:
-                        self.live.trail_check()
-                        last_trail = now
-                    self.live.check_resume_request(live)
-                    self.live.check_loss(live)
-                    try: self.live.check_concurrent(live)
-                    except Exception as ex: self.log('동시 보유 확인 오류(무시): '+type(ex).__name__)
+                    if self.can_act():  # 실행권이 없는 PC는 실거래 손절·판단을 하지 않는다(주문은 어차피 막힌다)
+                        self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
+                        if now - last_trail >= self.p.stop_seconds:
+                            self.live.trail_check()
+                            last_trail = now
+                        self.live.check_resume_request(live)
+                        self.live.check_loss(live)
+                        try: self.live.check_concurrent(live)
+                        except Exception as ex: self.log('동시 보유 확인 오류(무시): '+type(ex).__name__)
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
                     last_stop = now
@@ -548,7 +621,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     self.refresh_display(end4 + TF + SETTLE)
                     last_display = now
                 if now - last_live >= 30:
-                    self.live.poll(self.markets or upbit.krw_markets())
+                    if self.can_act():
+                        self.live.poll(self.markets or upbit.krw_markets())
                     last_live = now
                     self.refresh_display(end4 + TF + SETTLE)
                     last_display = now
@@ -597,6 +671,14 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             return
         for req in srv.drain():
             try:
+                if req.kind == 'grant':
+                    ok, msg = self.request_grant()
+                    req.finish(ok, msg)
+                    self.log(f'실행권 받기 요청: {"시작" if ok else "보류"} · {msg}')
+                    continue
+                if not self.can_act():
+                    req.finish(False, '이 PC에는 실행권이 없어 주문·보호 변경을 할 수 없습니다. 먼저 실행권을 받으세요.')
+                    continue
                 if req.kind in ('protect','unprotect'):
                     ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
                     label='사용자 보호 선택'; self._protection_ui_dirty=True
@@ -665,9 +747,16 @@ if __name__ == '__main__':
             _, cfg = load_params()
             options = dict(cfg.get('session', {}), live_enabled=cfg.get('live', {}).get('enabled', False))
             guard = SessionGuard(ROOT, options)
-            if not guard.acquire():
-                sys.exit(0)
+            try:
+                got = guard.acquire(confirm=lambda: False) if options['live_enabled'] else False  # 시작할 때 남의 실행권을 빼앗지 않는다(버튼으로만 받는다)
+                if not options['live_enabled']:
+                    guard.reason = '이 PC의 실거래 설정이 꺼져 있어 실행권을 받지 않습니다.'
+            except SessionLost as ex:
+                got, guard.reason = False, str(ex)
+            if not got and not guard.reason:
+                guard.reason = '다른 PC가 실행권을 갖고 있어 이 PC는 지켜보기만 합니다.'
             upbit.ORDER_GUARD = guard.assert_owner
+            guard.check_now()
             guard.start()
             STOP.unlink(missing_ok=True)
             STOP_ASCII.unlink(missing_ok=True)

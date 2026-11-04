@@ -149,6 +149,28 @@ def start_bot():
     return False
 
 
+def set_grant(state, message):
+    """화면 '이 PC에 실행권 받기' 버튼의 진행·결과 표시(봇 화면이 읽는다)."""
+    try:
+        (APP / 'data').mkdir(parents=True, exist_ok=True)
+        (APP / 'data' / 'grant_status.json').write_text(
+            json.dumps({'state': state, 'time': dt.datetime.now().isoformat(timespec='seconds'), 'message': message}, ensure_ascii=False),
+            encoding='utf-8')
+    except OSError:
+        pass
+
+
+def stop_local_bot(wait=90):
+    """이 PC에서 대기 중인 봇을 정상 종료한다(강제 종료 없음). 계좌 인수는 봇이 꺼진 상태에서만 한다."""
+    (APP / 'stop.txt').write_text('grant button\n', encoding='utf-8')
+    for _ in range(wait):
+        if not bot_running():
+            return
+        time.sleep(1)
+    (APP / 'stop.txt').unlink(missing_ok=True)
+    raise RuntimeError('이 PC 봇이 정상 종료되지 않았습니다(진행 중인 작업이 있을 수 있음). 잠시 뒤 다시 누르세요.')
+
+
 def shortcut():
     link = Path.home() / 'Desktop' / '자동거래 이 PC에서 시작.lnk'
     if link.exists():
@@ -162,8 +184,19 @@ def shortcut():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--button', action='store_true', help='봇 화면의 실행권 버튼에서 호출(확인창 없음, 결과를 화면에 표시)')
     a = ap.parse_args()
-    if bot_running():
+    if a.button:
+        try:
+            set_grant('running', '이 PC 봇을 정상 종료하는 중')
+            stop_local_bot()
+        except Exception as ex:
+            say(f'중단: {type(ex).__name__}: {ex}')
+            set_grant('failed', str(ex)[:160])
+            for name in ('stop.txt',):
+                (APP / name).unlink(missing_ok=True)
+            return
+    elif bot_running():
         say('이 PC 봇이 이미 실행 중')
         if not a.check:
             os.startfile(APP / 'data' / 'status.html')
@@ -181,14 +214,18 @@ def main():
     shortcut()
     msg = ('다른 PC에서 실거래 중입니다.\n이 PC로 가져올까요? 그 PC 봇은 주문을 멈춥니다.\n\n' if other else
            '이 PC에서 실거래를 시작할까요?\n\n') + '\n'.join(f'· {x}' for x in plan)
-    if not box('askyesno', msg):
+    if not a.button and not box('askyesno', msg):
         say('사용자가 취소')
         return
     try:
+        if a.button:
+            set_grant('running', '코드·설정 맞추는 중')
         update_code()
         align_config()
         if other:
             say('양도 요청 · 다른 PC 봇의 반납을 기다리는 중 (최대 4분)')
+            if a.button:
+                set_grant('running', '다른 PC 봇의 반납을 기다리는 중(최대 4분)')
             request_handover()
             say('다른 PC 봇 반납 확인')
         elif st.get('owner') or st.get('request'):
@@ -201,11 +238,21 @@ def main():
         apply_protection_principle()
         ok = start_bot()
         say('봇 시작' if ok else '봇 시작 확인 실패')
+        if a.button:
+            set_grant('done' if ok else 'failed', '이 PC에서 실거래를 시작했습니다.' if ok else f'봇이 시작되지 않았습니다. 기록: {LOG.name}')
+            return
         os.startfile(APP / 'data' / 'status.html')
         box('showinfo' if ok else 'showwarning',
             '이 PC에서 실거래를 시작했습니다.' if ok else f'봇이 시작되지 않았습니다. 기록: {LOG}')
     except Exception as ex:
         say(f'중단: {type(ex).__name__}: {ex}')
+        if a.button:
+            set_grant('failed', f'{type(ex).__name__}: {str(ex)[:150]}')
+            try:  # 화면(램프·버튼)이 다시 보이도록 봇을 켠다. 계좌 인수 단계에서 실거래는 꺼져 있으므로 이 봇은 거래하지 않는다.
+                start_bot()
+            except Exception as ex2:
+                say(f'봇 다시 켜기 실패: {ex2}')
+            return
         box('showerror', f'중단했습니다: {ex}\n\n기록: {LOG}')
 
 

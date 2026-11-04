@@ -94,108 +94,81 @@ class OutageTolerance(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.now = [1000.0]
         self.store = Store()
-        self.guard = sg.SessionGuard(Path(self.tmp.name), {}, store=self.store, clock=lambda: self.now[0])
-        self.assertTrue(self.guard.acquire())  # lease_until = 1180
+        self.guard = sg.SessionGuard(Path(self.tmp.name), {'pc_id': 'home'}, store=self.store, clock=lambda: self.now[0])
+        self.assertTrue(self.guard.acquire())
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_short_outage_blocks_the_order_but_keeps_the_session(self):
+    def test_short_outage_blocks_buy_but_keeps_the_session(self):
         self.store.down = True
         self.now[0] = 1060
         with self.assertRaises(sg.SessionUnverified):
-            self.guard.assert_owner()
+            self.guard.assert_owner('bid')
         self.assertFalse(self.guard.lost.is_set())
+        self.assertEqual(self.guard.status, 'unverified')
         self.store.down = False
-        self.guard.assert_owner()  # recovers without a restart
+        self.guard.assert_owner('bid')  # recovers without a restart
+        self.assertEqual(self.guard.status, 'owner')
 
-    def test_outage_beyond_the_lease_still_fails_closed(self):
+    def test_long_outage_never_ends_the_bot_buys_stay_blocked_sells_allowed_until_the_cap(self):
         self.store.down = True
-        self.now[0] = 1180 - sg.LEASE_MARGIN
-        with self.assertRaises(sg.SessionUnverified):
-            self.guard.assert_owner()
-        self.assertTrue(self.guard.lost.is_set())
-        self.store.down = False
-        with self.assertRaises(sg.SessionLost):
-            self.guard.assert_owner()
-
-    def test_background_check_interval_leaves_room_for_retries_before_expiry(self):
-        # lease 180 s, renewed every 60-90 s (one check interval of slack), margin 20 s: the worst case leaves
-        # 70 s, i.e. two more background checks. Scheduling and request time can cost more, so the count is
-        # not guaranteed; the orders below never depend on it.
-        grace = 180 - sg.LEASE_MARGIN - (60 + sg.CHECK_SECONDS)
-        self.assertGreaterEqual(grace // sg.CHECK_SECONDS, 2)
-        self.assertEqual(sg.CHECK_SECONDS, 30)
-
-    def test_no_order_passes_during_an_outage_and_the_session_ends_at_the_margin(self):
-        self.store.down = True
-        passed, lost_at = [], None
-        for t in range(1010, 1230, 10):  # also covers checks that arrive late
+        buys, sells, ended = [], [], False
+        for t in range(1010, 1000 + sg.SELL_BLIND_MAX + 600, 600):
             self.now[0] = t
             try:
-                self.guard.assert_owner()
-                passed.append(t)
+                self.guard.assert_owner('bid'); buys.append(t)
             except sg.SessionLost:
                 pass
-            if lost_at is None and self.guard.lost.is_set():
-                lost_at = t
-        self.assertEqual(passed, [])  # no order is ever allowed while ownership cannot be read
-        self.assertEqual(lost_at, 1160)  # lease_until 1180 - margin 20: first moment it is no longer trusted
-        self.guard.lost.clear()
+            try:
+                self.guard.assert_owner('ask'); sells.append(t)
+            except sg.SessionLost:
+                pass
+            ended = ended or self.guard.lost.is_set()
+        self.assertEqual(buys, [])           # a buy can never pass while ownership cannot be read
+        self.assertFalse(ended)              # the bot is never shut down by an outage
+        self.assertTrue(sells and max(sells) < 1000 + sg.SELL_BLIND_MAX)   # stop-loss sells pass, but not forever
         self.store.down = False
-        self.now[0] = 1170  # network back, but the session was already given up: still no orders until re-acquired
-        self.guard.lost.set()
-        with self.assertRaises(sg.SessionLost):
-            self.guard.assert_owner()
+        self.now[0] += 1
+        self.guard.assert_owner('bid')       # network back and the record is still ours: trading resumes by itself
 
-    def test_renewal_extends_trust_so_the_margin_moves_with_it(self):
-        self.now[0] = 1090
-        oid, _ = self.store.read()
-        renewed = self.guard.record()
-        self.assertTrue(self.store.cas(oid, renewed))
-        self.guard.lease_until = renewed['expires']  # what the watcher does after a successful renewal
-        self.store.down = True
-        self.now[0] = 1170  # would have been lost under the old lease, still trusted under the renewed one
-        with self.assertRaises(sg.SessionUnverified):
-            self.guard.assert_owner()
-        self.assertFalse(self.guard.lost.is_set())
-        self.now[0] = 1090 + 180 - sg.LEASE_MARGIN
-        with self.assertRaises(sg.SessionUnverified):
-            self.guard.assert_owner()
-        self.assertTrue(self.guard.lost.is_set())
+    def test_expired_record_that_is_still_ours_is_renewed_on_the_next_check(self):
+        self.now[0] = 1000 + 400            # renewals lapsed during an outage; nobody took the record
+        before = self.store.state['expires']
+        self.guard.assert_owner('bid')
+        self.assertGreater(self.store.state['expires'], before)
 
-    def test_real_ownership_change_is_lost_immediately(self):
+    def test_background_check_interval_is_unchanged(self):
+        self.assertEqual(sg.CHECK_SECONDS, 30)
+
+    def test_real_ownership_change_stops_orders_but_not_the_bot(self):
         self.store.state['owner'] = 'someone-else'
-        with self.assertRaises(sg.SessionLost):
-            self.guard.assert_owner()
-        self.assertTrue(self.guard.lost.is_set())
+        self.store.state['pc'] = 'OFFICE'
+        with self.assertRaises(sg.NotOwner):
+            self.guard.assert_owner('bid')
+        self.assertFalse(self.guard.acquired)
+        self.assertFalse(self.guard.lost.is_set())
+        self.assertEqual((self.guard.status, self.guard.other_pc), ('other', 'OFFICE'))
+        with self.assertRaises(sg.NotOwner):
+            self.guard.assert_owner('ask')   # a sell is not allowed either once another PC owns it
 
     def test_watcher_survives_a_blip_and_renews_afterwards(self):
-        waits = iter([False, False, False, True])
         guard = self.guard
         guard.closed = mock.Mock()
-        guard.closed.wait.side_effect = lambda t: next(waits)
-        steps = [(1000, True), (1070, True), (1080, False)]  # (clock, store down?)
-        it = iter(steps)
-
-        def tick(_):
-            now, down = next(it, (1090, False))
-            self.now[0] = now
-            self.store.down = down
-            return False
-        guard.closed.wait.side_effect = None
-        calls = {'n': 0}
+        steps = iter([(1070, True), (1075, True), (1090, False)])
 
         def wait(_):
-            calls['n'] += 1
-            if calls['n'] > 4:
+            nxt = next(steps, None)
+            if nxt is None:
                 return True
-            return tick(_)
+            self.now[0], self.store.down = nxt
+            return False
         guard.closed.wait.side_effect = wait
         guard.start()
         guard.thread.join(5)
         self.assertFalse(guard.lost.is_set())
-        self.assertGreater(guard.lease_until, 1180)  # renewed once the network came back
+        self.assertTrue(guard.acquired)
+        self.assertGreater(self.store.state['expires'], 1180)   # renewed once the network came back
 
 
 if __name__ == '__main__':

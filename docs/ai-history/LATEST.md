@@ -36,3 +36,9 @@
 - 결정 근거·ChatGPT 원문: docs/ai-history/2026-11-03-claude-verification.md(코인 폴더 저장소) · docs/ai-history/originals/
 - 권한과 한계: docs/ai-history/permissions.md · 전체 인계(길다): HANDOFF.md, 집에서_이어서_2026-11-03.md
 - 이전 판 보관: docs/ai-history/latest-archive/
+
+## 6. 2026-11-04 09:51 실거래 회사 PC로 이전 (Claude, 사용자 지시 "이 PC로 옮김")
+- 집 PC에 사람이 없어 암호화 인계를 받을 수 없어서, 사용자 선택으로 계좌 인수 방식을 썼다. 09:49 실행권 양도 요청 → 집 PC 봇 반납, 09:50 adopt_account(관리 11, 주문 0), 09:51 bot·shadow·exit_study 시작. 손실 기준·재진입 기록은 새로 시작한다(집 PC 장부는 집 PC에 그대로 있다).
+- 설정은 LATEST 1절과 같게 재현했다: 패치를 실제 적용 순서대로(candidates → … → guard_arm_3_stop_055 → regime_filter → stop_045_keep_size → resume_new_buys) + 08:41 순환 config-patch + auto_manual_protection·protection_ui. 결과: 손절 4.5%, guard +3%, entry_risk 0.00184, 장세 필터, 매수 재개, scan5/M5/want3, slot_plans.
+- **발견한 결함:** 새 PC에서 처음 켜진 auto_manual_protection이 그 시점 보유 전부(봇이 산 PEPE·FLOCK·AXIS 포함)를 '출처 미확인'으로 보호 목록에 넣었다. 보호 종목은 봇이 주문하지 않으므로 손절이 멈춘다. 체결 식별자(v5-)로 봇 매수임을 확인하고 세 종목 보호를 해제했다(사용자 보호 DOGE·BTC는 유지). 수정 필요: 부트스트랩이 v5- 식별자로 산 수량은 보호하지 않도록.
+- 주의: 집 PC에서 봇을 다시 켜면 실행권 확인창이 뜬다. '예'를 누르면 회사 PC 실거래가 멈춘다.

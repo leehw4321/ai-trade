@@ -176,3 +176,7 @@
 - 사용자 요청으로 조사 전문을 별도 저장 가능한 Claude 대화에 전달했고 실제 수신·명령 대기 답변과 동일 대화 재개를 확인했다. 기존 IDE 창에 직접 삽입한 것은 아니다.
 - 다음에 이 조사 관련 사용자 명령을 받으면 [인계·실제 답변](docs/ai-history/2026-11-04-claude-competition-handoff.md)과 [조사 전문](docs/ai-history/2026-11-04-public-competition-strategies.md)을 읽고 이어받는다. 작업공간 private_handoff/latest-claude-research-ready-path.txt가 집 PC 별도 대화 bookmark를 가리킨다.
 - 이 조사에 따른 새 실험·코드 수정·배포·자동 토론은 다음 사용자 명령을 기다린다. 별도로 승인된 봇/자료 수집을 중단하라는 뜻은 아니다. 인계 자체는 실행권 이전·전략 배포 승인이 아니다.
+
+
+## 2026-11-04 최신 사용자 선택·결과 공유
+- 탐색8/보유유지8/최대3. 집 실행 사본 설정에서 확인했다. 앞선 5/5 상태·10/10 검토안보다 최신 사용자 선택이다. LATEST가 연결한 docs/ai-history/2026-11-04-longhold-study-results.md의 마지막 사용자 결정·이력 활용 기록을 읽고 다음 결과를 이어서 평가한다. 과거 검토와 실제 적용, 사용자 전달과 상대 실제 응답을 구분한다.

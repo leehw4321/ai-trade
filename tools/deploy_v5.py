@@ -11,7 +11,7 @@
 - 재시작 후 상태 화면이 새로 만들어지지 않거나 오류가 보이면 백업으로 되돌리고 다시 시작한다.
 - 감시 모드(--watch)는 사용자가 승인한 커밋만 배포한다. 승인은 `tools/APPROVED_COMMIT` 파일에 커밋 해시를 적는 것이다.
   배포를 잠시 막으려면 `tools/deploy_pause.txt` 파일을 만든다.
-- 봇 고정 PC 운영(2026-11-04): 감시 모드는 1분마다 GitHub에서 새 커밋을 받는다(git pull --ff-only, 저장소가 깨끗할 때만).
+- 봇 고정 PC 운영(2026-11-04): 감시 모드는 5분마다 GitHub에서 새 커밋을 받는다(git pull --ff-only, 저장소가 깨끗할 때만).
   다른 PC에서 승인할 수 있도록, 승인 파일의 커밋과 지금 HEAD의 v5 폴더 내용이 같으면 승인으로 본다(승인 파일을 커밋하면 HEAD가 바뀌기 때문).
   승인 파일 둘째 줄부터 `tools/patches/xxx.json`을 적으면 그 설정 조각도 함께 적용한다. 같은 승인은 한 번만 적용한다(data/deploy_applied.txt).
 """
@@ -37,7 +37,7 @@ LOCKS = ('bot.lock', 'shadow.lock', 'account_sync.lock')
 APPROVAL = ROOT / 'tools' / 'APPROVED_COMMIT'
 PAUSE = ROOT / 'tools' / 'deploy_pause.txt'
 STOP_TIMEOUT = 180
-WATCH_SECONDS = 60
+WATCH_SECONDS = 300  # 5분: 코드 변경은 하루 몇 번이라 충분하다(사용자 의견, 데이터 절약)
 
 
 def now():

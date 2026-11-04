@@ -1,0 +1,186 @@
+사용자 지정 안건: "lsk를 봇에서 매수했다 오늘 두번째인데 차라리 계속 보유하고 있었으면 수익률이 훨씬 높았을 것이다. 이와 같은 경향을 회피할 방법을 찾자."
+ChatGPT가 실제 업비트 GET 체결·계좌·호가와 로컬 상태를 조회해 아래 검산을 했습니다. 도구 없는 별도 Claude 검토이며 직접 계좌/원로그를 조회했다고 하지 마세요. 한국어 약1000자 이내로 회피 방법의 우선순위와 필요한 검증을 제시해 주세요. 이번 안건의 단발 응답이고 연속 토론·배포·주문 지시는 하지 마세요.
+
+ChatGPT 제안:
+1) 기존 D-38 재진입 규칙이 계좌 인수에서 사라진 last_sell 때문에 우회되는 것이 최우선 신뢰성 문제다. 같은 계좌의 기존 last_sell·손절·이익고점을 인계에 포함하고 거래소 이력으로 대사한다. 마지막 매도/손익을 검증 못하면 해당 종목 신규 재진입만 보류하는 후보이며 위험 매도는 계속한다. 현재 보유 LSK를 소급 청산하지 않는다.
+2) 이를 복구해도 이미 팔아 버린 상승분을 되찾는 것은 아니다. 계속 보유의 사후 우위를 곧바로 일반화하지 않는다. 첫11:49 청산의 내부 사유는 미확인이라 순환 때문/이익보호 때문이라고 확정하지 않는다. 같은 전체 계좌 현금·종목 제한을 반영한 비교가 필요하다.
+3) 수익이 난 포지션의 전량 이익보호 청산과 나중 비싼 재진입을 줄이는 후보는 일부 이익 실현+잔여 추세 추적이다. 비율·ATR 배수는 이번 LSK 고가에 맞춰 정하지 않고 손실 상한과 손절 즉시 실행은 유지한다. 첫 청산 사유를 확인한 뒤 순위 청산 확인과 이익보호 변경을 구분해 한 가지씩 비교한다. 줄인 거래액/횟수를 수익률 개선으로 부르지 않는다.
+
+추가 확인 사실: 현재 재매수 LSK는 entry270, stop0=257.85(초기위험12.15), ATR=20.863446(4시간봉), k3.0이다. trail/partial의 R은 k*ATR=62.590338이고 partial_r2이므로 부분익절 발동은 현재 entry 대비 약46.36% 상승에 해당한다. 이익보호는 평단+3% 고점부터 시작하고 반납40% 기준으로 전량 위험 청산한다. 단위 차이가 의도적인지와 기존 부분익절을 켰다고 문제가 해결되는지 검토하라. 현재 부분익절을 아예 꺼졌다고 말하지 말 것. 첫 오전 매수의 ATR/설정은 미확인이다.
+
+제공한 수치·가설에서 반박/정정할 점, 가장 먼저 복구할 점, 그다음 검증할 단일 전략 후보를 명확히 구분해 주세요. 기존규칙 복구와 새전략 우위 입증/배포 승인도 구분하세요.
+
+실체결과 동일 초기원금 비교 및 기존 함수 검산:
+{
+  "collected_at": "2026-11-04T17:07:45.092455+09:00",
+  "orders": [
+    {
+      "side": "bid",
+      "first_fill": "2026-11-04T11:01:43+09:00",
+      "last_fill": "2026-11-04T11:01:43+09:00",
+      "funds": 75999.99999943,
+      "qty": 307.69230769,
+      "fee": 37.999999999715,
+      "price": 247.0,
+      "bot_identified": true
+    },
+    {
+      "side": "ask",
+      "first_fill": "2026-11-04T11:49:15+09:00",
+      "last_fill": "2026-11-04T11:49:15+09:00",
+      "funds": 77846.15384557,
+      "qty": 307.69230769,
+      "fee": 38.923076922785,
+      "price": 253.0,
+      "bot_identified": true
+    },
+    {
+      "side": "bid",
+      "first_fill": "2026-11-04T17:01:44+09:00",
+      "last_fill": "2026-11-04T17:01:44+09:00",
+      "funds": 77999.9999976,
+      "qty": 288.88888888,
+      "fee": 38.9999999988,
+      "price": 270.0,
+      "bot_identified": true
+    }
+  ],
+  "actual_quantity_matches_bot": true,
+  "ticker_price": 270.0,
+  "best_bid": 270.0,
+  "best_ask": 271,
+  "rebuy_above_previous_sell_pct": 6.719367588932812,
+  "actual_first_realized_net": 1769.230769217509,
+  "actual_second_estimated_net_pnl_at_bid": -77.99999999758438,
+  "actual_LSK_combined_pnl_including_estimated_exit": 1691.2307692199247,
+  "actual_second_buy_additional_cash_over_first_proceeds": 231.7692289515835,
+  "hold_first_position_net_pnl_at_bid": 6997.38461533215,
+  "hold_first_position_net_return_pct": 9.202483778353754,
+  "same_initial_capital_actual_reinvest_net_pnl": 1691.462422622164,
+  "same_initial_capital_actual_reinvest_net_return_pct": 2.224496202733972,
+  "same_initial_capital_hold_advantage": 5305.922192709986,
+  "completed_trading_minutes_observed": 363,
+  "hold_path_min_vs_entry_pct": -1.2145748987854255,
+  "hold_path_max_close_drawdown_pct": -6.451612903225811,
+  "pre_first_exit_high_vs_entry_pct": 5.263157894736836,
+  "current_last_sell_LSK": null,
+  "current_last_sell_count": 0,
+  "original_exit_reason": "not verified; exchange does not provide strategy reason",
+  "guard_replay": {
+    "params": {
+      "reentry_profit_hours": 2.0,
+      "reentry_loss_hours": 6.0,
+      "reentry_dip_atr": 1.0,
+      "reentry_window_hours": 24.0,
+      "rotation_enabled": true
+    },
+    "decision": {
+      "rank": 4,
+      "rs": 0.11111111111111116,
+      "close": 270.0,
+      "atr": 6.950599461506383,
+      "bar": "2026-11-04T07:45:00+00:00"
+    },
+    "without_last_sell": null,
+    "with_verified_last_sell": "수익 청산 후 재진입은 매도가 253보다 1ATR 이상 눌려야 함(현재 270 > 246.5)",
+    "profit_reentry_price_limit": 246.48703087495883
+  },
+  "limitations": [
+    "LSK-only, not an account portfolio counterfactual; capital alternatives and cash constraints not replayed.",
+    "Continuous hold deliberately ignores actual exit rules; hindsight opportunity comparison, not an executable validated strategy.",
+    "Bid and 0.05% hypothetical sell fee, no depth/VWAP or slippage.",
+    "First actual exit reason not available; protect/rotation attribution remains unverified.",
+    "No trades/config changes or deployment performed."
+  ]
+}
+현재 코드 v5/strategy.py:143-170
+def reentry_block(r, last, now, p):
+    """직전 매도 기록 last={'time','price','profit'}가 있으면 재진입을 더 까다롭게 본다. 막으면 사유 문자열, 아니면 None.
+    수익 청산: reentry_profit_hours 뒤부터, 그리고 reentry_window_hours 안에서는 현재가가 매도가보다 reentry_dip_atr×ATR 이상 낮을 때만(고점에서 팔고 눌리면 다시 잡기).
+    손실 청산: reentry_loss_hours 뒤부터."""
+    if not last:
+        return None
+    if rotation.enabled(p):
+        why = rotation.fresh_reentry(last, p, rotation.row_close(r, p.tf))
+        if why: return why
+    hours = (now - last['time']) / 3600
+    if hours >= p.reentry_window_hours:
+        return None
+    if last.get('profit'):
+        if hours < p.reentry_profit_hours:
+            return f'수익 청산 후 재진입 대기 {hours:.1f}/{p.reentry_profit_hours:g}시간'
+        atr_pct = r.get('atr', 0) / r['close'] if r.get('close') else 0
+        limit = last['price'] * (1 - p.reentry_dip_atr * atr_pct)
+        if p.reentry_dip_atr > 0 and r.get('close', 0) > limit:
+            return f'수익 청산 후 재진입은 매도가 {last["price"]:,.4g}보다 {p.reentry_dip_atr:g}ATR 이상 눌려야 함(현재 {r["close"]:,.4g} > {limit:,.4g})'
+        return None
+    if hours < p.reentry_loss_hours:
+        return f'손실 청산 후 재진입 대기 {hours:.1f}/{p.reentry_loss_hours:g}시간'
+    return None
+
+
+def plan(ranked, held, banned, entry_ok, p):
+    """15번 교체 규칙. held: 보유 종목, banned: 재진입 금지, entry_ok: 신규 진입 가능한 종목 집합.
+
+현재 코드 v5/strategy.py:213-240
+def ratchet(market, pos, price, p):
+    """EXIT-T1. 고점·손절가를 갱신하고 청산 사유('수익 반납'|'추적 손절'|'손절')를 반환한다. 손절가는 내려가지 않는다.
+
+    pos: entry, stop, atr 필요. 갱신값 peak, stop0(초기 손절가), stop을 pos에 기록한다.
+    trail_enabled=False이면 기존 규칙(고정 손절)과 동일하다.
+    """
+    pos.setdefault('stop0', pos['stop'])
+    if not p.trail_enabled:
+        return '손절' if price <= pos['stop'] else None
+    E, A = pos['entry'], pos['atr']
+    R = p.k * A
+    peak = max(pos.get('peak', E), price)
+    pos['peak'] = peak
+    if R > 0:
+        g = (peak - E) / R
+        stop = pos['stop']
+        if g >= p.trail_lock_r:
+            stop = max(stop, E * (1 + 2 * p.fee + cost(market, p)))
+        if g >= p.trail_start_r:
+            stop = max(stop, peak - p.trail_m * A)
+        pos['stop'] = stop
+        if p.giveback > 0 and g >= p.trail_start_r and peak > E and (peak - price) / (peak - E) >= p.giveback:
+            return '수익 반납'
+    if price <= pos['stop']:
+        return '추적 손절' if pos['stop'] > pos['stop0'] else '손절'
+    return None
+
+
+현재 코드 v5/live.py:957-966
+            if not bar or pos.get('last_bar') == bar['t'] or not st.bar_after_entry(bar, pos['time']): continue
+            pos['last_bar'] = bar['t']
+            changed = True
+            why = st.ratchet(m, pos, bar['c'], p_pos)
+            if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
+            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and pos['atr'] > 0:
+                if (bar['c'] - pos['entry']) / (p_pos.k * pos['atr']) >= float(self.cfg.get('partial_r', 2.0)):
+                    parts.append((m, pos, bar['c']))
+        if changed: self.save()
+        if not exits and not parts: return
+현재 코드 v5/live.py:1073-1093
+            # Optional observations persist with the next normal ledger save.
+            # Do not add a disk write in front of urgent protective orders.
+        candidates = [(m, pos) for m, pos in list(self.d['positions'].items())
+                      if not self.is_protected(m) and m in prices and type(prices[m]) in (int, float) and math.isfinite(prices[m])
+                      and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0
+                      and not self.market_has_uncertain_order(m)]
+        if not candidates: return
+        balances = {r['currency']: r for r in upbit.accounts()}
+        for m, pos in candidates:
+            available = float(balances.get(m[4:], {}).get('balance', 0))
+            volume = min(pos['qty'], available)
+            if volume * prices[m] < 5000: continue
+            g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
+            why = '이익보호' if g is not None and self.stop_limit(pos) == g else '손절'
+            try:
+                o = self._trade('ask', m, volume, why, risk=True)
+                v, funds, fee = self._fill(o)
+                self.share(f'{m[4:]} {why} 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            except SessionLost:
+                raise
+            except Exception as error:

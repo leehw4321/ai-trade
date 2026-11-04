@@ -868,12 +868,9 @@ class Live:
         if changed or changed0 or self.d['positions']: self.save()
 
     def stop_limit(self, pos):
-        """EXIT-T1 대상은 초기 고정 손절만 실시간 가격으로 보호하고, 상향된 손절가는 확정 1분봉에서 평가한다.
-        profit_guard_enabled이면 이익 보호선(profit_guard_stop)도 실시간 가격으로 함께 평가한다."""
-        if self.cfg.get('trail_enabled') and pos.get('trail'):
-            base = pos.get('stop0', pos['stop'])
-        else:
-            base = pos['stop']
+        """실시간 가격으로 평가할 매도선. 사용자 지시(2026-11-04) "손절 기준을 넘어서면 인식 즉시 손절 실행"에 따라
+        추적으로 올라간 손절가도 1분봉 마감을 기다리지 않고 실시간 가격으로 평가한다. 이익 보호선도 함께 본다."""
+        base = max(pos['stop'], pos.get('stop0', pos['stop']))
         g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
         return max(base, g) if type(g) in (int, float) and math.isfinite(g) else base
 

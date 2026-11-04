@@ -48,9 +48,10 @@ class ProfitGuard(unittest.TestCase):
         self.assertNotIn('profit_guard_peak', self.pos)
         self.assertEqual(self.lv.stop_limit(self.pos), 90.)
 
-    def test_live_guard_does_not_promote_one_minute_trail_stop(self):
+    def test_raised_trail_stop_is_checked_in_real_time(self):
+        # 사용자 지시(2026-11-04): 손절 기준을 넘으면 인식 즉시 매도. 올라간 손절가도 실시간 평가한다.
         self.pos.update(stop=120., profit_guard_stop=102.)
-        self.assertEqual(self.lv.stop_limit(self.pos), 102.)
+        self.assertEqual(self.lv.stop_limit(self.pos), 120.)
 
     def test_invalid_quotes_do_not_arm(self):
         for value in (math.nan, math.inf, 0, -1, True, None):

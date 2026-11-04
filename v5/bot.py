@@ -485,7 +485,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.align_timeframe(time.time())
         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
         last_snap = last_stop = last_live = last_display = last_trail = last_manual_scan = 0
-        stop_iv = min(self.p.stop_seconds, 10) if self.live.cfg['enabled'] and self.live.cfg.get('profit_guard_enabled') is True else self.p.stop_seconds
+        # 사용자 지시(2026-11-04): 손절 기준을 넘으면 인식 즉시 매도. 실거래 중이면 3초마다 실시간 가격 확인.
+        stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
         if self.live.cfg['enabled'] and (self.live.cfg.get('manual_ui') or self.live.cfg.get('protection_ui')):
             kinds=set()

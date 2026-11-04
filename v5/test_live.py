@@ -155,7 +155,7 @@ class TrailLive(unittest.TestCase):
         self.run_trail(lv, [(1, 110000), (2, 110000)])               # 손절가 상향(108), 아직 보유
         pos = lv.d['positions']['KRW-X']
         self.assertGreater(pos['stop'], 100000)
-        self.assertEqual(lv.stop_limit(pos), 97000.0)             # 실시간 평가는 초기 고정 손절만
+        self.assertEqual(lv.stop_limit(pos), max(pos['stop'], pos.get('stop0', pos['stop'])))  # 올라간 손절가도 실시간 평가(사용자 지시 11-04)
         self.assertEqual(lv.stop_limit(lv.d['positions']['KRW-OLD']), 50000.0)
 
     def test_new_buy_fixes_entry_and_addon_disables_trail(self):

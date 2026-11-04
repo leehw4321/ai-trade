@@ -29,3 +29,6 @@ debate_tools/*.html
 /가상자산_거래모델_토론정리와_방향선택.docx
 /코인봇_재설계_노트.html
 /v5/pnl_baseline.json
+
+# 분석용 공개 시세 캐시(대용량, 재생성 가능)
+docs/ai-history/analysis/chase_cache.json

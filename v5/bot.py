@@ -291,6 +291,8 @@ class Bot:
                      f"{e(o.get('result') or o.get('reason') or (o.get('side', '') + ' ' + o.get('market', '')[4:] + ' ' + format(o.get('funds', 0), ',.0f') + '원'))}</li>"
                      for o in orders) or '<li class=muted>아직 새 체결 없음 · 현재 전략의 새 주문안을 대기 중</li>'
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])}</div>" if L['halted'] else ''
+        cw = L.get('concurrent_warn') or {}
+        if cw.get('active'): halt += f"<div class=warn><b>동시 보유 경보: {int(cw.get('count', 0))}개</b> ({e(', '.join(m[4:] for m in cw.get('markets', [])))}) · {e(str(cw.get('since', ''))[5:16].replace('T', ' '))}부터 · 알림만, 주문 제한 없음</div>"
         adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
         protected = self.live.protected_markets()
         protection = ('<div class=warn><b>사용자 보호 종목: ' + e(', '.join(sorted(m[4:] for m in protected)))
@@ -537,6 +539,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                         last_trail = now
                     self.live.check_resume_request(live)
                     self.live.check_loss(live)
+                    try: self.live.check_concurrent(live)
+                    except Exception as ex: self.log('동시 보유 확인 오류(무시): '+type(ex).__name__)
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
                     last_stop = now

@@ -69,7 +69,8 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'protected_markets': [], 'auto_manual_protection': False,
             'protection_ui': False,  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
             'restore_continuity': False,  # True면 시작 때 거래소 체결 이력에서 봇의 재진입 기록·평단 기반 손절 기준을 복원(계좌 인수 후 상실 방지)
-            'r_from_15m': False}  # True면 새 진입의 R(1R=k×ATR)을 설계대로 15분 ATR로 정의(False면 손절용 4시간 ATR)
+            'r_from_15m': False,  # True면 새 진입의 R(1R=k×ATR)을 설계대로 15분 ATR로 정의(False면 손절용 4시간 ATR)
+            'concurrent_warn_at': 6}  # 봇이 관리하는 동시 보유(보호 종목·5천원 미만 제외)가 이 수 이상이면 알림만 낸다(주문 제한 없음, 0이면 끔)
 
 
 def parse(text):
@@ -293,6 +294,32 @@ class Live:
         if ok:
             f.unlink()
         return msg
+
+    def check_concurrent(self, prices):
+        """동시 보유 알림(주문을 막지 않는다): 관리 종목(사용자 보호·5천원 미만 제외)이 concurrent_warn_at 이상이면 경보를 켜고 기록한다."""
+        warn = self.cfg.get('concurrent_warn_at', 6)
+        if type(warn) is not int or warn <= 0:
+            return 0
+        try:
+            protected = self.protected_markets()
+        except (ProtectedAssetError, OSError, ValueError):
+            return 0
+        held = sorted(m for m, p in self.d['positions'].items()
+                      if normalize_protected_market(m) not in protected and p.get('qty', 0) * prices.get(m, 0) >= 5000)
+        state = self.d.get('concurrent_warn') or {}
+        if len(held) >= warn and not state.get('active'):
+            self.d['concurrent_warn'] = {'active': True, 'count': len(held), 'markets': held, 'since': now_iso()}
+            self.record({'event': '동시 보유 경보', 'count': len(held), 'markets': held, 'warn_at': warn})
+            self.save()
+        elif len(held) < warn and state.get('active'):
+            self.d['concurrent_warn'] = {'active': False, 'count': len(held), 'cleared': now_iso(), 'peak': state.get('count')}
+            self.record({'event': '동시 보유 경보 해제', 'count': len(held)})
+            self.save()
+        elif state.get('active') and len(held) > state.get('count', 0):
+            state.update({'count': len(held), 'markets': held})
+            self.d['concurrent_warn'] = state
+            self.save()
+        return len(held)
 
     def check_loss(self, prices):
         missing = self.missing_valuations(prices)

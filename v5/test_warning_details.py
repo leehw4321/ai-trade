@@ -6,9 +6,9 @@ from upbit import market_warning_details as mwd
 LABELS = {'PRICE_FLUCTUATIONS': '가격 급등락', 'TRADING_VOLUME_SOARING': '거래량 급증',
           'DEPOSIT_AMOUNT_SOARING': '입금량 급증', 'GLOBAL_PRICE_DIFFERENCES': '가격 차이',
           'CONCENTRATION_OF_SMALL_ACCOUNTS': '소수 계정 집중'}
-NONE = {'warning': False, 'investment_warning': False, 'caution_types': [],
+NONE = {'warning': False, 'investment_warning': False, 'caution_types': [], 'trade_blocked': False,
         'warning_reasons': [], 'caution_severity': 'none'}
-UNKNOWN = {'warning': True, 'investment_warning': True, 'caution_types': [],
+UNKNOWN = {'warning': True, 'investment_warning': True, 'caution_types': [], 'trade_blocked': True,
            'warning_reasons': ['투자유의', '경보상세 형식 불명'], 'caution_severity': 'unknown'}
 BAD = ['X', ['PRICE_FLUCTUATIONS'], [], True, False, 1, 0, '']
 
@@ -21,7 +21,7 @@ def legacy(r):
 class MarketWarningDetailsTest(unittest.TestCase):
     def test_both_true(self):
         d = mwd({'market': 'KRW-A', 'market_event': {'warning': True, 'caution': {'PRICE_FLUCTUATIONS': True, 'TRADING_VOLUME_SOARING': False}}})
-        self.assertEqual(d, {'warning': True, 'investment_warning': True, 'caution_types': ['PRICE_FLUCTUATIONS'],
+        self.assertEqual(d, {'warning': True, 'investment_warning': True, 'caution_types': ['PRICE_FLUCTUATIONS'], 'trade_blocked': True,
                              'warning_reasons': ['투자유의', '가격 급등락'], 'caution_severity': 'unknown'})
 
     def test_legacy_caution_only(self):

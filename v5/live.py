@@ -804,8 +804,8 @@ class Live:
             return '일부 보유분 가격 미확인: 신규 매수 보류'
         if m not in markets:
             return '원화 마켓에 없음'
-        if markets[m].get('warning'):
-            return '업비트 경보 종목'
+        if markets[m].get('trade_blocked', markets[m].get('warning')):
+            return '업비트 경보 종목'  # 거래량 급등·입금량 급증·가격 급등락 경보만 있으면 제한하지 않는다(사용자 지시 2026-11-04)
         if krw < 5000:
             return '5,000원 미만'
         if krw > c['max_order_krw']:

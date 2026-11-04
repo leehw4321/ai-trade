@@ -43,6 +43,9 @@ def _get(path, params=None, headers=None, retries=3):
             time.sleep(1 + attempt)
 
 
+TRADABLE_CAUTIONS = {'TRADING_VOLUME_SOARING', 'DEPOSIT_AMOUNT_SOARING', 'PRICE_FLUCTUATIONS'}
+
+
 def market_warning_details(row):
     """Split Upbit warning metadata; 'warning' keeps the original combined formula.
 
@@ -64,13 +67,16 @@ def market_warning_details(row):
     elif not isinstance(caution, dict):
         if not investment:
             raise ValueError(f'caution 형식 불명, 경보 여부 판정 불가: {type(caution).__name__}')
-        return {'warning': True, 'investment_warning': True, 'caution_types': [],
+        return {'warning': True, 'investment_warning': True, 'caution_types': [], 'trade_blocked': True,
                 'warning_reasons': ['투자유의', '경보상세 형식 불명'], 'caution_severity': 'unknown'}
     warned = bool(ev.get('warning')) or any(caution.values()) or row.get('market_warning') == 'CAUTION'
     # Upbit API does not expose the 주의/경고/위험 stage, so severity is only unknown/none.
     types = sorted(k for k, v in caution.items() if v)
     reasons = (['투자유의'] if investment else []) + [labels.get(k, k) for k in types]
-    return {'warning': warned, 'investment_warning': investment, 'caution_types': types,
+    # 사용자 지시(2026-11-04): 거래량 급등·입금량 급증·가격 급등락 경보는 매매 제한에서 뺀다.
+    # 투자유의·해외 가격차·소액계좌 집중·알 수 없는 항목이 함께 있으면 그 사유로 제한한다.
+    blocked = investment or any(t not in TRADABLE_CAUTIONS for t in types)
+    return {'warning': warned, 'investment_warning': investment, 'caution_types': types, 'trade_blocked': blocked,
             'warning_reasons': reasons, 'caution_severity': 'unknown' if types else 'none'}
 
 

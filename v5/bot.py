@@ -155,7 +155,7 @@ class Bot:
         for m in bars:
             if m not in uni:
                 self.rs_all[m] = (None, st.relative_strength(bars[m], self.p.L))
-        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
+        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('trade_blocked', self.markets.get(m, {}).get('warning'))}
         failed = []
         for name, lg in self.ledgers.items():
             if (lg.d['last_4h'] or 0) >= end:
@@ -614,7 +614,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         end = boundary(time.time() - SETTLE, self.p.tf * 60)
         bars = self.fetch_bars(universe, end)
         ranked = st.rank(bars, self.p)
-        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
+        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('trade_blocked', self.markets.get(m, {}).get('warning'))}
         held = list(self.ledger.d['positions']) if self.ledger.ready else []
         sells, buys, unknown = st.plan(ranked, held, set(), entry_ok, self.p)
         print(f'기준 봉 마감: {utc(end).astimezone(KST):%m-%d %H:%M} · 자료 확보 {len(bars)}/{len(universe)}')

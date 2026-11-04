@@ -424,7 +424,7 @@ class Shadow:
                 bars[m] = b
             time.sleep(0.12)
         uni = set(universe)
-        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
+        entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('trade_blocked', self.markets.get(m, {}).get('warning'))}
         self.base_ranked = st.rank({m: b for m, b in bars.items() if m in uni}, self.base)
         self.market_index = st.market_index({m: b for m, b in bars.items() if m in uni}, self.base.regime_bars,
                                             self.base.regime_min_markets)

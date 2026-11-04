@@ -63,6 +63,7 @@ class Detector:
     def __init__(self, policy, live_folder, client=None, clock=time.time):
         self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
         self.good={}
+        self._verified={}
         self.error=''
         self.last_global_success=0
 
@@ -86,6 +87,30 @@ class Detector:
         known=not pos.get('inherited') and pos.get('acquisition_source')!='explicitly_authorized_external_exchange_fill'
         return qty,known
 
+    def _bot_explained(self,market,qty):
+        """계좌 인수는 모든 보유를 inherited로 표시하므로, 봇이 산 물량도 '출처 미확인'으로 보호될 수 있다.
+        거래소 주문 이력에서 이 종목의 체결이 전부 봇(v5-) 식별자이고 순수량이 현재 잔고와 같으면 봇 물량으로 본다.
+        하나라도 확인이 안 되면(조회 실패·미체결 주문·비봇 체결·수량 불일치·이력 밖 물량) False: 기존대로 보호한다(실패 시 보호 쪽)."""
+        cached=self._verified.get(market)
+        if cached and cached[0]==qty and self.clock()-cached[1]<3600: return True
+        try: rows=self.client.orders(market)
+        except Exception: return False
+        net=Decimal(0)
+        for row in rows:
+            if normalize(str(row.get('market','')))!=market: continue
+            if str(row.get('state'))in('wait','watch'): return False
+            try: volume=Decimal(str(row.get('executed_volume') or 0))
+            except Exception: return False
+            if not volume.is_finite() or volume<0: return False
+            if volume==0: continue
+            side=row.get('side')
+            sign=1 if side=='bid' else -1 if side=='ask' else 0
+            if not sign or not str(row.get('identifier') or '').startswith('v5-'): return False
+            net+=sign*volume
+        if abs(net-qty)>max(EPS*10,qty*Decimal('0.001')): return False
+        self._verified[market]=(qty,self.clock())
+        return True
+
     def _bootstrap(self,state,inventory,markets=None):
         doc=self.policy.read(); result=[]
         for market,(qty,locked) in inventory.items():
@@ -94,6 +119,9 @@ class Detector:
             if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
                 continue  # Its own uncertain fills are settled first, never guessed to be manual.
             owned,known=self._owned(state,market)
+            if (not known and market not in doc.get('bootstrap',{}) and state.get('positions',{}).get(market)
+                    and abs(qty-owned)<=EPS and locked<=EPS and self._bot_explained(market,qty)):
+                continue  # 인수로 inherited가 됐지만 거래소 이력상 전부 봇이 산 물량
             if not known or abs(qty-owned)>EPS or locked>EPS:
                 if market not in doc.get('bootstrap',{}): result.append(market)
                 elif (abs(qty-owned)>EPS or not state.get('positions',{}).get(market)):

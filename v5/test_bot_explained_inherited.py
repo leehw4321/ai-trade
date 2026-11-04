@@ -1,0 +1,96 @@
+"""계좌 인수 뒤 inherited로 표시된 보유가 거래소 이력상 전부 봇(v5-) 물량이면 '출처 미확인'으로 보호하지 않는다. 확인이 부족하면 기존대로 보호한다."""
+import tempfile
+import unittest
+from pathlib import Path
+
+from asset_protection import Policy, ProtectionError, effective
+from manual_protection import Detector
+from test_auto_protection import FakeClient, order
+
+
+def bot(uid, volume, side='bid', market='KRW-A'):
+    return dict(order(uid, volume, market=market, identifier='v5-' + uid), side=side)
+
+
+class InheritedBotHoldings(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        folder = Path(self.tmp.name) / 'data/live'
+        folder.mkdir(parents=True)
+        file = folder.parent / 'user_protected_assets.json'
+        file.write_text('{"markets":[]}')
+        self.policy = Policy(file, clock=lambda: 2000)
+        self.api = FakeClient()
+        self.api.rows[0]['balance'] = '2'
+        self.now = [2000]
+        self.detector = Detector(self.policy, folder, self.api, clock=lambda: self.now[0])
+        # 계좌 인수 직후의 장부: 모든 보유가 inherited, 수량은 잔고와 같다
+        self.state = {'positions': {'KRW-A': {'qty': 2., 'cost': 200., 'stop': 90., 'entry': 100., 'inherited': True}}}
+
+    def protected(self):
+        return 'KRW-A' in effective(self.policy.read())
+
+    def test_all_bot_orders_explaining_the_balance_are_not_protected(self):
+        self.api.records = [bot('b1', '3'), bot('b2', '1', side='ask')]  # 순수량 3-1=2
+        self.detector.scan(self.state)
+        self.assertFalse(self.protected())
+
+    def test_a_single_non_bot_execution_keeps_the_whole_market_protected(self):
+        self.api.records = [bot('b1', '1.5'), order('user1', '0.5')]  # 사용자 직접 체결 하나
+        self.detector.scan(self.state)
+        self.assertTrue(self.protected())
+
+    def test_quantity_not_fully_explained_is_protected(self):
+        self.api.records = [bot('b1', '1.5')]  # 잔고 2 중 0.5는 이력 밖(입금·오래된 물량)
+        self.detector.scan(self.state)
+        self.assertTrue(self.protected())
+
+    def test_history_failure_or_open_order_fails_closed_to_protection(self):
+        self.api.history_failure = True
+        with self.assertRaises(ProtectionError):
+            self.detector.scan(self.state)
+        self.assertTrue(self.protected())
+        self.api.history_failure = False
+        self.api.records = [bot('b1', '2'), order('w1', '0', state='wait', identifier='v5-w1')]
+        self.setUp.__func__(self)  # 새 정책·검출기로 다시 시작
+        self.api.rows[0]['balance'] = '2'
+        self.api.records = [bot('b1', '2'), dict(order('w1', '0', state='wait', identifier='v5-w1'))]
+        self.detector.scan(self.state)
+        self.assertTrue(self.protected())
+
+    def test_unknown_side_or_missing_identifier_is_not_treated_as_bot(self):
+        self.api.records = [dict(bot('b1', '2'), side='?')]
+        self.detector.scan(self.state)
+        self.assertTrue(self.protected())
+
+    def test_verification_is_cached_for_the_same_quantity_and_expires(self):
+        calls = {'n': 0}
+        original = self.api.orders
+
+        def counting(market=None):
+            calls['n'] += 1
+            return original(market)
+        self.api.orders = counting
+        self.api.records = [bot('b1', '2')]
+        self.assertTrue(self.detector._bot_explained('KRW-A', __import__('decimal').Decimal('2')))
+        self.assertTrue(self.detector._bot_explained('KRW-A', __import__('decimal').Decimal('2')))
+        self.assertEqual(calls['n'], 1)
+        self.now[0] += 3601
+        self.assertTrue(self.detector._bot_explained('KRW-A', __import__('decimal').Decimal('2')))
+        self.assertEqual(calls['n'], 2)
+        self.assertFalse(self.detector._bot_explained('KRW-A', __import__('decimal').Decimal('3')))  # 수량이 바뀌면 다시 확인하고 불일치
+
+    def test_non_inherited_or_quantity_mismatch_paths_are_unchanged(self):
+        self.state['positions']['KRW-A']['inherited'] = False
+        self.api.records = []
+        self.detector.scan(self.state)
+        self.assertFalse(self.protected())  # 이미 알려진 봇 물량: 기존 동작
+        self.api.rows[0]['balance'] = '3'  # 장부 밖 수량 추가: 기존대로 보호
+        with self.assertRaises(ProtectionError):
+            self.detector.scan(self.state, 'KRW-A')
+        self.assertTrue(self.protected())
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -219,7 +219,7 @@ def ratchet(market, pos, price, p):
     pos.setdefault('stop0', pos['stop'])
     if not p.trail_enabled:
         return '손절' if price <= pos['stop'] else None
-    E, A = pos['entry'], pos['atr']
+    E, A = pos['entry'], (pos.get('atr_r') or pos['atr'])  # atr_r: 설계대로 15분 ATR로 정의한 R(live.r_from_15m), 없으면 기존 atr
     R = p.k * A
     peak = max(pos.get('peak', E), price)
     pos['peak'] = peak

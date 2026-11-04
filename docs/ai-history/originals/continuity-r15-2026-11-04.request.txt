@@ -1,0 +1,266 @@
+﻿당신은 업비트 자동거래 봇 V5의 동등한 검토자(ChatGPT)입니다. 도구 없음, 한국어, D-58에 따른 **짧은 단발 사전 검산**(수익률에 영향 주는 실거래 변경). 아래 변경만 보고 차단 사유가 있으면 항목으로, 없으면 '차단 사유 없음'. 12줄 이내, 마지막 줄 '판정: 동의|수정 후 동의|반대'.
+
+[변경 1: 계좌 인수 상태 연속성 복원, 설정 live.restore_continuity (기본 꺼짐)] 계좌 인수(16:26) 때 재진입 기억(last_sell)이 비어 LSK가 253에 판 뒤 270에 재매수됐고, 인수 보유 손절선이 원평단이 아닌 인수 시점 현재가로 재계산돼 BMT 손절이 평단 43.1의 -6.7%에서 실행됐다(당신의 진단). 구현: 시작 시 거래소 주문(HistoryClient.orders(None), 최근 7일)에서 봇(v5-) 체결만 평균단가 재생 → (a) 보유 중이 아닌 종목의 마지막 봇 매도를 last_sell로 복원(7일 이내·장부보다 새로울 때만, 원가를 모르면 profit=False=6시간 대기 쪽), (b) inherited이고 아직 손절 재계산 전이며 보호 종목이 아닌 보유가 비봇 체결·미체결 없이 재생 수량=장부 수량(0.1%)이면 bot_basis=평균단가로 표시하고 rebase_adopted_stops가 현재가 대신 bot_basis로 손절 상한(stop_max_pct)을 적용. 조회 실패·확인 부족이면 아무것도 바꾸지 않음. 사용자 보호 판정·주문 경로는 변경 없음.
+[변경 2: R 정의, 설정 live.r_from_15m (기본 꺼짐)] 새 진입의 R(=k×ATR)이 손절용 4시간 ATR이라 AXIS 기준 부분익절 2R이 +38%, 추적 시작이 +25% 부근이라 사실상 비활성(설계 D-35는 15분 ATR). atr_r(15분 ATR)을 진입 시 저장하고 ratchet·부분익절이 있으면 atr_r를 쓰고 없으면 기존 atr. 두 설정을 켠 효과를 같은 진입에 재생(탐색, 소진 자료 2개): 평균 순수익 차이 +0.007%p(구간 −0.016~+0.025, 180일)·+0.004%p(−0.012~+0.018, 2024-26), 진입의 1.8~6.3%만 달라짐 → 설계 복원이며 수익 개선 주장은 아님.
+[검사] V5 408개(신규 13개: 재생·복원·rebase·R) 통과. 배포는 정상 종료→동기화→설정 패치→재시작.
+[확인 요청] (1) bot_basis로 손절이 현재가 대신 평단에 걸려 인수 직후 이미 -4.5% 아래인 보유가 즉시 손절될 수 있는데 의도에 부합하나(원래 규칙 승계 vs 인수 후 새 손절) (2) last_sell 복원이 같은 주문안·보유와 충돌할 위험, 7일 창, created_at을 체결 시각으로 쓴 점 (3) atr_r 도입이 기존 포지션·추가 매수 경로에 미치는 영향 (4) 차단 사유 유무.
+
+[diff]diff --git a/v5/bot.py b/v5/bot.py
+index 3519470..934d7f4 100644
+--- a/v5/bot.py
++++ b/v5/bot.py
+@@ -509,6 +509,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
+                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
+             else:
+                 self.log(f'화면 강제 청산 서버를 열지 못함(포트 {srv.port} 사용 중): 청산 버튼 비활성')
++        if self.live.cfg['enabled']:
++            try: self.live.restore_continuity()
++            except Exception as ex: self.log(f'연속성 복원 오류(무시하고 계속): {type(ex).__name__}')
+         while not (STOP.exists() or STOP_ASCII.exists()):
+             guard = getattr(self, 'session_guard', None)
+             if guard and guard.lost.is_set():
+diff --git a/v5/live.py b/v5/live.py
+index e68d8c6..97b8da4 100644
+--- a/v5/live.py
++++ b/v5/live.py
+@@ -24,6 +24,7 @@ import strategy as st
+ import rotation_policy as rotation
+ import upbit
+ import asset_protection
++import continuity
+ import manual_protection
+ from paper import now_iso
+ from session_guard import SessionLost
+@@ -66,7 +67,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
+             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
+             'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
+             'protected_markets': [], 'auto_manual_protection': False,
+-            'protection_ui': False}  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
++            'protection_ui': False,  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
++            'restore_continuity': False,  # True면 시작 때 거래소 체결 이력에서 봇의 재진입 기록·평단 기반 손절 기준을 복원(계좌 인수 후 상실 방지)
++            'r_from_15m': False}  # True면 새 진입의 R(1R=k×ATR)을 설계대로 15분 ATR로 정의(False면 손절용 4시간 ATR)
+ 
+ 
+ def parse(text):
+@@ -400,9 +403,10 @@ class Live:
+                     px = df / dv
+                     new.update(entry=px, atr=pending['atr'], stop0=stop,
+                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
++                    if pending.get('atr_r'): new['atr_r'] = pending['atr_r']
+                 else:
+                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
+-                    for k in ('entry', 'atr', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased'):
++                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis'):
+                         if k in old: new[k] = old[k]
+                     new['trail'] = False
+                 if rotation.enabled(self.p) and old is None:
+@@ -500,6 +504,7 @@ class Live:
+         elif self.has_uncertain_orders():
+             raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
+         atr = None
++        atr_r = None
+         if side == 'bid':
+             if validate_entry:
+                 why = self.entry_chase_block(market, entry_context)
+@@ -507,6 +512,10 @@ class Live:
+             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
+             if atr is None or not math.isfinite(atr) or atr <= 0:
+                 raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
++            if self.cfg.get('r_from_15m'):
++                try: atr_r = st.wilder_atr(upbit.completed_candles(market, 15, 100))
++                except Exception: atr_r = None
++                if atr_r is None or not math.isfinite(atr_r) or atr_r <= 0: atr_r = None  # 자료가 없으면 기존 정의로 되돌아간다
+         checked=self.scan_manual_orders(market,risk,amount)
+         if checked is not None: amount=checked
+         if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
+@@ -517,7 +526,7 @@ class Live:
+             if why: raise ValueError(why)
+         self.assert_unprotected(market)  # ATR/quote requests may have taken time.
+         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
+-                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
++                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r}
+         risk_market = market if risk else None
+         if rotation.enabled(self.p):
+             meta = getattr(self, '_rotation_meta', None)
+@@ -837,6 +846,36 @@ class Live:
+             if why: return why
+         return ''
+ 
++    def restore_continuity(self, rows=None):
++        """시작할 때 한 번: 거래소 체결 이력에서 봇(v5-)의 마지막 매도(재진입 기록)와, 인수 보유의 원래 평단(손절 기준)을 복원한다.
++        이력 조회가 실패하거나 확인이 부족하면 아무것도 바꾸지 않는다. 사용자 보호·주문 경로는 건드리지 않는다."""
++        if not (self.cfg.get('restore_continuity') and self.cfg.get('enabled')): return {}
++        if rows is None:
++            try: rows = manual_protection.HistoryClient().orders(None)
++            except Exception as ex:
++                self.record({'event': '연속성 복원 보류', 'reason': type(ex).__name__ + ': ' + str(ex)[:120]})
++                return {}
++        replay = continuity.replay_bot_orders(rows)
++        now = time.time()
++        done = {'last_sell': [], 'bot_basis': []}
++        last = self.d.setdefault('last_sell', {})
++        for m, info in replay.items():
++            if self.d['positions'].get(m): continue  # 보유 중인 종목은 아직 청산 기록이 없다
++            rec = continuity.restorable_last_sell(info, last.get(m), now)
++            if rec:
++                last[m] = rec
++                done['last_sell'].append(m)
++        for m, pos in self.d['positions'].items():
++            if pos.get('inherited') and not pos.get('stop_rebased') and not pos.get('bot_basis') and not self.is_protected(m):
++                basis = continuity.bot_basis(replay.get(m), pos.get('qty'))
++                if basis:
++                    pos['bot_basis'] = basis
++                    done['bot_basis'].append(m)
++        if done['last_sell'] or done['bot_basis']:
++            self.record({'event': '연속성 복원', 'last_sell': done['last_sell'], 'bot_basis': done['bot_basis']})
++            self.save()
++        return done
++
+     def rebase_adopted_stops(self, prices):
+         """인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음).
+         실시간 보호 기준인 stop0에도 같은 상한을 한 번 적용한다(stop0_rebased)."""
+@@ -846,6 +885,9 @@ class Live:
+             px = prices.get(m)
+             if self.is_protected(m): continue
+             if type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
++            # 거래소 이력으로 봇이 산 물량임이 입증된 보유(bot_basis)는 인수 시점 현재가가 아니라 원래 평단 기준으로 상한을 적용한다.
++            basis = pos.get('bot_basis')
++            if type(basis) in (int, float) and math.isfinite(basis) and basis > 0: px = basis
+             if not pos.get('stop_rebased'):
+                 new = st.cap_stop(px, pos['stop'], self.p)
+                 pos['stop_rebased'] = True
+@@ -959,8 +1001,8 @@ class Live:
+             changed = True
+             why = st.ratchet(m, pos, bar['c'], p_pos)
+             if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
+-            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and pos['atr'] > 0:
+-                if (bar['c'] - pos['entry']) / (p_pos.k * pos['atr']) >= float(self.cfg.get('partial_r', 2.0)):
++            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and (pos.get('atr_r') or pos['atr']) > 0:
++                if (bar['c'] - pos['entry']) / (p_pos.k * (pos.get('atr_r') or pos['atr'])) >= float(self.cfg.get('partial_r', 2.0)):
+                     parts.append((m, pos, bar['c']))
+         if changed: self.save()
+         if not exits and not parts: return
+diff --git a/v5/strategy.py b/v5/strategy.py
+index 5d94c74..5938355 100644
+--- a/v5/strategy.py
++++ b/v5/strategy.py
+@@ -219,7 +219,7 @@ def ratchet(market, pos, price, p):
+     pos.setdefault('stop0', pos['stop'])
+     if not p.trail_enabled:
+         return '손절' if price <= pos['stop'] else None
+-    E, A = pos['entry'], pos['atr']
++    E, A = pos['entry'], (pos.get('atr_r') or pos['atr'])  # atr_r: 설계대로 15분 ATR로 정의한 R(live.r_from_15m), 없으면 기존 atr
+     R = p.k * A
+     peak = max(pos.get('peak', E), price)
+     pos['peak'] = peak
+
+[continuity.py 전문]"""PC를 옮겨 계좌를 새로 인수해도 봇 자신의 거래 기억(재진입 기록·평단 기반 손절 기준)을 거래소 체결 이력에서 복원한다.
+
+사용자·거래소가 기록한 사실만 쓴다: 봇 주문은 식별자가 `v5-`로 시작한다. 확인이 부족하면 아무것도 복원하지 않는다(보수적).
+순수 함수라 시험할 수 있다. 호출은 live.Live.restore_continuity().
+"""
+import datetime as dt
+import math
+
+BOT_PREFIX = 'v5-'
+EPS = 1e-8
+MAX_AGE_SECONDS = 7 * 86400  # 거래소 종료 주문 조회 기본 범위(7일)와 맞춘다
+
+
+def _epoch(iso):
+    return dt.datetime.fromisoformat(str(iso)).timestamp()
+
+
+def _num(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def replay_bot_orders(rows):
+    """거래소 주문 목록(rows)을 시간순으로 재생한다.
+
+    반환 {market: {'qty','cost','last_sell','mixed','open','known_basis'}}
+    - qty·cost: 봇 체결만으로 만든 평균단가 재생(매수는 체결금액+수수료, 매도는 평균단가 비례 차감)
+    - last_sell: {'time','price','profit'} 마지막 봇 매도. 매도 원가를 알 수 없으면 profit=False(수익 청산으로 추정하지 않음)
+    - mixed: 같은 종목에 봇이 아닌 체결이 하나라도 있음 / open: 미체결 주문이 있음 / known_basis: 모든 매도 원가가 재생으로 확인됨
+    """
+    out = {}
+    executed = []
+    for row in rows or []:
+        market = str(row.get('market', ''))
+        if not market:
+            continue
+        info = out.setdefault(market, {'qty': 0.0, 'cost': 0.0, 'last_sell': None, 'mixed': False, 'open': False, 'known_basis': True})
+        if str(row.get('state')) in ('wait', 'watch'):
+            info['open'] = True
+            continue
+        vol = _num(row.get('executed_volume'))
+        if not vol or vol <= 0:
+            continue
+        executed.append(row)
+    for row in sorted(executed, key=lambda r: str(r.get('created_at', ''))):
+        market = str(row['market'])
+        info = out[market]
+        vol = _num(row.get('executed_volume'))
+        funds = _num(row.get('executed_funds'))
+        fee = _num(row.get('paid_fee')) or 0.0
+        side = row.get('side')
+        bot = str(row.get('identifier') or '').startswith(BOT_PREFIX)
+        if not bot:
+            info['mixed'] = True
+            continue
+        if funds is None or funds <= 0 or side not in ('bid', 'ask'):
+            info['known_basis'] = False
+            continue
+        try:
+            when = _epoch(row['created_at'])
+        except (KeyError, ValueError):
+            info['known_basis'] = False
+            continue
+        if side == 'bid':
+            info['qty'] += vol
+            info['cost'] += funds + fee
+        else:
+            known = info['qty'] > EPS and vol <= info['qty'] * (1 + 1e-6) + EPS
+            if known:
+                basis = info['cost'] * min(1.0, vol / info['qty'])
+                profit = (funds - fee - basis) > 0
+                info['cost'] -= basis
+                info['qty'] = max(0.0, info['qty'] - vol)
+            else:
+                profit = False
+                info['known_basis'] = False
+                info['qty'] = max(0.0, info['qty'] - vol)
+            info['last_sell'] = {'time': when, 'price': funds / vol, 'profit': bool(profit)}
+    return out
+
+
+def restorable_last_sell(replay_entry, existing, now):
+    """장부에 넣을 last_sell(없으면 None): 7일 안이고 장부 기록보다 새로운 봇 매도."""
+    if not replay_entry:
+        return None
+    s = replay_entry.get('last_sell')
+    if not s or now - s['time'] > MAX_AGE_SECONDS or s['time'] > now + 60:
+        return None
+    if existing and existing.get('time', 0) >= s['time']:
+        return None
+    return {'time': s['time'], 'price': s['price'], 'profit': s['profit'], 'reason': '거래소 체결 복원'}
+
+
+def bot_basis(replay_entry, ledger_qty):
+    """인수받은 보유가 전부 봇이 산 물량임이 이력으로 입증되면 평균 매수가, 아니면 None.
+
+    조건: 비봇 체결 없음, 미체결 없음, 모든 매도 원가 확인, 재생 수량이 장부 수량과 0.1% 이내로 같음."""
+    if not replay_entry or replay_entry['mixed'] or replay_entry['open'] or not replay_entry['known_basis']:
+        return None
+    q, c = replay_entry['qty'], replay_entry['cost']
+    lq = _num(ledger_qty)
+    if not lq or lq <= 0 or q <= EPS or c <= 0:
+        return None
+    if abs(q - lq) > max(EPS * 10, lq * 0.001):
+        return None
+    return c / q
+

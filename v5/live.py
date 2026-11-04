@@ -24,6 +24,7 @@ import strategy as st
 import rotation_policy as rotation
 import upbit
 import asset_protection
+import continuity
 import manual_protection
 from paper import now_iso
 from session_guard import SessionLost
@@ -66,7 +67,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
             'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
             'protected_markets': [], 'auto_manual_protection': False,
-            'protection_ui': False}  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
+            'protection_ui': False,  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
+            'restore_continuity': False,  # True면 시작 때 거래소 체결 이력에서 봇의 재진입 기록·평단 기반 손절 기준을 복원(계좌 인수 후 상실 방지)
+            'r_from_15m': False}  # True면 새 진입의 R(1R=k×ATR)을 설계대로 15분 ATR로 정의(False면 손절용 4시간 ATR)
 
 
 def parse(text):
@@ -400,9 +403,10 @@ class Live:
                     px = df / dv
                     new.update(entry=px, atr=pending['atr'], stop0=stop,
                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
+                    if pending.get('atr_r'): new['atr_r'] = pending['atr_r']
                 else:
                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
-                    for k in ('entry', 'atr', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased'):
+                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis'):
                         if k in old: new[k] = old[k]
                     new['trail'] = False
                 if rotation.enabled(self.p) and old is None:
@@ -500,6 +504,7 @@ class Live:
         elif self.has_uncertain_orders():
             raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
         atr = None
+        atr_r = None
         if side == 'bid':
             if validate_entry:
                 why = self.entry_chase_block(market, entry_context)
@@ -507,6 +512,10 @@ class Live:
             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
             if atr is None or not math.isfinite(atr) or atr <= 0:
                 raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+            if self.cfg.get('r_from_15m'):
+                try: atr_r = st.wilder_atr(upbit.completed_candles(market, 15, 100))
+                except Exception: atr_r = None
+                if atr_r is None or not math.isfinite(atr_r) or atr_r <= 0: atr_r = None  # 자료가 없으면 기존 정의로 되돌아간다
         checked=self.scan_manual_orders(market,risk,amount)
         if checked is not None: amount=checked
         if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
@@ -517,7 +526,7 @@ class Live:
             if why: raise ValueError(why)
         self.assert_unprotected(market)  # ATR/quote requests may have taken time.
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
-                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
+                   'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r}
         risk_market = market if risk else None
         if rotation.enabled(self.p):
             meta = getattr(self, '_rotation_meta', None)
@@ -837,6 +846,38 @@ class Live:
             if why: return why
         return ''
 
+    def restore_continuity(self, rows=None):
+        """시작할 때 한 번: 거래소 체결 이력에서 봇(v5-)의 마지막 매도(재진입 기록)와, 인수 보유의 원래 평단(손절 기준)을 복원한다.
+        이력 조회가 실패하거나 확인이 부족하면 아무것도 바꾸지 않는다. 사용자 보호·주문 경로는 건드리지 않는다."""
+        if not (self.cfg.get('restore_continuity') and self.cfg.get('enabled')): return {}
+        if rows is None:
+            try: rows = manual_protection.HistoryClient().orders(None)
+            except Exception as ex:
+                self.record({'event': '연속성 복원 보류', 'reason': type(ex).__name__ + ': ' + str(ex)[:120]})
+                return {}
+        replay = continuity.replay_bot_orders(rows)
+        now = time.time()
+        done = {'last_sell': [], 'bot_basis': []}
+        last = self.d.setdefault('last_sell', {})
+        pending = self.d.get('pending_order') or {}
+        for m, info in replay.items():
+            if self.d['positions'].get(m): continue  # 보유 중인 종목은 아직 청산 기록이 없다
+            if pending.get('market') == m or self.market_has_uncertain_order(m): continue  # 진행·미확정 주문이 있는 종목은 건드리지 않는다
+            rec = continuity.restorable_last_sell(info, last.get(m), now)
+            if rec:
+                last[m] = rec
+                done['last_sell'].append(m)
+        for m, pos in self.d['positions'].items():
+            if pos.get('inherited') and not pos.get('stop_rebased') and not pos.get('bot_basis') and not self.is_protected(m):
+                basis = continuity.bot_basis(replay.get(m), pos.get('qty'))
+                if basis:
+                    pos['bot_basis'] = basis
+                    done['bot_basis'].append(m)
+        if done['last_sell'] or done['bot_basis']:
+            self.record({'event': '연속성 복원', 'last_sell': done['last_sell'], 'bot_basis': done['bot_basis']})
+            self.save()
+        return done
+
     def rebase_adopted_stops(self, prices):
         """인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음).
         실시간 보호 기준인 stop0에도 같은 상한을 한 번 적용한다(stop0_rebased)."""
@@ -846,6 +887,9 @@ class Live:
             px = prices.get(m)
             if self.is_protected(m): continue
             if type(px) not in (int, float) or not math.isfinite(px) or px <= 0: continue
+            # 거래소 이력으로 봇이 산 물량임이 입증된 보유(bot_basis)는 인수 시점 현재가가 아니라 원래 평단 기준으로 상한을 적용한다.
+            basis = pos.get('bot_basis')
+            if type(basis) in (int, float) and math.isfinite(basis) and basis > 0: px = basis
             if not pos.get('stop_rebased'):
                 new = st.cap_stop(px, pos['stop'], self.p)
                 pos['stop_rebased'] = True
@@ -959,8 +1003,8 @@ class Live:
             changed = True
             why = st.ratchet(m, pos, bar['c'], p_pos)
             if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
-            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and pos['atr'] > 0:
-                if (bar['c'] - pos['entry']) / (p_pos.k * pos['atr']) >= float(self.cfg.get('partial_r', 2.0)):
+            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and (pos.get('atr_r') or pos['atr']) > 0:
+                if (bar['c'] - pos['entry']) / (p_pos.k * (pos.get('atr_r') or pos['atr'])) >= float(self.cfg.get('partial_r', 2.0)):
                     parts.append((m, pos, bar['c']))
         if changed: self.save()
         if not exits and not parts: return

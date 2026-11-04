@@ -509,6 +509,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
             else:
                 self.log(f'화면 강제 청산 서버를 열지 못함(포트 {srv.port} 사용 중): 청산 버튼 비활성')
+        if self.live.cfg['enabled']:
+            try: self.live.restore_continuity()
+            except Exception as ex: self.log(f'연속성 복원 오류(무시하고 계속): {type(ex).__name__}')
         while not (STOP.exists() or STOP_ASCII.exists()):
             guard = getattr(self, 'session_guard', None)
             if guard and guard.lost.is_set():

@@ -1,0 +1,91 @@
+"""Start the existing GET-only PnL worker with credentials; never place orders."""
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def worker_environment(app, env=None):
+    result=dict(os.environ if env is None else env)
+    if not all(result.get(k) for k in ('UPBIT_ACCESS_KEY','UPBIT_SECRET_KEY')):
+        import upbit
+        workspace_env=Path(app).resolve().parent.parent/'.env'
+        if workspace_env not in upbit.ENV_FILES:
+            upbit.ENV_FILES.append(workspace_env)
+        access,secret=upbit._keys()
+        if not access or not secret:
+            raise RuntimeError('손익 집계용 업비트 인증정보가 없습니다.')
+        result.update(UPBIT_ACCESS_KEY=access,UPBIT_SECRET_KEY=secret)
+    result['PYTHONIOENCODING']='utf-8'
+    return result
+
+
+def pnl_pids(rows, app):
+    """Inspect Python only; never count the PowerShell query itself as a worker."""
+    target=str((Path(app)/'pnl.py').resolve()).replace('/','\\').casefold()
+    found=[]
+    for row in rows:
+        if not re.fullmatch(r'pythonw?\.exe',row.get('Name',''),re.I):continue
+        command=row.get('CommandLine') or ''
+        if not re.search(r'--loop(?:\s|=)',command):continue
+        if not re.search(r'(?:^|[\\/\s"])pnl\.py(?:["\s]|$)',command):continue
+        normalized=command.replace('/','\\').casefold()
+        # Legacy launchers used relative pnl.py. Avoid creating a duplicate if
+        # their working directory cannot be established from Win32_Process.
+        if target in normalized or not re.search(r'[a-z]:[\\/][^"\r\n]*pnl\.py',command,re.I):
+            found.append(int(row['ProcessId']))
+    return found
+
+
+def running_pids(app):
+    query=("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
+           "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^pythonw?\\.exe$' } "
+           "| Select-Object Name,ProcessId,CommandLine) | ConvertTo-Json -Compress")
+    result=subprocess.run(['powershell','-NoProfile','-NonInteractive','-Command',query],
+        capture_output=True,check=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+    rows=json.loads(result.stdout.decode('utf-8-sig') or '[]')
+    if isinstance(rows,dict):rows=[rows]
+    return pnl_pids(rows,app)
+
+
+@contextmanager
+def startup_lock(app):
+    folder=Path(app)/'data/pnl';folder.mkdir(parents=True,exist_ok=True)
+    with (folder/'startup.lock').open('a+b') as handle:
+        if handle.seek(0,2)==0:handle.write(b'0');handle.flush()
+        handle.seek(0)
+        if os.name=='nt':
+            import msvcrt
+            msvcrt.locking(handle.fileno(),msvcrt.LK_LOCK,1)
+        else:
+            import fcntl
+            fcntl.flock(handle,fcntl.LOCK_EX)
+        try:yield
+        finally:
+            handle.seek(0)
+            if os.name=='nt':msvcrt.locking(handle.fileno(),msvcrt.LK_UNLCK,1)
+            else:fcntl.flock(handle,fcntl.LOCK_UN)
+
+
+def ensure_running(app, env=None, python=None):
+    app=Path(app).resolve()
+    if not (app/'pnl.py').is_file():raise FileNotFoundError(app/'pnl.py')
+    with startup_lock(app):
+        existing=running_pids(app)
+        if existing:return {'started':False,'pids':existing}
+        child_env=worker_environment(app,env)
+        executable=Path(python or sys.executable)
+        windowless=executable.with_name('pythonw.exe')
+        if windowless.exists():executable=windowless
+        with (app/'data/pnl.stdout.log').open('ab') as out,(app/'data/pnl.stderr.log').open('ab') as err:
+            child=subprocess.Popen([str(executable),str(app/'pnl.py'),'--loop','300'],
+                cwd=app,env=child_env,stdin=subprocess.DEVNULL,stdout=out,stderr=err,close_fds=True,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)|getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0))
+        return {'started':True,'pids':[child.pid]}
+
+
+if __name__=='__main__':
+    print(json.dumps(ensure_running(Path(__file__).resolve().parent)))

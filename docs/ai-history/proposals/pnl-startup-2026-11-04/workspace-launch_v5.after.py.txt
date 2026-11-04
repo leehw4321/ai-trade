@@ -1,0 +1,89 @@
+"""Launch the GitHub V5 checkout and open its local dashboard."""
+from pathlib import Path
+import ctypes
+import os
+import subprocess
+import sys
+import time
+import webbrowser
+
+ROOT = Path(__file__).resolve().parent
+APP = ROOT / 'v5-app' / 'v5'
+DATA = APP / 'data'
+
+
+def running(name):
+    lock = APP / name
+    if not lock.exists():
+        return False
+    pid = lock.read_text().strip()
+    if not pid.isdigit():
+        return False
+    result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                            capture_output=True, text=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW)
+    return f'"{pid}"' in result.stdout
+
+
+def main():
+    if '--stop' in sys.argv:
+        for name in ('stop.txt', 'stop_shadow.txt', 'account_sync_stop.txt'):
+            (APP / name).write_text('desktop stop request\n', encoding='utf-8')
+        return
+    DATA.mkdir(exist_ok=True)
+    sys.path.insert(0, str(APP))
+    import upbit
+    from open_page import open_page  # 크롬 우선(없으면 기본 브라우저), V5_NO_BROWSER=1이면 열지 않음
+    upbit.ENV_FILES.append(ROOT / '.env')
+    access, secret = upbit._keys()
+    if not access or not secret:
+        raise RuntimeError('V5 계좌 조회용 업비트 키가 없습니다. 기존 프로젝트 .env를 확인하세요.')
+    env = os.environ.copy()
+    env.update(UPBIT_ACCESS_KEY=access, UPBIT_SECRET_KEY=secret,
+               AI_DEBATE_DIR=str(ROOT / 'v5-app' / 'debate_tools'),
+               PYTHONIOENCODING='utf-8')
+    python = Path(sys.executable).with_name('python.exe')
+
+    def start(script, log):
+        with (DATA / (log + '.stdout.log')).open('ab') as out, (DATA / (log + '.stderr.log')).open('ab') as err:
+            return subprocess.Popen([str(python), str(APP / script)], cwd=APP, env=env,
+                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                    creationflags=subprocess.CREATE_NO_WINDOW)
+
+    if (APP / 'account_sync_stop.txt').exists():
+        (APP / 'account_sync_stop.txt').unlink()
+    process = None
+    launched = time.time()
+    if not running('bot.lock'):
+        process = start('bot.py', 'bot')
+    status = DATA / 'status.html'
+    deadline = time.monotonic() + 300
+    while not status.exists() or (process is not None and status.stat().st_mtime < launched):
+        if process is not None and process.poll() is not None:
+            raise RuntimeError('V5 봇이 종료됐습니다. v5-app/v5/data/bot.stderr.log 및 실행 안내 창을 확인하세요.')
+        if time.monotonic() > deadline:
+            account = DATA / 'account_live.html'
+            if account.exists():
+                open_page(account)
+            raise RuntimeError('V5 전체 화면 생성 대기 시간이 지났습니다. 실행권 양도 창과 계좌 연결 상태를 확인하세요.')
+        time.sleep(.5)
+    if not running('shadow.lock'):
+        (APP / 'stop_shadow.txt').unlink(missing_ok=True)
+        start('shadow.py', 'shadow')
+    try:
+        from pnl_service import ensure_running
+        ensure_running(APP, env=env, python=python)
+    except Exception as error:
+        # Accounting must not prevent the independent risk-management bot from running.
+        with (DATA / 'pnl-start-error.log').open('a', encoding='utf-8') as log:
+            log.write(f'{type(error).__name__}: {error}\n')
+    open_page(status)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as ex:
+        if '--console' in sys.argv:
+            raise
+        ctypes.windll.user32.MessageBoxW(None, str(ex), '코인봇 V5 실행 확인', 0x10)

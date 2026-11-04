@@ -32,11 +32,16 @@ def main():
     for args, lock in ((['bot.py'], 'bot.lock'), (['shadow.py'], 'shadow.lock'), (['exit_study.py'], 'exit_study.lock')):
         if (APP / args[0]).exists() and not alive(lock):
             subprocess.Popen([str(PYW)] + args, cwd=APP, creationflags=flags, close_fds=True)
-    running = subprocess.run(['powershell', '-NoProfile', '-Command',
-                              "@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*pnl.py --loop*' }).Count"],
-                             capture_output=True, text=True).stdout.strip()
-    if running in ('', '0') and (APP / 'pnl.py').exists():
-        subprocess.Popen([str(PYW), 'pnl.py', '--loop', '300'], cwd=APP, creationflags=flags, close_fds=True)
+    # PnL is a separate GET-only worker, with the same workspace credentials.
+    # Count Python processes only; the old PowerShell query counted itself.
+    sys.path.insert(0, str(APP))
+    try:
+        from pnl_service import ensure_running
+        ensure_running(APP, python=PYW)
+    except Exception as error:
+        (APP / 'data').mkdir(exist_ok=True)
+        with (APP / 'data' / 'pnl-start-error.log').open('a', encoding='utf-8') as log:
+            log.write(f'{type(error).__name__}: {error}\n')
     for _ in range(180):
         if alive('bot.lock') and status.exists() and status.stat().st_mtime > before:
             return 0

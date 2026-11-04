@@ -1,0 +1,17 @@
+[
+  {
+    "path": "v5/pnl_service.py",
+    "before_sha256": null,
+    "candidate_sha256": "57953f01c933f3765dc2bce13dc381d41898a6bd42a96cf00c46a27e11e49a1b"
+  },
+  {
+    "path": "v5/test_pnl_service.py",
+    "before_sha256": null,
+    "candidate_sha256": "9f688074b5c2bda3b587219295fe91f0c4725966ee35fd459a9493baa277e94b"
+  },
+  {
+    "path": "tools/launch_v5.py",
+    "before_sha256": "fd65172ab8863c7e39f7b3a396c3994bf1c1d4d51b464df32493d53dae0602e6",
+    "candidate_sha256": "2cc1ce526175e65e137f32842309a7e1fca07197246084f7b50b1181625b95c4"
+  }
+]

@@ -1,0 +1,58 @@
+"""Regression checks for missed authentication and self-counted worker queries."""
+from contextlib import nullcontext
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import pnl_service as service
+import upbit
+
+
+class PnlServiceTests(unittest.TestCase):
+    def test_powershell_query_is_not_a_worker(self):
+        root=Path(tempfile.gettempdir())/'pnl-test-app'
+        rows=[{'Name':'powershell.exe','ProcessId':1,'CommandLine':"query '*pnl.py --loop*'"},
+              {'Name':'python.exe','ProcessId':2,'CommandLine':f'python "{root / "pnl.py"}" --loop 300'}]
+        self.assertEqual(service.pnl_pids(rows,root),[2])
+
+    def test_another_absolute_checkout_is_not_this_worker(self):
+        root=Path(tempfile.gettempdir())/'pnl-test-app'
+        other=root.parent/'different-app/pnl.py'
+        rows=[{'Name':'pythonw.exe','ProcessId':9,'CommandLine':f'pythonw "{other}" --loop 300'}]
+        self.assertEqual(service.pnl_pids(rows,root),[])
+
+    def test_workspace_credentials_reach_only_child_environment(self):
+        original=list(upbit.ENV_FILES)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                app=Path(tmp)/'v5-app/v5';app.mkdir(parents=True)
+                (Path(tmp)/'.env').write_text('UPBIT_ACCESS_KEY=test-access\nUPBIT_SECRET_KEY=test-secret\n',encoding='utf-8')
+                with patch.dict(os.environ,{},clear=True),patch.object(upbit,'ENV_FILES',[]):
+                    env=service.worker_environment(app,{})
+                    self.assertEqual(env['UPBIT_ACCESS_KEY'],'test-access')
+                    self.assertEqual(env['UPBIT_SECRET_KEY'],'test-secret')
+                    self.assertNotIn('UPBIT_ACCESS_KEY',os.environ)
+        finally:upbit.ENV_FILES[:]=original
+
+    def test_existing_worker_does_not_start_or_read_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app=Path(tmp);(app/'pnl.py').write_text('# fixture\n')
+            with patch.object(service,'startup_lock',return_value=nullcontext()),patch.object(service,'running_pids',return_value=[123]),patch.object(service,'worker_environment',side_effect=AssertionError('no new keys needed')),patch.object(service.subprocess,'Popen') as start:
+                self.assertEqual(service.ensure_running(app),{'started':False,'pids':[123]})
+                start.assert_not_called()
+
+    def test_start_uses_absolute_script_and_retains_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app=Path(tmp);(app/'pnl.py').write_text('# fixture\n');(app/'data').mkdir()
+            baseline=app/'pnl_baseline.json';baseline.write_text('existing baseline')
+            with patch.object(service,'startup_lock',return_value=nullcontext()),patch.object(service,'running_pids',return_value=[]),patch.object(service,'worker_environment',return_value={'fixture':'value'}),patch.object(service.subprocess,'Popen') as start:
+                start.return_value.pid=456
+                result=service.ensure_running(app)
+                self.assertTrue(result['started'])
+                self.assertEqual(start.call_args.args[0][1:], [str(app.resolve()/'pnl.py'),'--loop','300'])
+                self.assertEqual(baseline.read_text(),'existing baseline')
+
+
+if __name__=='__main__':unittest.main()

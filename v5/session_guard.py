@@ -16,28 +16,89 @@ class SessionLost(RuntimeError):
     pass
 
 
+class SessionUnverified(SessionLost):
+    """GitHub could not be reached, so ownership could not be checked. Not proof that ownership changed."""
+
+
+READ_RETRY_DELAYS = (1, 3)  # quick network errors on read-only calls are retried before giving up
+LEASE_MARGIN = 20  # stop trusting our own lease this many seconds before it expires
+CHECK_SECONDS = 30  # background ownership check; every order is still checked right before it is sent
+
+
 class GitStore:
-    def __init__(self, folder, remote=DEFAULT_REMOTE):
+    sleep = staticmethod(time.sleep)
+
+    def __init__(self, folder, remote=DEFAULT_REMOTE, sleep=None):
         self.folder = Path(folder)
         self.remote = remote
+        if sleep:
+            self.sleep = sleep
         self.folder.mkdir(parents=True, exist_ok=True)
         if not (self.folder / 'HEAD').exists():
             self.git('init', '--bare', str(self.folder), outside=True)
 
+    def diagnostic(self, operation, category, duration, returncode=None):
+        """Fixed metadata only: never persist command arguments, URLs, stderr or state."""
+        verbs = {'init', 'ls-remote', 'fetch', 'rev-parse', 'show', 'hash-object', 'mktree', 'commit-tree', 'push'}
+        record = {'epoch': time.time(), 'operation': operation if operation in verbs else 'other',
+                  'category': category, 'duration_ms': max(0, round(duration * 1000)),
+                  'returncode': returncode}
+        try:
+            with (self.folder.parent / 'session_diagnostics.jsonl').open('a', encoding='utf-8') as f:
+                f.write(json.dumps(record) + '\n')
+        except Exception:
+            pass  # Diagnostic storage failure never changes execution ownership rules.
+
+    @staticmethod
+    def failure_category(stderr):
+        text = stderr.lower()
+        if any(s in text for s in ('authentication failed', 'could not read username', 'permission denied',
+                                   'repository not found', 'error: 403', 'error: 401')):
+            return 'authentication_or_permission'
+        if any(s in text for s in ('stale info', 'fetch first', 'non-fast-forward', 'cannot lock ref')):
+            return 'reference_conflict'
+        if any(s in text for s in ('could not resolve', 'failed to connect', 'connection timed out',
+                                   'connection reset', 'unable to access', 'ssl certificate',
+                                   'rpc failed', 'hung up', 'schannel', 'openssl', 'gnutls', 'early eof',
+                                   'timed out', 'returned error: 5', 'http 5')):
+            return 'network_or_tls'
+        return 'git_failure'
+
     def git(self, *args, input=None, outside=False, check=True):
         env = os.environ.copy()
         env.update(GIT_TERMINAL_PROMPT='0', GCM_INTERACTIVE='Never',
+                   LC_ALL='C', LANGUAGE='C',
                    GIT_AUTHOR_NAME='Bot Session', GIT_AUTHOR_EMAIL='bot@localhost',
                    GIT_COMMITTER_NAME='Bot Session', GIT_COMMITTER_EMAIL='bot@localhost')
         cmd = ['git'] + ([] if outside else ['--git-dir', str(self.folder)]) + list(args)
-        result = subprocess.run(cmd, input=input.encode('utf-8') if input is not None else None,
-                                capture_output=True, env=env, timeout=25,
-                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        result.stdout = result.stdout.decode('utf-8', errors='replace')
-        result.stderr = result.stderr.decode('utf-8', errors='replace')
-        if check and result.returncode:
-            raise SessionLost('GitHub 연결/인증 실패. 중복 실행 방지를 위해 주문을 중단합니다.')
-        return result
+        operation = args[0] if args else 'other'
+        delays = iter(READ_RETRY_DELAYS if operation in ('ls-remote', 'fetch') else ())
+        while True:
+            started = time.monotonic()
+            try:
+                result = subprocess.run(cmd, input=input.encode('utf-8') if input is not None else None,
+                                        capture_output=True, env=env, timeout=25,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            except subprocess.TimeoutExpired as ex:
+                self.diagnostic(operation, 'timeout', time.monotonic() - started)
+                raise SessionUnverified('GitHub 실행권 조회 시간 초과(timeout). 주문을 중단합니다.') from None
+            except OSError as ex:
+                self.diagnostic(operation, 'git_process_unavailable', time.monotonic() - started)
+                raise SessionLost('Git 실행 불가(git_process_unavailable). 주문을 중단합니다.') from None
+            result.stdout = result.stdout.decode('utf-8', errors='replace')
+            result.stderr = result.stderr.decode('utf-8', errors='replace')
+            if not result.returncode:
+                return result
+            category = self.failure_category(result.stderr)
+            self.diagnostic(operation, category, time.monotonic() - started, result.returncode)
+            delay = next(delays, None) if category == 'network_or_tls' else None
+            if delay is not None:
+                self.sleep(delay)
+                continue
+            if check:
+                error = SessionUnverified if category == 'network_or_tls' else SessionLost
+                raise error(f'GitHub 실행권 확인 실패({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
+            return result
 
     def read(self):
         found = self.git('ls-remote', self.remote, REF).stdout.strip()
@@ -56,8 +117,13 @@ class GitStore:
         result = self.git('push', '--quiet', f'--force-with-lease={REF}:{expected}',
                           self.remote, f'{commit}:{REF}', check=False)
         if result.returncode:
-            # A competing claimant may win. Never overwrite it blindly.
-            return False
+            category = self.failure_category(result.stderr)
+            if category == 'reference_conflict':
+                # Someone else moved the ref: a competing claimant may have won. Never overwrite it blindly.
+                return False
+            # Anything else (network, timeout, unrecognised server error) says nothing about who owns the lease.
+            # The caller re-reads the ref, which is what actually decides ownership.
+            raise SessionUnverified(f'GitHub 실행권 갱신 확인 불가({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
         return True
 
 
@@ -100,12 +166,22 @@ class SessionGuard:
         self.acquired = False
         self.thread = None
         self.required_checkpoint = ''
+        self.lease_until = 0  # expiry of the last lease we wrote ourselves; ownership is trusted only until then
+
+    def lease_valid(self):
+        return self.clock() < self.lease_until - LEASE_MARGIN
 
     def checkpoint_hash(self):
         file = self.root / 'data' / 'live' / 'live.json'
         if not file.exists(): return ''
         state = json.loads(file.read_text(encoding='utf-8'))
         return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    def assert_transition_clear(self):
+        for relative in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
+                         'data/reconciliation/APPLYING'):
+            if (self.root / relative).exists():
+                raise SessionLost('인계·장부 대사 적용 중이거나 복구 확인이 필요합니다. 주문을 시작하지 않습니다.')
 
     def record(self, **values):
         state = {'owner': self.token, 'updated': self.clock(), 'expires': self.clock() + 180,
@@ -114,6 +190,7 @@ class SessionGuard:
         return state
 
     def acquire(self, confirm=confirm_takeover, wait_seconds=240):
+        self.assert_transition_clear()
         oid, state = self.store.read()
         if state.get('owner') and not confirm():
             return False
@@ -150,16 +227,33 @@ class SessionGuard:
                      and adoption.get('scope') == 'all_current_holdings'
                      and adoption.get('no_open_orders') is True
                      and 0 <= self.clock() - adoption.get('epoch', 0) <= 600)
+            if not valid and self.cfg.get('account_reconciliation_id'):
+                # Explicit exchange reconciliation is a separate, preserved-basis
+                # recovery bridge. It never fabricates the previous PC's checkpoint.
+                try:
+                    import reconciliation_guard
+                    full_cfg = json.loads((self.root / 'config.json').read_text(encoding='utf-8-sig'))
+                    pins = ('account_reconciliation_id', 'account_reconciliation_source_checkpoint',
+                            'account_reconciliation_source_epoch')
+                    same_pins = all(full_cfg.get('session', {}).get(k) == self.cfg.get(k) for k in pins)
+                    valid = same_pins and reconciliation_guard.validate(self.root, full_cfg, state, self.clock())
+                except (OSError, ValueError, TypeError, ImportError):
+                    valid = False
             if not valid:
                 raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮기거나 명시적으로 위임된 계좌 인수 절차가 필요합니다.')
             self.required_checkpoint = ''
-        if not self.store.cas(oid, self.record()):
+        self.assert_transition_clear()
+        claim = self.record()
+        if not self.store.cas(oid, claim):
             raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
+        self.lease_until = claim['expires']
         self.acquired = True
+        self.assert_transition_clear()
         return True
 
     def assert_owner(self):
         with self.mutex:
+            self.assert_transition_clear()
             if not self.acquired or self.lost.is_set():
                 raise SessionLost(self.reason or '이 PC에 주문 실행 권한이 없습니다.')
             try:
@@ -167,6 +261,12 @@ class SessionGuard:
                 if (state.get('owner') != self.token or state.get('request')
                         or self.clock() >= state.get('expires', 0)):
                     raise SessionLost('다른 PC로 연결이 변경되어 이 PC의 주문을 중단합니다.')
+            except SessionUnverified as ex:
+                # Only "could not reach GitHub". Orders are blocked now (nothing can be verified), but we keep
+                # our lease alive until it would expire anyway; no other PC may take over before then.
+                if not self.lease_valid():
+                    self.reason = str(ex); self.lost.set()
+                raise SessionUnverified(str(ex)) from ex
             except Exception as ex:
                 self.reason = str(ex); self.lost.set()
                 raise SessionLost(self.reason) from ex
@@ -174,7 +274,7 @@ class SessionGuard:
     def start(self):
         def watch():
             last_renew = self.clock()
-            while not self.closed.wait(10):
+            while not self.closed.wait(CHECK_SECONDS):
                 try:
                     with self.mutex:
                         self.assert_owner()
@@ -182,9 +282,16 @@ class SessionGuard:
                             oid, state = self.store.read()
                             if state.get('owner') != self.token or state.get('request'):
                                 raise SessionLost('실행 연결 양도 요청을 받았습니다.')
-                            if not self.store.cas(oid, self.record()):
+                            renewed = self.record()
+                            if not self.store.cas(oid, renewed):
                                 raise SessionLost('실행 연결 갱신에 실패했습니다.')
+                            self.lease_until = renewed['expires']
                             last_renew = self.clock()
+                except SessionUnverified as ex:
+                    if self.lease_valid():
+                        continue  # retry at the next check; same fail-closed rule once the lease can no longer be trusted
+                    self.reason = str(ex); self.lost.set()
+                    return
                 except Exception as ex:
                     self.reason = str(ex); self.lost.set()
                     return

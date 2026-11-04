@@ -1,0 +1,219 @@
+"""Fail-closed, file-bound recovery proof gate. No network, writes or lease changes."""
+import hashlib
+import importlib.util
+import json
+import math
+from pathlib import Path
+import re
+import sys
+import time
+
+
+BASIS_KEYS = ('account_adoption', 'risk_baseline_unrealized', 'risk_base_equity',
+              'risk_loss_offset', 'risk_day', 'halted', 'limits', 'limits_id')
+FINANCIAL_KEYS = ('positions', 'realized', 'bought_krw', 'last_sell',
+                  'external_acquisition_cost', 'reconciliation_replay')
+ARTIFACTS = {'source_snapshot': 'source-live.json', 'orders': 'orders.json',
+             'account': 'accounts.json', 'applied_local': 'applied-local.json',
+             'preserved_basis': 'preserved-basis.json',
+             'authorized_external': 'authorized-external.json',
+             'verified_stop_floors': 'verified-stop-floors.json'}
+
+
+class ProofInvalid(ValueError):
+    pass
+
+
+def canonical_bytes(value):
+    """Same sorted compact default-ASCII JSON as SessionGuard.checkpoint_hash."""
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+
+
+def canonical_sha256(value):
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def preserved_basis(state):
+    present = sorted(key for key in BASIS_KEYS if key in state)
+    return {**{key: state[key] for key in present}, '__present_keys__': present}
+
+
+def financial_projection(state):
+    present = sorted(key for key in FINANCIAL_KEYS if key in state)
+    return {**{key: state[key] for key in present}, '__present_keys__': present}
+
+
+def require(condition, code):
+    if not condition:
+        raise ProofInvalid(code)
+
+
+def load_json(raw):
+    def reject_nonfinite(_):
+        raise ProofInvalid('nonfinite_json')
+    return json.loads(raw.decode('utf-8-sig'), parse_constant=reject_nonfinite)
+
+
+def safe_file(data_root, relative):
+    require(isinstance(relative, str) and relative and '\\' not in relative, 'invalid_relative_path')
+    path = Path(relative)
+    require(not path.is_absolute() and '..' not in path.parts and ':' not in relative, 'unsafe_relative_path')
+    resolved = (data_root / path).resolve(strict=True)
+    require(resolved.is_relative_to(data_root), 'artifact_outside_data')
+    require(resolved.is_file(), 'artifact_not_file')
+    return resolved
+
+
+def _independent_replay(source, orders, applied_local, accounts, floors, authorized):
+    """Bound to the peer-reviewed sibling replay module; no caller-supplied calculator."""
+    require(isinstance(orders, list) and isinstance(applied_local, dict), 'invalid_replay_inputs')
+    require(isinstance(accounts, dict) and isinstance(accounts.get('accounts'), list), 'invalid_account_snapshot')
+    quantities = {}
+    for row in accounts['accounts']:
+        require(isinstance(row, dict), 'invalid_account_row')
+        currency = row.get('currency')
+        require(isinstance(currency, str) and re.fullmatch(r'[A-Z0-9]+', currency), 'invalid_account_currency')
+        if currency == 'KRW': continue
+        market = 'KRW-' + currency
+        require(market not in quantities, 'duplicate_account_currency')
+        values = []
+        for key in ('balance', 'locked'):
+            require(type(row.get(key)) in (str, int, float), 'invalid_account_quantity')
+            value = float(row[key])
+            require(math.isfinite(value) and value >= 0, 'invalid_account_quantity')
+            values.append(value)
+        quantities[market] = sum(values)
+    spec = importlib.util.spec_from_file_location('_validated_reconciliation_peer', Path(__file__).with_name('reconcile.py'))
+    require(spec is not None and spec.loader is not None, 'replay_module_unavailable')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    candidate, report = module.reconcile(source, orders, applied_local, accounts['source_snapshot_epoch'],
+        quantities, {'KRW-DOGE'}, floors, authorized_external_markets=authorized)
+    return {'candidate': candidate, 'report': report}
+
+
+def validate_or_raise(root, cfg, lease, now=None):
+    """Validate a preserved-basis reconciliation bridge while the remote lease is idle.
+
+    Source snapshot hash is raw-file SHA256. Orders/account/applied-local artifacts
+    must be canonical JSON bytes and are hashed as stored. Preserved-basis hash is
+    normalized canonical JSON and must match source, separate artifact and target.
+    All input paths are derived from the safe proof id; optional files mapping may
+    only repeat those exact relative paths, never redirect them.
+    """
+    require(isinstance(cfg, dict) and isinstance(lease, dict), 'invalid_config_or_lease')
+    current = time.time() if now is None else now
+    require(type(current) in (int, float) and math.isfinite(current), 'invalid_clock')
+    data_root = (Path(root) / 'data').resolve(strict=True)
+    sidecar = safe_file(data_root, 'account_reconciliation.json')
+    proof_raw = sidecar.read_bytes()
+    proof = load_json(proof_raw)
+    require(isinstance(proof, dict), 'invalid_proof')
+    proof_id = proof.get('id')
+    require(isinstance(proof_id, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', proof_id), 'unsafe_proof_id')
+    require(cfg.get('session', {}).get('account_reconciliation_id') == proof_id, 'authorization_id_mismatch')
+    require(lease.get('owner') in (None, '') and lease.get('request') in (None, ''), 'remote_lease_not_idle')
+    require(isinstance(lease.get('checkpoint'), str) and bool(lease['checkpoint']), 'previous_checkpoint_missing')
+    require(proof.get('previous_checkpoint') == lease['checkpoint'], 'previous_checkpoint_mismatch')
+    checked = proof.get('checked_epoch')
+    require(type(checked) in (int, float) and math.isfinite(checked)
+            and 0 <= current - checked <= 600, 'expired_or_future_proof')
+    for key in ('no_open_orders', 'stable_account', 'replay_complete', 'protected_DOGE'):
+        require(proof.get(key) is True, 'required_fact_not_true_' + key)
+    require(proof.get('unresolved') == [] and isinstance(proof.get('unresolved'), list), 'unresolved_items')
+    require(cfg.get('live', {}).get('user_protection_required') is True, 'protection_not_required')
+    protection_path = safe_file(data_root, 'user_protected_assets.json')
+    protection_raw = protection_path.read_bytes()
+    protection = load_json(protection_raw)
+    require(isinstance(protection, dict) and isinstance(protection.get('markets'), list)
+            and all(isinstance(market, str) for market in protection['markets'])
+            and 'KRW-DOGE' in protection['markets'], 'DOGE_not_currently_protected')
+    relative_paths = {name: 'reconciliation/' + proof_id + '/' + filename for name, filename in ARTIFACTS.items()}
+    if 'files' in proof:
+        require(proof['files'] == relative_paths, 'artifact_paths_mismatch')
+    raw, objects = {}, {}
+    for name, relative in relative_paths.items():
+        path = safe_file(data_root, relative)
+        expected_dir = (data_root / 'reconciliation' / proof_id).resolve(strict=True)
+        require(path.parent == expected_dir, 'artifact_outside_id_directory')
+        raw[name] = path.read_bytes()
+        objects[name] = load_json(raw[name])
+    for name in ('source_snapshot', 'orders', 'account', 'applied_local',
+                 'authorized_external', 'verified_stop_floors'):
+        wanted = proof.get(name + '_sha256')
+        require(isinstance(wanted, str) and re.fullmatch(r'[0-9a-f]{64}', wanted), 'invalid_hash_' + name)
+        require(hashlib.sha256(raw[name]).hexdigest() == wanted, 'artifact_hash_mismatch_' + name)
+        if name != 'source_snapshot':
+            require(raw[name] == canonical_bytes(objects[name]), 'artifact_not_canonical_' + name)
+    source = objects['source_snapshot']
+    require(isinstance(source, dict), 'source_ledger_not_object')
+    # Recovery bridges the explicitly pinned OLD home snapshot to the CURRENT idle
+    # remote checkpoint. They can differ; neither may be silently substituted.
+    source_checkpoint = canonical_sha256(source)
+    require(proof.get('source_checkpoint_sha256') == source_checkpoint, 'source_checkpoint_mismatch')
+    require(cfg.get('session', {}).get('account_reconciliation_source_checkpoint') == source_checkpoint,
+            'source_checkpoint_not_explicitly_authorized')
+    target_path = safe_file(data_root, 'live/live.json')
+    target_raw = target_path.read_bytes()
+    target = load_json(target_raw)
+    require(isinstance(target, dict), 'target_ledger_not_object')
+    require(target.get('pending_order') is None, 'target_primary_pending')
+    risk_pending = target.get('risk_pending_orders', {})
+    require(isinstance(risk_pending, dict) and not risk_pending, 'target_risk_pending')
+    target_hash = canonical_sha256(target)
+    require(proof.get('target_ledger_sha256') == target_hash, 'target_hash_mismatch')
+    reference = preserved_basis(source)
+    basis_hash = canonical_sha256(reference)
+    require(proof.get('preserved_basis_sha256') == basis_hash, 'basis_hash_mismatch')
+    require(canonical_sha256(objects['preserved_basis']) == basis_hash, 'basis_artifact_mismatch')
+    require(canonical_sha256(preserved_basis(target)) == basis_hash, 'target_basis_changed')
+    old_executed, new_executed = source.get('executed', {}), target.get('executed', {})
+    require(isinstance(old_executed, dict) and isinstance(new_executed, dict), 'invalid_executed_map')
+    require(all(key in new_executed and canonical_sha256(new_executed[key]) == canonical_sha256(value)
+                for key, value in old_executed.items()), 'old_execution_history_changed')
+    accounts = objects['account']
+    require(isinstance(accounts, dict), 'invalid_account_snapshot')
+    collected, source_epoch = accounts.get('collected_epoch'), accounts.get('source_snapshot_epoch')
+    require(all(type(epoch) in (int, float) and math.isfinite(epoch) for epoch in (collected, source_epoch)), 'invalid_account_epochs')
+    proof_epoch = proof.get('source_snapshot_epoch')
+    authorized_epoch = cfg.get('session', {}).get('account_reconciliation_source_epoch')
+    require(all(type(epoch) in (int, float) and math.isfinite(epoch)
+                for epoch in (proof_epoch, authorized_epoch)), 'missing_or_invalid_source_epoch_pin')
+    require(source_epoch == proof_epoch == authorized_epoch, 'source_epoch_not_explicitly_authorized')
+    require(0 <= current - collected <= 600 and source_epoch <= collected <= checked <= current, 'stale_or_future_account_snapshot')
+    authorized = objects['authorized_external']
+    require(isinstance(authorized, list) and authorized in ([], ['KRW-BTC']), 'external_authorization_not_pinned')
+    require(proof.get('authorized_external_markets') == authorized, 'external_authorization_proof_mismatch')
+    floor_doc = objects['verified_stop_floors']
+    require(isinstance(floor_doc, dict), 'invalid_stop_floor_artifact')
+    floors = floor_doc.get('stop_floors', floor_doc)
+    require(isinstance(floors, dict) and set(floors) <= set(authorized), 'unrelated_stop_floor_override')
+    if 'authorized_external_markets' in floor_doc:
+        require(floor_doc['authorized_external_markets'] == authorized, 'stop_floor_authorization_mismatch')
+    for value in floors.values():
+        require(type(value) in (int, float, str), 'invalid_verified_stop_floor')
+        require(math.isfinite(float(value)) and float(value) > 0, 'invalid_verified_stop_floor')
+    replay = _independent_replay(source, objects['orders'], objects['applied_local'], accounts, floors, authorized)
+    require(isinstance(replay, dict), 'independent_replay_invalid')
+    report = replay.get('report')
+    require(isinstance(report, dict) and report.get('accounting_replay_complete') is True
+            and report.get('unresolved') == [] and report.get('quantity_mismatches') == [], 'independent_replay_unresolved')
+    expected = replay.get('candidate')
+    require(isinstance(expected, dict), 'independent_replay_missing_candidate')
+    require(canonical_sha256(financial_projection(target)) == canonical_sha256(financial_projection(expected)),
+            'target_financials_not_replay_result')
+    # Fail closed if another writer changed any source after the checks above.
+    require(sidecar.read_bytes() == proof_raw and target_path.read_bytes() == target_raw, 'state_changed_during_validation')
+    require(protection_path.read_bytes() == protection_raw, 'protection_changed_during_validation')
+    for name, relative in relative_paths.items():
+        require(safe_file(data_root, relative).read_bytes() == raw[name], 'artifact_changed_during_validation')
+    return True
+
+
+def validate(root, cfg, lease, now=None):
+    """Return False on any malformed/missing proof, independent replay or file error."""
+    try:
+        return validate_or_raise(root, cfg, lease, now)
+    except Exception:
+        return False

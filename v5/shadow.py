@@ -21,6 +21,7 @@ import time
 import traceback
 
 import strategy as st
+import rotation_policy as rotation
 import upbit
 from bot import boundary, load_params, SETTLE, KST, utc
 from paper import Ledger, now_iso
@@ -35,7 +36,65 @@ MARK_A, MARK_B = '<!-- v5 성과 분석 시작 -->', '<!-- v5 성과 분석 끝 
 GRID = {'L': (32, 72, 168), 'k': (2.0, 3.0), 'M': (5, 8)}  # 15분봉 기준 8·18·42시간
 
 
-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None):
+# 고정 시간 슬롯 주문안(2026-11-04 합의 B): 재시작은 새 판단을 만들지 않고 다음 정규 슬롯(매시 정각 뒤)을 기다린다.
+SLOT_SECONDS = 3600
+SLOT_DELAY = 90        # 슬롯 시작 뒤 이 시간이 지나 마감 봉 판단이 끝난 다음에 만든다
+SLOT_MAX_LATE = 600    # 이 시간이 지난 슬롯은 소급해서 만들지 않는다(사전 정한 허용 지연)
+SLOT_FILE = DATA / 'plan_slot.json'
+
+
+def current_slot(now):
+    return int(now // SLOT_SECONDS) * SLOT_SECONDS
+
+
+def slot_due(now, last_slot):
+    """지금 만들어야 할 슬롯 시작 시각. 이미 처리했거나 시작 전·허용 지연 밖이면 None."""
+    slot = current_slot(now)
+    if slot > last_slot and SLOT_DELAY <= now - slot <= SLOT_MAX_LATE:
+        return slot
+    return None
+
+
+def load_last_slot(now, path=None):
+    """영속 기록된 마지막 슬롯. 파일이 없거나 손상·비정각·미래 값이면 현재 슬롯을 처리한 것으로 간주한다(중복 주문안보다 한 슬롯 건너뛰는 쪽이 안전).
+
+    가동 시작에는 항상 현재 슬롯도 처리한 것으로 본다: 재시작이 허용 지연창 안에 있어도 새 판단을 만들지 않고 다음 정규 슬롯을 기다린다."""
+    path = path or SLOT_FILE
+    now_slot = current_slot(now)
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))['slot']
+        if type(value) in (int, float) and math.isfinite(value) and value % SLOT_SECONDS == 0 and 0 <= value <= now_slot:
+            return max(int(value), now_slot)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
+        pass
+    return now_slot
+
+
+def plan_tick(now, last_slot, ready, claim, make):
+    """한 번의 반복에서 할 일. (새 last_slot, 상태). 신호가 아직 최신이 아니면 기록하지 않고 허용 지연 안에서 다시 시도한다."""
+    slot = slot_due(now, last_slot)
+    if slot is None:
+        return last_slot, None
+    if not ready():
+        return last_slot, 'waiting'
+    claim(slot)  # 먼저 기록: 이후 어떤 장애가 나도 이 슬롯은 한 번만
+    try:
+        make()
+    except Exception:
+        traceback.print_exc()
+        return slot, 'failed'
+    return slot, 'made'
+
+
+def claim_slot(slot, path=None):
+    """주문안을 만들기 전에 슬롯을 먼저 기록한다. 기록 뒤 장애가 나도 같은 슬롯의 주문안이 두 번 만들어지지 않는다."""
+    path = path or SLOT_FILE
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(json.dumps({'slot': int(slot), 'claimed_at': now_iso()}), encoding='utf-8')
+    tmp.replace(path)
+
+
+def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -54,10 +113,16 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
                 continue
             why = f'거래대금 상위 {base.universe} 밖' + (f'(상대강도 {rs:+.1%})' if rs is not None else '')
         elif r['rank'] > base.M:
+            if rotation.enabled(base) and rs is not None and rs >= 0:
+                counts = rotation_state if isinstance(rotation_state, dict) else {}
+                if not rotation.rank_exit(counts, m, r['rank'], rotation_slot, base.M, base.rotation_confirmations):
+                    reasons.append(f'{m[4:]} 순위 경계 확인 대기 (손절·이익보호 별도)')
+                    continue
             why = f'순위 {r["rank"]}위 > 유지 {base.M}위 (상대강도 {rs:+.1%})'
         elif rs is not None and rs < 0:
             why = f'상대강도 {rs:+.1%} < 0'
         else:
+            if rotation.enabled(base) and isinstance(rotation_state, dict): rotation_state.pop(m, None)
             reasons.append(f'{m[4:]} 유지: 순위 {r["rank"]}위, 상대강도 {rs:+.1%}')
             continue
         cands.append((rs if rs is not None else -1.0, m, v, why))
@@ -76,7 +141,27 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
-    for r in ranked[:scan]:
+    if rotation.enabled(base): scan = min(scan, base.M)
+    regime_closed = False
+    if getattr(base, 'halt_new_buys', False):
+        regime_closed = True
+        reasons.append('신규 매수 임시 중단: 비용 후 우위가 검증되기 전에는 새로 사지 않는다 (보유 관리·매도·손절은 그대로)')
+    elif getattr(base, 'regime_filter', False):
+        expires = getattr(base, 'regime_expires', 0.0)
+        if expires and time.time() >= expires:
+            regime_closed = True
+            reasons.append('장세 필터 임시 적용 기간 만료 → 신규 매수 전부 보류 (재검토·재결정 전에는 재개하지 않음)')
+        elif type(market_index) not in (int, float) or not math.isfinite(market_index):
+            regime_closed = True
+            reasons.append('장세 필터: 시장 지수 자료 부족·비정상 → 신규 매수 보류')
+        elif market_index <= 0:
+            regime_closed = True
+            reasons.append(f'장세 필터: 시장 균등지수 {base.regime_bars * base.tf // 60}시간 {market_index:+.2%} ≤ 0 → 신규 매수 보류 (보유 관리·매도는 그대로)')
+        else:
+            reasons.append(f'장세 필터 통과: 시장 균등지수 {market_index:+.2%} > 0')
+    for r in ([] if regime_closed else ranked[:scan]):
+        if rotation.enabled(base) and (type(r.get('rank')) is not int or not 1 <= r['rank'] <= base.M):
+            continue
         if len(picks) >= want:
             break
         if r['market'] in originally_held or r['market'] in sell_queued:
@@ -235,6 +320,7 @@ class Shadow:
         self.prop = None
         self.base_ranked, self.rs_out, self.entry_ok = [], {}, set()
         self.signal_closed_at = self.signal_tf_minutes = self.evaluated_at = None
+        self.rotation_counts = {}
 
     def proposal_signal(self, now=None):
         """Return provenance only for the current completed signal, never a relabelled cache."""
@@ -262,6 +348,10 @@ class Shadow:
 
     def make_proposal(self):
         self.proposal_signal()  # Refuse stale cached ranks before any private account lookup.
+        if rotation.enabled(self.base):
+            if self.cfg.get('live', {}).get('slot_plans') is not True:
+                raise ValueError('새 순환 정책은 고정 슬롯 경로만 허용')
+            rotation.envelope(self.base, self.signal_closed_at, time.time())
         rows = upbit.accounts()
         krw = sum(float(r['balance']) for r in rows if r['currency'] == 'KRW')
         coins = {'KRW-' + r['currency']: float(r['balance']) for r in rows
@@ -273,7 +363,10 @@ class Shadow:
         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
-        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'))
+        text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
+                                 market_index=getattr(self, 'market_index', None),
+                                 rotation_state=getattr(self, 'rotation_counts', None),
+                                 rotation_slot=self.signal_closed_at)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME
@@ -288,8 +381,16 @@ class Shadow:
             if not math.isfinite(anchor) or anchor <= 0: continue
             entry_context[row['market']] = {'market': row['market'], 'signal_close': close,
                 'anchor_close': anchor, 'rs': rs, **provenance}
+            if rotation.enabled(self.base):
+                entry_context[row['market']].update(rank=row['rank'], policy_hash=rotation.policy_hash(self.base))
         self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons,
-                     'entry_context': entry_context, **provenance}
+                     'entry_context': entry_context, 'market_index': getattr(self, 'market_index', None), **provenance}
+        if rotation.enabled(self.base):
+            self.prop['rotation'] = rotation.envelope(self.base, self.signal_closed_at, time.time())
+            self.prop['rotation_markets'] = {r['market']: {k:r[k] for k in ('rank', 'rs', 'close', 'atr', 'bar')} for r in self.base_ranked}
+            rotation.append_audit(SHADOW / 'rotation_audit.jsonl',
+                {'event': 'decision_created', 'rotation': self.prop['rotation'],
+                 'markets': self.prop['rotation_markets'], 'reasons': reasons, 'plan': text})
         tmp = DATA / 'proposal.tmp'
         tmp.write_text(json.dumps(self.prop, ensure_ascii=False, indent=1), encoding='utf-8')
         tmp.replace(DATA / 'proposal.json')
@@ -325,6 +426,8 @@ class Shadow:
         uni = set(universe)
         entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('warning')}
         self.base_ranked = st.rank({m: b for m, b in bars.items() if m in uni}, self.base)
+        self.market_index = st.market_index({m: b for m, b in bars.items() if m in uni}, self.base.regime_bars,
+                                            self.base.regime_min_markets)
         self.rs_out = {m: st.relative_strength(b, self.base.L) for m, b in bars.items() if m not in uni}
         self.entry_ok = entry_ok
         need_books = set()
@@ -410,12 +513,16 @@ class Shadow:
             lg.snapshot(prices)
 
     def run(self):
+        if rotation.enabled(self.base) and self.cfg.get('live', {}).get('slot_plans') is not True:
+            raise ValueError('순환 정책/고정 슬롯 설정 불일치: 기존 경로로 전환하지 않음')
         self.init()
         if self.cfg.get('live', {}).get('enabled') and self.cfg.get('live', {}).get('auto_proposal'):
             # Recompute current ranks on restart; ledgers already processed at this close are skipped.
             self.decide(boundary(time.time() - SETTLE, self.base.tf * 60))
         last_stop = last_snap = 0
         next_report = time.time() + 60
+        slot_mode = bool(self.cfg.get('live', {}).get('slot_plans'))
+        last_slot = load_last_slot(time.time()) if slot_mode else None
         while not STOP.exists():
             now = time.time()
             try:
@@ -428,7 +535,24 @@ class Shadow:
                 if now - last_snap >= 300:
                     self.snapshot()
                     last_snap = now
-                if now >= next_report and self.base_ranked:
+                if slot_mode:
+                    def ready():
+                        try:
+                            self.proposal_signal(now)  # 마감 봉 순위가 최신일 때만(판단 완료 전에는 기록하지 않고 기다린다)
+                            return bool(self.base_ranked)
+                        except ValueError:
+                            return False
+                    last_slot, status = plan_tick(now, last_slot, ready, claim_slot, self.make_proposal)
+                    if status in ('made', 'failed'):
+                        rotation.append_audit(SHADOW / 'rotation_audit.jsonl',
+                            {'event': 'slot_attempt', 'slot': last_slot, 'status': status,
+                             'crash_policy': 'at_most_once_skipped_claim_not_replayed'})
+                    if now >= next_report:
+                        report(self.base, self.prop)
+                        next_report = now + 3600
+                    if now < last_slot - SLOT_SECONDS:
+                        print(f'시계 역행 의심: 현재 {now:.0f} < 기록 슬롯 {last_slot}. 새 주문안은 만들지 않는다.', flush=True)
+                elif now >= next_report and self.base_ranked:
                     try:
                         self.make_proposal()
                     except Exception:

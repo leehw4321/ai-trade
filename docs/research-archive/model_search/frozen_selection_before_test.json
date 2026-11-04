@@ -1,0 +1,22 @@
+{
+  "selected_config": {
+    "id": "breakout_1h_48",
+    "family": "breakout",
+    "timeframe_s": 3600,
+    "stop_atr": 2.5,
+    "target_r": 3.0,
+    "max_hold_s": 259200,
+    "lookback": 48,
+    "reclaim_ema": null,
+    "volume_ratio": 1.0
+  },
+  "qualified_validation": false,
+  "selected_before_test": true,
+  "selected_at_utc": "2026-10-30T03:35:35.240507+00:00",
+  "candidate_sha256": "cf0e9b63e5e8b5b0e3d78522b8e0a65e4990835f8943e01f690bd56a3bdabbe5",
+  "source_sha256": {
+    "model_candidates.py": "4039cd6b052ba5bfd5ca6d1fc56db9dae8fd206e8366f687b7397d771fd973a6",
+    "research_portfolio.py": "cfb075cf7d6a44a63fc232ec51da85f25a8bb8038e6876dc93de0a3d20dd64b2"
+  },
+  "ranking": "validation return descending among fixed eligibility; no test model reselection"
+}

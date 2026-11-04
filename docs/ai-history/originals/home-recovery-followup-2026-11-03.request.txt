@@ -1,0 +1,492 @@
+Thank you for the actual review. Reply in Korean. Tools remain disabled.
+A: Actual source13:43:50 status recorded nohalt. Post13:43 remaining botfill was profitable IRYSsell13:56. Existing Live.check_loss is sticky, preservesoffset, and reruns current realized+unrealized loss beforepoll. We do not claim exactcompanyhistoricalhalt/peakmemoryrestored. Replayedrealized_delta was +18104.34. Current15:45 markedloss under the ACTUAL formula is -9957.25 (negative means profitagainstexistingdailyoffset), vs limit15097.63, missingvaluations0, haltedempty. Existing sourcebaseline/offset unchanged. No new halt clear was applied.
+B: The initially fetched window had41 filled orders, fewerthan1000; fresh_check re-fetchedthecompleteUUIDset and rereadall41full details. The fullReadOnlyClient.closed_orders suppliedbelow splits <=7daywindows, includes done ANDcancel, recursivelytime-splits saturated1000results, failsclosedwithin1second saturation, UUIDdedup. Thus the B conditions are implemented ratherthan assumed. Please confirm these A/B facts resolve your conditional review for THIS actualrecovery; retain unknownhistoricalinternalmemory limitation. The initialpeerreplyisarchivedwithoutclaimingunconditionalapproval.
+
+NEXT CHANGE AUTHOR REQUEST: Per user's alternatingauthorship rule, Claude is toauthor the nextsmallfix, ChatGPTverify/apply. A concrete handoffCLI sideeffectneedsfix beforefuturehandoff: receive defaults dryrun, but it enters transition_lock evenwithanactivebot. Guardnowhonors thismarker, so a dryrun withrunningreceiver canstopit and leavepersistentmarker onvalidationerror. Similarly publishwithout--stop-source entersmarker beforecheckingworkersstopped, potentiallystoppingthem onfailedpreflight despiteitscontract.
+Please author a MINIMAL unifieddiff against the exactpublicCLI/testsourcebelow:
+1. Add require-stopped preflight using existing _alive_from_lock for bot.lock/shadow.lock, BEFOREcreatinganytransitionmarker (receive also beforedownload). Publish --publish --stop-source maygracefullystopfirst, thenmustverify; publishdryrun staysnonmutating.
+2. ReceiverDRYRUN mustcleanup its coordinationmarker onfailure becauseitneverchangesactivefiles. Keepfailclosed markers for actualapply/publish failures/partialrestore. Add optionaltransition_lock keep_on_error=True policy or equivalent; defaultexistingdestructivepathbehaviorunchanged.
+3. Include meaningful mocktests: activepublishwithoutstop nevercreatesmarker/callsseal; activereceivedryrun neverdownloads/createsmarker; dryrunvalidationfailurecleanup; realapplyfailuremarkersretained. You may add a helper receive_final(args,root) to make the existingCLI receiver block testable, but avoid unrelatedrewrite.
+No livebot restart/order/config changes inthispatch; tools-onlyfuturehandoff CLI. Existingencryption/recipientpin/sourcecheckpoint/PnLbaseline/protectionunion checksremain. Please output the concretepatch and state acceptance of its narrow scope. Do notclaimyoutested it.
+
+
+EXACTPUBLICSOURCE tools/handoff_cli.py SHA256=74dc5312e8303d21a406a93683842d6e20cbc7f195ef36f3390e15622b072692
+"""Staged CLI: recipient enrollment, final-state sealing/publish, receive/dry-run/apply.
+
+Publish requires --publish. Receive defaults to validated local ZIP only; --apply
+restores state while stopped, never starts a trader. All identities remain under
+the explicitly selected private root. No API billing or plaintext Git transport.
+"""
+import argparse
+import contextlib
+import ctypes
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from decimal import Decimal
+
+import secure_handoff as sh
+
+
+def restrict_identity(path, runner=subprocess.run):
+    path = Path(path)
+    if os.name != 'nt':
+        path.chmod(0o700 if path.is_dir() else 0o600)
+        return
+    result = sh.run_command(['whoami', '/user', '/fo', 'csv', '/nh'], runner=runner)
+    sid = re.search(rb'S-1-5-\d+(?:-\d+)+', result.stdout)
+    if not sid: raise sh.HandoffError('Cannot determine local identity SID')
+    permissions = '(OI)(CI)F' if path.is_dir() else 'F'
+    sh.run_command(['icacls', path, '/inheritance:r', '/grant:r', '*' + sid[0].decode() + ':' + permissions,
+                    '/grant:r', '*S-1-5-18:' + permissions], runner=runner)
+
+
+def init_recipient(private_root, name, openssl=sh.DEFAULT_OPENSSL, runner=subprocess.run):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,40}', name): raise sh.HandoffError('Invalid recipient name')
+    root = Path(private_root).resolve()
+    folder = root / 'identities' / name
+    if folder.exists(): raise sh.HandoffError('Recipient already enrolled; refuse to replace private key')
+    folder.mkdir(parents=True)
+    restrict_identity(folder, runner)
+    key, cert = folder / 'private-key.pem', folder / 'public-certificate.pem'
+    try:
+        sh.run_command([openssl, 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-sha256',
+            '-days', '730', '-subj', '/CN=coinbot-handoff-' + name, '-keyout', key, '-out', cert],
+            runner=runner, timeout=120)
+        restrict_identity(key, runner)
+        if b'PRIVATE KEY' in cert.read_bytes(): raise sh.HandoffError('Public certificate unexpectedly contains private material')
+    except BaseException:
+        key.unlink(missing_ok=True)
+        raise
+    return {'recipient': name, 'public_certificate': str(cert),
+            'public_certificate_sha256': sh.sha256_file(cert), 'private_key_stays_on_recipient': True}
+
+
+def _load(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _alive_from_lock(path):
+    if not path.exists(): return False
+    text = path.read_text().strip()
+    if not text.isdigit() or not int(text): raise sh.HandoffError('Process lock cannot be verified')
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    kernel.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel.OpenProcess(0x00100000, False, int(text))
+    if not handle:
+        if ctypes.get_last_error() == 5: raise sh.HandoffError('Process visibility denied')
+        return False
+    try: return kernel.WaitForSingleObject(handle, 0) == 258
+    finally: kernel.CloseHandle(handle)
+
+
+@contextlib.contextmanager
+def transition_lock(app, retain_on_success=False):
+    path = Path(app) / 'data/handoff-transition.lock'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    success = False
+    try:
+        os.write(fd, str(os.getpid()).encode()); os.close(fd)
+        yield
+        success = True
+    finally:
+        # Crash/exception marker is deliberately persistent. SessionGuard must refuse startup.
+        if success and not retain_on_success: path.unlink(missing_ok=True)
+
+
+def observer(app, credentials_file=None):
+    """Trusted runtime modules, read-only API methods and lease fetch; no CAS/order call."""
+    app = Path(app).resolve(strict=True)
+    api = _load(app / 'upbit.py', '_handoff_readonly_upbit')
+    guard = _load(app / 'session_guard.py', '_handoff_readonly_session_guard')
+    if credentials_file: api.ENV_FILES.append(Path(credentials_file))
+    def observe():
+        started = time.time()
+        config = json.loads((app / 'config.json').read_text(encoding='utf-8'))
+        counts = {}
+        for state in ('wait', 'watch'):
+            count, page = 0, 1
+            while True:
+                params = {'state': state, 'limit': 100, 'page': page}
+                rows = api._get('/v1/orders/open', params, headers=api._auth(params))
+                count += len(rows)
+                if len(rows) < 100: break
+                page += 1
+            counts[state] = count
+        account = api.accounts()
+        quantities = {'KRW-' + row['currency']: str(Decimal(row['balance']) + Decimal(row['locked']))
+                      for row in account if row['currency'] != 'KRW'}
+        # Lease is read LAST so source ownership cannot be reported from a pre-API snapshot.
+        _, lease = guard.GitStore(app / 'data/session_git', config.get('session', {}).get('remote', guard.DEFAULT_REMOTE)).read()
+        if not 0 <= time.time() - started <= 30:
+            raise sh.HandoffError('Read-only observations exceeded the 30-second freshness bound')
+        return {'checked_at_epoch': started, 'bot_stopped': not _alive_from_lock(app / 'bot.lock'),
+                'shadow_stopped': not _alive_from_lock(app / 'shadow.lock'),
+                'source_transition_locked': (app / 'data/handoff-transition.lock').read_text().strip() == str(os.getpid()),
+                'remote_owner': lease.get('owner'), 'remote_request': lease.get('request'),
+                'remote_checkpoint': lease.get('checkpoint'), 'exchange_wait_count': counts['wait'],
+                'exchange_watch_count': counts['watch'], 'account_read_ok': True,
+                'account_quantities': quantities}
+    return observe
+
+
+def request_graceful_stop(app, timeout=180, checker=None, clock=None, sleep=None):
+    """Only a user-authorized publish calls this; never kills or changes a lease."""
+    if not isinstance(timeout, (int, float)) or not 0 < timeout <= 180:
+        raise sh.HandoffError('Graceful stop timeout must be between 0 and 180 seconds')
+    app = Path(app)
+    checker, clock, sleep = checker or _alive_from_lock, clock or time.monotonic, sleep or time.sleep
+    def pending_clear():
+        state = json.loads((app / 'data/live/live.json').read_bytes())
+        if state.get('pending_order') or state.get('risk_pending_orders'):
+            raise sh.HandoffError('Uncertain local orders block handoff shutdown; reconcile without cancellation')
+    pending_clear()  # Do not request any shutdown if acceptance/fill status is unknown.
+    for name in ('stop.txt', 'stop_shadow.txt'):
+        file = app / name
+        if not file.exists(): file.write_text('user-authorized final handoff graceful stop', encoding='utf-8')
+    started = clock()
+    while True:
+        elapsed = clock() - started
+        if elapsed > timeout:
+            raise sh.HandoffError('Graceful shutdown timed out; stop requests retained, no force kill/restart')
+        if not any(checker(app / name) for name in ('bot.lock', 'shadow.lock')):
+            pending_clear()
+            return {'source_stopped': True, 'graceful_stop_requested': True, 'waited_seconds': elapsed}
+        if elapsed >= timeout:
+            raise sh.HandoffError('Graceful shutdown timed out; stop requests retained, no force kill/restart')
+        sleep(min(1., timeout - elapsed))
+
+
+def publish_final(args, root):
+    if not args.publish:
+        return {'publish': False, 'stop_source_executed': False,
+                'requires': ['source normal shutdown', 'fresh final ZIP', 'trusted recipient certificate pin',
+                             'released matching lease', 'no uncertain or exchange orders'],
+                'package_validated': bool(args.package and sh.inspect_final_zip(args.package))}
+    stopped = None
+    if getattr(args, 'stop_source', False):
+        # Stop first: installing the Guard's transition marker while trading would interrupt it.
+        stopped = request_graceful_stop(args.app, getattr(args, 'stop_timeout', 180))
+    with transition_lock(args.app):
+        if not args.package:
+            if not args.export_tool: raise sh.HandoffError('Existing final ZIP or explicit approved exporter required')
+            output = root / 'outgoing' / str(time.time_ns()); output.mkdir(parents=True)
+            sh.run_command([sys.executable, args.export_tool, '--app', args.app,
+                            '--destination', output, '--final'], timeout=600)
+            packages = list(output.glob('*.zip'))
+            if len(packages) != 1: raise sh.HandoffError('Final exporter did not produce exactly one package')
+            args.package = packages[0]
+        envelope = root / 'sealed' / (str(time.time_ns()) + '.cms'); envelope.parent.mkdir(exist_ok=True)
+        result = sh.seal_and_transmit(args.package, args.app, args.recipient_cert, args.recipient_pin,
+            envelope, args.remote, observer(args.app, args.credentials_file), args.openssl)
+        if stopped is not None: result.update(stopped)
+        return result
+
+
+def download_encrypted(remote, branch, destination, runner=subprocess.run):
+    if not re.fullmatch(r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?', remote):
+        raise sh.HandoffError('Explicit credential-free GitHub destination required')
+    if not re.fullmatch(r'private-handoff/[a-f0-9]{12}/[a-f0-9]{64}', branch):
+        raise sh.HandoffError('Only a dedicated encrypted handoff branch is allowed')
+    destination = Path(destination)
+    if destination.exists(): raise sh.HandoffError('Incoming destination already exists')
+    destination.mkdir(parents=True)
+    with tempfile.TemporaryDirectory(prefix='receive-sealed-') as folder:
+        sh.run_command(['git', 'init', '--quiet'], cwd=folder, runner=runner)
+        sh.run_command(['git', 'fetch', '--quiet', '--depth=1', remote, 'refs/heads/' + branch], cwd=folder, runner=runner)
+        receipt_result = sh.run_command(['git', 'show', 'FETCH_HEAD:receipt.json'], cwd=folder, runner=runner)
+        if len(receipt_result.stdout) > 8192: raise sh.HandoffError('Public receipt too large')
+        receipt = json.loads(receipt_result.stdout)
+        path = destination / 'handoff.cms'
+        # Stream ciphertext to disk instead of loading a potentially large archive into memory.
+        with path.open('xb') as output:
+            result = runner(['git', 'show', 'FETCH_HEAD:handoff.cms'], cwd=folder,
+                env={**sh.safe_env(), 'GIT_TERMINAL_PROMPT': '0', 'GCM_INTERACTIVE': 'Never'},
+                stdout=output, stderr=subprocess.PIPE, timeout=600,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if result.returncode: raise sh.HandoffError('Encrypted blob download failed')
+        plan = sh.transport_plan(path, receipt, remote)
+        if plan['branch'] != branch: raise sh.HandoffError('Branch does not match ciphertext receipt')
+        (destination / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+    return path, receipt
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--private-root', type=Path, required=True,
+                        help='Local private_handoff directory; never a tracked repository directory')
+    parser.add_argument('--openssl', type=Path, default=sh.DEFAULT_OPENSSL)
+    commands = parser.add_subparsers(dest='command', required=True)
+    init = commands.add_parser('init-recipient'); init.add_argument('--name', required=True)
+    publish = commands.add_parser('publish')
+    for command in (publish,):
+        command.add_argument('--app', type=Path, required=True)
+        command.add_argument('--package', type=Path)
+        command.add_argument('--export-tool', type=Path)
+        command.add_argument('--recipient-cert', type=Path, required=True)
+        command.add_argument('--recipient-pin', required=True)
+        command.add_argument('--remote', required=True)
+        command.add_argument('--credentials-file', type=Path)
+        command.add_argument('--publish', action='store_true')
+        command.add_argument('--stop-source', action='store_true', help='Only with --publish: request normal shutdown before final export')
+        command.add_argument('--stop-timeout', type=float, default=180, help='Normal shutdown wait, maximum 180 seconds')
+    receive = commands.add_parser('receive')
+    for name in ('remote', 'branch', 'recipient-pin'):
+        receive.add_argument('--' + name, required=True)
+    for name in ('app', 'recipient-cert', 'private-key'):
+        receive.add_argument('--' + name, type=Path, required=True)
+    receive.add_argument('--credentials-file', type=Path)
+    receive.add_argument('--apply', action='store_true')
+    args = parser.parse_args()
+    root = args.private_root.resolve()
+    if root.name != 'private_handoff': raise sh.HandoffError('Select an explicitly private_handoff root')
+    root.mkdir(parents=True, exist_ok=True)
+    if args.command == 'init-recipient':
+        result = init_recipient(root, args.name, args.openssl)
+    elif args.command == 'publish':
+        result = publish_final(args, root)
+    else:
+        identities = (root / 'identities').resolve()
+        if not args.private_key.resolve().is_relative_to(identities):
+            raise sh.HandoffError('Private key must remain inside the selected private_handoff/identities')
+        incoming = root / 'incoming' / str(time.time_ns())
+        envelope, receipt = download_encrypted(args.remote, args.branch, incoming)
+        if receipt['recipient_certificate_sha256'] != args.recipient_pin.lower():
+            raise sh.HandoffError('Transport recipient differs from trusted local identity')
+        package = incoming / 'final.zip'
+        sh.decrypt_package(envelope, args.recipient_cert, args.recipient_pin, args.private_key, package, args.openssl)
+        with transition_lock(args.app):
+            result = sh.restore_state(package, args.app, observer(args.app, args.credentials_file),
+                                     root / 'restore-backups' / str(time.time_ns()), args.apply)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+
+
+if __name__ == '__main__': main()
+
+
+EXACTPUBLICSOURCE tools/test_handoff_cli.py SHA256=d01eb5f6410d948cae271a7c4a9dab1db3c9532dbfc739b8750c8e3c23a0227f
+import importlib.util
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+import types
+import os
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+spec = importlib.util.spec_from_file_location('handoff_cli_test_target', Path(__file__).with_name('handoff_cli.py'))
+cli = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cli)
+
+
+class TransitionTests(unittest.TestCase):
+    def source(self, root, pending=None):
+        import json
+        app = Path(root) / 'app'; (app / 'data/live').mkdir(parents=True)
+        (app / 'data/live/live.json').write_text(json.dumps({'pending_order': pending, 'risk_pending_orders': {}}))
+        return app
+
+    def test_pending_order_refuses_stop_before_writing_requests(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = self.source(folder, pending={'uncertain': True})
+            with self.assertRaises(cli.sh.HandoffError):
+                cli.request_graceful_stop(app, checker=lambda p: self.fail('must not query after pending failure'))
+            self.assertFalse((app / 'stop.txt').exists())
+            self.assertFalse((app / 'stop_shadow.txt').exists())
+
+    def test_stop_timeout_keeps_requests_without_force_kill(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = self.source(folder)
+            ticks = iter([0, 0, 181])
+            with patch.object(cli.subprocess, 'run', side_effect=AssertionError('no external kill or lease command')):
+                with self.assertRaises(cli.sh.HandoffError):
+                    cli.request_graceful_stop(app, checker=lambda p: True, clock=lambda: next(ticks), sleep=lambda s: None)
+            self.assertTrue((app / 'stop.txt').exists())
+            self.assertTrue((app / 'stop_shadow.txt').exists())
+
+    def test_publish_stops_source_before_transition_and_sealing(self):
+        import contextlib
+        with tempfile.TemporaryDirectory() as folder:
+            app = self.source(folder); root = Path(folder) / 'private_handoff'; root.mkdir()
+            args = types.SimpleNamespace(publish=True, stop_source=True, stop_timeout=180, app=app,
+                package=Path(folder) / 'final.zip', recipient_cert='public.pem', recipient_pin='pin',
+                remote='https://github.com/example/repo.git', credentials_file=None, openssl='openssl')
+            calls = []
+            original = cli.request_graceful_stop
+            def stop(*a, **k):
+                calls.append('stop')
+                return original(app, checker=lambda p: False)
+            @contextlib.contextmanager
+            def lock(path):
+                calls.append('lock'); yield
+            def seal(*a, **k): calls.append('seal'); return {'pushed': True}
+            with patch.object(cli, 'request_graceful_stop', side_effect=stop), patch.object(cli, 'transition_lock', lock), \
+                    patch.object(cli, 'observer', return_value=lambda: {}), patch.object(cli.sh, 'seal_and_transmit', side_effect=seal):
+                result = cli.publish_final(args, root)
+            self.assertEqual(calls, ['stop', 'lock', 'seal'])
+            self.assertTrue(result['source_stopped'])
+            self.assertTrue((app / 'stop.txt').exists())
+
+    def test_dryrun_stop_flag_does_not_request_shutdown(self):
+        args = types.SimpleNamespace(publish=False, stop_source=True, package=None)
+        with patch.object(cli, 'request_graceful_stop', side_effect=AssertionError('dryrun must not stop')):
+            result = cli.publish_final(args, Path('unused'))
+        self.assertFalse(result['publish'])
+        self.assertFalse(result['stop_source_executed'])
+
+    def test_observer_reads_remote_lease_last_and_uses_start_timestamp(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder); (app / 'data').mkdir(); (app / 'config.json').write_text('{"session":{}}')
+            (app / 'data/handoff-transition.lock').write_text(str(os.getpid()))
+            calls = []
+            api = types.SimpleNamespace(ENV_FILES=[], _auth=lambda params: {},
+                _get=lambda *args, **kwargs: calls.append('orders') or [],
+                accounts=lambda: calls.append('account') or [{'currency': 'A', 'balance': '0.10000001', 'locked': '0.20000002'}])
+            guard = types.SimpleNamespace(DEFAULT_REMOTE='https://github.com/example/repo.git',
+                GitStore=lambda *args: types.SimpleNamespace(read=lambda: (calls.append('lease') or '', {'checkpoint': 'checkpoint'})))
+            with patch.object(cli, '_load', side_effect=[api, guard]), patch.object(cli, '_alive_from_lock', return_value=False), \
+                    patch.object(cli.time, 'time', side_effect=[1000, 1005]):
+                result = cli.observer(app)()
+            self.assertEqual(calls[-1], 'lease')
+            self.assertEqual(result['checked_at_epoch'], 1000)
+            self.assertEqual(result['account_quantities']['KRW-A'], '0.30000003')
+
+    def test_observer_rejects_slow_readonly_batch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder); (app / 'config.json').write_text('{"session":{}}')
+            api = types.SimpleNamespace(ENV_FILES=[], _auth=lambda params: {}, _get=lambda *a, **k: [], accounts=lambda: [])
+            guard = types.SimpleNamespace(DEFAULT_REMOTE='remote', GitStore=lambda *a: types.SimpleNamespace(read=lambda: ('', {})))
+            with patch.object(cli, '_load', side_effect=[api, guard]), patch.object(cli.time, 'time', side_effect=[1000, 1031]):
+                with self.assertRaises(cli.sh.HandoffError): cli.observer(app)()
+
+    def test_successful_verified_host_operation_clears_transition_marker(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder)
+            with cli.transition_lock(app):
+                self.assertTrue((app / 'data/handoff-transition.lock').exists())
+            self.assertFalse((app / 'data/handoff-transition.lock').exists())
+
+    def test_failure_keeps_marker_for_guarded_manual_recovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder)
+            with self.assertRaises(RuntimeError):
+                with cli.transition_lock(app):
+                    raise RuntimeError('do not start after partial transfer')
+            self.assertTrue((app / 'data/handoff-transition.lock').exists())
+            with self.assertRaises(FileExistsError):
+                with cli.transition_lock(app): pass
+
+    def test_recipient_names_cannot_escape_identity_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaises(cli.sh.HandoffError):
+                cli.init_recipient(Path(folder), '../other')
+
+
+if __name__ == '__main__': unittest.main()
+
+
+PUBLICCONFIRMINGCODE tools/reconcile_runtime.py
+    def closed_orders(self, start, end):
+        out = {}
+        utc = lambda value: dt.datetime.fromtimestamp(value, dt.timezone.utc).isoformat()
+        def window(lo, hi):
+            rows = self.get('/v1/orders/closed', [('states[]', 'done'), ('states[]', 'cancel'),
+                ('start_time', utc(lo)), ('end_time', utc(hi)), ('limit', 1000), ('order_by', 'desc')])
+            require(isinstance(rows, list), 'invalid_closed_orders_response')
+            require(len(rows) <= 1000, 'invalid_closed_orders_count')
+            if len(rows) == 1000:
+                require(hi - lo > 1, 'saturated_closed_order_window')
+                middle = (lo + hi) / 2
+                require(lo < middle < hi, 'closed_window_cannot_progress')
+                window(lo, middle)
+                window(middle, hi)
+            else:
+                for row in rows:
+                    require(isinstance(row, dict) and row.get('uuid'), 'invalid_closed_order_row')
+                    out[row['uuid']] = row
+        lo = start
+        while lo < end:
+            hi = min(end, lo + 7 * 86400)
+            window(lo, hi)
+            lo = hi
+        return list(out.values())
+
+
+
+PUBLICCONFIRMINGCODE v5/live.py
+    def raw_loss(self, prices):
+        return -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
+
+    def resume_buying(self, prices, reason='사용자 지시'):
+        """중단 해제. 지금까지의 손실을 기준(offset)으로 옮겨 손실 집계를 지금부터 다시 쌓는다(과거 손실은 장부에 남는다)."""
+        if self.missing_valuations(prices):
+            return False, '보유분 가격이 없어 손실 기준을 정할 수 없음'
+        was = self.d['halted']
+        offset = self.raw_loss(prices)
+        self.d['risk_loss_offset'] = offset
+        self.d['risk_day'] = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
+        self.d['halted'] = ''
+        self.save()
+        self.record({'event': '신규 매수 재개', 'reason': reason, 'loss_offset': offset, 'was_halted': was})
+        self.share(f'신규 매수 재개({reason}). 손실 집계 기준을 {offset:,.0f}원으로 옮김. 직전 중단: {was or "없음"}')
+        return True, f'재개: 손실 기준 {offset:,.0f}원'
+
+    def check_resume_request(self, prices):
+        """data/live/RESUME_BUY 파일이 있으면 수동 재개 요청으로 처리한다(tools/resume_trading.py가 만든다)."""
+        f = self.folder / 'RESUME_BUY'
+        if not f.exists():
+            return None
+        try:
+            reason = (f.read_text(encoding='utf-8').strip() or '사용자 지시')[:100]
+        except Exception:
+            reason = '사용자 지시'
+        ok, msg = self.resume_buying(prices, '수동 재개: ' + reason)
+        if ok:
+            f.unlink()
+        return msg
+
+    def check_loss(self, prices):
+        missing = self.missing_valuations(prices)
+        if missing:
+            if self.d.get('valuation_incomplete') != missing:
+                self.record({'event': '손익 평가 보류', 'markets': missing,
+                             'reason': '일부 보유분 가격 누락·무효: 손익을 0으로 간주하지 않음'})
+            self.d['valuation_incomplete'] = missing
+            return None
+        self.d.pop('valuation_incomplete', None)
+        if self.cfg.get('loss_daily'):
+            today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
+            if self.d.get('risk_day') != today:
+                was = self.d['halted']
+                self.d['risk_day'] = today
+                self.d['risk_loss_offset'] = self.raw_loss(prices)
+                self.d['halted'] = ''
+                self.save()
+                self.record({'event': '손실 집계 하루 단위 시작', 'day': today, 'loss_offset': self.d['risk_loss_offset'], 'was_halted': was})
+                if was:
+                    self.share(f'새 날 시작: 손실 집계를 다시 시작하고 신규 매수를 재개함. 직전 중단: {was}')
+        loss = self.raw_loss(prices) - self.d.get('risk_loss_offset', 0.)
+        limit = self.loss_limit(prices)
+        if loss >= limit and not self.d['halted']:
+            pct = float(self.cfg.get('loss_stop_pct') or 0)
+            self.d['halted'] = f'{now_iso()} 실거래 누적 손실 {loss:,.0f}원 ≥ 중단선 {limit:,.0f}원' + (f'(기준 총자산의 {pct:.2%})' if pct > 0 else '')
+            self.save()
+            self.record({'event': '신규 매수 중단', 'reason': self.d['halted']})
+            self.share(f'손실 중단선 도달로 신규 매수를 중단함. {self.d["halted"]}. 기존 실거래 보유의 손절 감시는 계속. 사용자 검토 필요.')
+        return loss
+

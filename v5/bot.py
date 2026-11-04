@@ -16,7 +16,10 @@ import traceback
 
 import manual_orders
 import position_popup
+import protection_panel
 import strategy as st
+import rotation_policy as rotation
+import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
 from live import Live
@@ -168,10 +171,27 @@ class Bot:
 
     def apply(self, name, lg, ranked, entry_ok, end, bars, uni):
         d = lg.d
+        if rotation.enabled(self.p):
+            floor = d.setdefault('rotation_first_slot', rotation.slot(time.time()))
+            prior = max(floor, d.get('rotation_last_slot', floor))
+            d['ranking'] = ranked[:15]
+            d['ranking_time'] = utc(end).astimezone(KST).isoformat(timespec='minutes')
+            if end % rotation.HOUR or end <= prior:
+                d['last_4h'] = end
+                lg.save()
+                return
+            d['rotation_last_slot'] = end
+            d['last_4h'] = end
+            lg.save()  # claim before any paper fill; crash skips this slot
         held = list(d['positions'])
         now = time.time()
         d['banned'] = {m: t for m, t in d['banned'].items() if t > now}
         sells, buys, unknown = st.plan(ranked, held, set(d['banned']), entry_ok, self.p)
+        if rotation.enabled(self.p):
+            index = st.market_index({m:b for m,b in bars.items() if m in uni}, self.p.regime_bars, self.p.regime_min_markets) if self.p.regime_filter else None
+            expired = self.p.regime_filter and self.p.regime_expires and now >= self.p.regime_expires
+            if self.p.halt_new_buys or expired or (self.p.regime_filter and (type(index) not in (int,float) or not math.isfinite(index) or index <= 0)):
+                buys = []
         d['ranking'] = ranked[:15]
         d['ranking_time'] = utc(end).astimezone(KST).isoformat(timespec='minutes')
         log = lambda msg: (lg.event(msg), print(f'[{now_iso()}] {name} {msg}', flush=True))
@@ -265,7 +285,11 @@ class Bot:
                      for o in orders) or '<li class=muted>아직 새 체결 없음 · 현재 전략의 새 주문안을 대기 중</li>'
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])}</div>" if L['halted'] else ''
         adoption = '<div class=sub>기존 보유분 포함 계좌 인수 운용 · 과거 장부 복원이 아닌 새 기준 · 손익 한도는 인수 후 변동 기준 · 손절가는 인수 시 재산정</div>' if L.get('account_adoption') else ''
+        protected = self.live.protected_markets()
+        protection = ('<div class=warn><b>사용자 보호 종목: ' + e(', '.join(sorted(m[4:] for m in protected)))
+                      + '</b> · 자동 매수·매도·손절·익절 및 봇 화면 주문 제외 · 거래소 직접 주문은 유지</div>') if protected else ''
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{halt}{adoption}
+{protection}
 <div class=sub>한도: 1건 {c['max_order_krw']:,}원 · 누적 매수 {L['bought_krw']:,.0f} / {c['max_total_buy_krw']:,}원 · 1회 매도 {c['max_sell_krw_per_plan']:,}원</div>
 <div class=sub><b>손실 중단선</b>: 누적 손실 <b class="{'dn' if loss > 0 else 'up'}">{max(loss, 0):,.0f}원</b> / 중단선 {self.live.loss_limit(prices):,.0f}원{(' (총자산의 ' + format(float(c.get('loss_stop_pct') or 0), '.2%') + ')') if float(c.get('loss_stop_pct') or 0) > 0 else ''} · 남은 여유 {max(self.live.loss_limit(prices) - loss, 0):,.0f}원 · 현재 손익 {-loss:+,.0f}원{' · 재개: python tools/resume_trading.py' if L['halted'] else ''}</div>
 <div class=cols><div><h3>봇 실거래 보유 <label class=sub style="font-weight:400"><input type=checkbox id=hideDust2 onchange="document.documentElement.classList.toggle('hd',this.checked);try{{localStorage.setItem('hideDust',this.checked?'1':'0')}}catch(e){{}}"> 소액(5,000원 미만) 숨기기</label></h3><table><tr><th>코인</th><th class=n>수량</th><th class=n>매수금액</th><th class=n>평가액</th><th class=n>손절가</th></tr>{rows}</table></div>
@@ -317,8 +341,9 @@ class Bot:
         tr_rows = ''.join(
             f"<tr><td>{e(t['time'][5:16].replace('T', ' '))}</td><td>{e(t['side'])}</td><td>{e(t['market'][4:])}</td>"
             f"<td class=n>{t['amount']:,}</td><td>{e(t.get('reason', ''))}</td>"
-            f"<td class='n {'up' if t.get('pnl', 0) >= 0 else 'dn'}'>{(format(t['pnl'], '+,') + '원') if 'pnl' in t else ''}</td></tr>"
-            for t in trades) or '<tr><td colspan=6 class=muted>아직 거래 없음</td></tr>'
+            f"<td class='n {'up' if t.get('pnl', 0) >= 0 else 'dn'}'>{(format(t['pnl'], '+,') + '원') if 'pnl' in t else ''}</td>"
+            f"<td class=n>{(format(t['pnl_pct'], '+.2f') + '%') if 'pnl_pct' in t else ''}</td></tr>"
+            for t in trades) or '<tr><td colspan=7 class=muted>아직 거래 없음</td></tr>'
         return f"""<section><h2 class=lg>{e(title)}</h2>
 <div class=tiles>
 <div class=tile><h2>전략 순자산 (모의)</h2><b>{P:,.0f}원</b><span class="{'up' if pr >= 0 else 'dn'}">{pr*100:+.2f}%</span> <span class=muted>배정 {d['A0']:,}원</span></div>
@@ -327,7 +352,7 @@ class Bot:
 <div class=tile><h2>매수 신호 · 최소주문 미달</h2><b>{sig} · {skip}</b><span class=muted>건너뜀 비율 {(skip/sig*100 if sig else 0):.0f}%</span></div>
 </div>
 <div class=cols><div><h3>보유 종목</h3><table><tr><th>종목</th><th class=n>평가액</th><th class=n>진입가</th><th class=n>현재가</th><th class=n>손절가</th><th class=n>손익</th></tr>{pos_rows}</table></div>
-<div><h3>최근 거래</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th></tr>{tr_rows}</table></div></div></section>"""
+<div><h3>최근 모의거래 (실제 주문 아님)</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th><th class=n>손익률</th></tr>{tr_rows}</table></div></div></section>"""
 
     def held_markets(self, prices):
         """평가 5,000원 이상 보유 종목(실제 계좌 + 봇 관리 장부)."""
@@ -397,7 +422,8 @@ class Bot:
         # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
-        blocks = self.real_block(prices) + self.pnl_block() + self.live_block(prices) + \
+        protection_top=protection_panel.render(self.live,((self.real or {}).get('coins') or {}),self.protection_action())
+        blocks = protection_top + self.real_block(prices) + self.pnl_block() + self.live_block(prices) + \
             '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
@@ -432,7 +458,23 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>
 </main></html>"""
-        (DATA / 'status.html').write_text(page, encoding='utf-8')
+        # Browsers/antivirus may briefly hold the destination on Windows.
+        # Keep the last good page; a display write must not suspend protection.
+        temporary = DATA / f'status.{os.getpid()}.tmp'
+        try:
+            temporary.write_text(page, encoding='utf-8')
+            for attempt in range(5):
+                try:
+                    os.replace(temporary, DATA / 'status.html')
+                    break
+                except OSError:
+                    if attempt == 4: raise
+                    time.sleep(.2)
+        except OSError as ex:
+            self.log('현황 화면 저장 대기: ' + type(ex).__name__)
+        finally:
+            try: temporary.unlink(missing_ok=True)
+            except OSError: pass
 
     # ---------- 반복 ----------
     def run(self):
@@ -442,11 +484,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             self.init_t0()
         self.align_timeframe(time.time())
         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
-        last_snap = last_stop = last_live = last_display = 0
+        last_snap = last_stop = last_live = last_display = last_trail = last_manual_scan = 0
+        stop_iv = min(self.p.stop_seconds, 10) if self.live.cfg['enabled'] and self.live.cfg.get('profit_guard_enabled') is True else self.p.stop_seconds
         self.manual_server = None
-        if self.live.cfg['enabled'] and self.live.cfg.get('manual_ui'):
-            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT))
-            if srv.start():
+        if self.live.cfg['enabled'] and (self.live.cfg.get('manual_ui') or self.live.cfg.get('protection_ui')):
+            kinds=set()
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
+            if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
+            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
+            started=srv.start()
+            if not started and self.live.cfg.get('protection_ui'):
+                srv=manual_orders.ManualOrderServer(0,allowed_kinds=kinds)
+                started=srv.start()
+            if started:
                 self.manual_server = srv
                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
             else:
@@ -458,14 +508,22 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 break
             now = time.time()
             try:
+                if self.live.cfg.get('auto_manual_protection') and now-last_manual_scan>=15:
+                    try: self.live.scan_manual_orders()
+                    except Exception as ex: self.log('직접 주문 보호 확인 대기: '+type(ex).__name__)
+                    last_manual_scan=now
                 self.handle_manual_requests()
+                if getattr(self,'_protection_ui_dirty',False):
+                    last_display=0; self._protection_ui_dirty=False
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
-                if held and now - last_stop >= self.p.stop_seconds:
+                if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
-                    self.live.trail_check()
-                    self.live.stop_check(live)
+                    self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
+                    if now - last_trail >= self.p.stop_seconds:
+                        self.live.trail_check()
+                        last_trail = now
                     self.live.check_resume_request(live)
                     self.live.check_loss(live)
                     for lg in self.ledgers.values():
@@ -502,7 +560,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 traceback.print_exc()
                 last_snap = 0 if now - last_snap >= 300 else last_snap
                 time.sleep(30)
-            time.sleep(10)
+            time.sleep(2)
         if self.manual_server:
             self.manual_server.stop()
         self.log('중지.txt 확인 · 봇 종료')
@@ -511,7 +569,11 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         """화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."""
         srv = getattr(self, 'manual_server', None)
         cap = min(self.live.cfg.get('manual_buy_max_krw', 100000), self.live.cfg['max_order_krw'])
-        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv else None
+        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv and self.live.cfg.get('manual_ui') else None
+
+    def protection_action(self):
+        srv=getattr(self,'manual_server',None)
+        return {'port':srv.port,'token':srv.token} if srv and self.live.cfg.get('protection_ui') else None
 
     def handle_manual_requests(self):
         """화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."""
@@ -520,13 +582,24 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             return
         for req in srv.drain():
             try:
-                if req.kind == 'buy':
+                if req.kind in ('protect','unprotect'):
+                    ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
+                    label='사용자 보호 선택'; self._protection_ui_dirty=True
+                elif req.kind == 'buy':
                     ok, msg = self.live.add_to_position(req.market, req.krw, self.markets or upbit.krw_markets())
                     label = f'수동 추가 매수 {req.krw:,}원'
-                else:
+                    if self.live.cfg.get('auto_manual_protection'):
+                        self.live.protection_policy.decide(req.market,True)
+                        self._protection_ui_dirty=True
+                elif req.kind=='liquidate':
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     ok, msg = self.live.liquidate_position(req.market, prices)
                     label = '수동 강제 청산'
+                    if self.live.cfg.get('auto_manual_protection'):
+                        self.live.protection_policy.decide(req.market,True)
+                        self._protection_ui_dirty=True
+                else:
+                    req.finish(False,'허용되지 않은 요청'); continue
                 req.finish(ok, msg)
                 self.log(f'{label} {req.market}: {"성공" if ok else "보류"} · {msg}')
             except SessionLost as ex:

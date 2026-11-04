@@ -1,0 +1,48 @@
+"""One tools-disabled Claude call using only the named, inspectable prompt."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent
+ALLOWED = {'claude-review-request-2026-11-02.txt', 'claude-review-followup-2026-11-02.txt',
+           'chase-entry-review-2026-11-02.txt', 'chase-entry-followup-2026-11-02.txt',
+           'loss-fix-review-2026-11-03.txt', 'loss-fix-review-v2-2026-11-03.txt',
+           'loss-fix-followup-2026-11-03.txt', 'home-continuity-review-2026-11-03.txt',
+           'home-recovery-final-review-2026-11-03.txt', 'home-recovery-followup-2026-11-03.txt',
+           'manual-protection-plan-2026-11-03.txt', 'manual-protection-review-2026-11-03.txt',
+           'manual-protection-followup-2026-11-03.txt', 'trade-review-2026-11-03.txt',
+           'manual-protection-final-2026-11-03.txt',
+           'manual-protection-test-correction-2026-11-03.txt','manual-protection-f4-2026-11-03.txt',
+           'manual-protection-f4-full-2026-11-03.txt','trade-review-followup-2026-11-03.txt',
+           'manual-always-protect-author-2026-11-03.txt',
+           'current-manual-scope-plan-2026-11-03.txt','current-manual-scope-review-2026-11-03.txt',
+           'current-manual-scope-followup-2026-11-03.txt','current-manual-scope-agreement-2026-11-03.txt'}
+name = sys.argv[1]
+DEFERRED_ALLOWED={f'current-manual-scope-deferred-2026-11-04-attempt-{n:02d}.txt' for n in range(1,7)}
+if name not in ALLOWED|DEFERRED_ALLOWED:
+    raise SystemExit('Unknown review prompt')
+prompt = (ROOT / name).read_text(encoding='utf-8')
+base = ROOT / Path(name).stem
+if base.with_suffix('.response.json').exists():
+    raise SystemExit('Existing response is preserved; use a new dated review instead.')
+cli = max((Path.home() / '.vscode/extensions').glob(
+    'anthropic.claude-code-*/resources/native-binary/claude.exe'), key=lambda p: p.stat().st_mtime)
+env = os.environ.copy()
+for key in list(env):
+    if key.upper() in {'UPBIT_ACCESS_KEY', 'UPBIT_SECRET_KEY', 'OPENAI_API_KEY',
+                       'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
+                       'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'CLAUDECODE'}:
+        env.pop(key)
+env['PYTHONIOENCODING'] = 'utf-8'
+args = [str(cli), '-p', '--safe-mode', '--tools', '', '--strict-mcp-config',
+        '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
+        '--output-format', 'json', '--permission-prompts', 'none']
+result = subprocess.run(args, input=prompt.encode('utf-8'), capture_output=True,
+                        cwd=ROOT, env=env, timeout=600,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+base.with_suffix('.response.json').write_bytes(result.stdout)
+base.with_suffix('.stderr.log').write_bytes(result.stderr)
+print('exit_code=' + str(result.returncode))
+print('response_file=' + base.with_suffix('.response.json').name)
+raise SystemExit(result.returncode)

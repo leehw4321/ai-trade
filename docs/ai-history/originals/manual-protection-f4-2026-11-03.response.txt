@@ -1,0 +1,21 @@
+**Verdict: I can't approve these two hashes, and I'm not giving deployment sign-off on this basis.**
+
+**Why**
+
+- **I couldn't find the files.** I searched the repo, `v5-app/`, and the user profile. Neither `manual_protection.py` nor `test_auto_protection.py` is in this workspace. So I couldn't compute either SHA256 or read the patch and the regression test.
+- **The earlier "approval" isn't a memory I can rely on.** I don't carry state between sessions. The saved review files are the only record, and I couldn't find the patch text quoted as "your exact patch" in them. I can't confirm where it came from.
+- **A hash is only meaningful if the reviewer read the content.** Approving a hash I've never opened, based on a summary, would just restate your claim as if I'd checked it.
+
+**On the F4 logic as quoted** (conceptual only, not verified against the real file):
+
+The approach makes sense: fill tracked markets with zero rows when the account row is missing, before bootstrap. Please check these points when you or I look at the actual file:
+
+1. `normalize()` is applied to the `positions` keys but not to the `bootstrap` keys. If bootstrap keys can be un-normalized, you could get duplicate or mismatched markets.
+2. When `market` is passed but isn't tracked, it gets a zero row anyway. Confirm downstream code treats that as "no holdings," not as a protect or exit trigger.
+3. A zero row must not be mistaken for a quote or API outage, or the reverse. The outage-logging path from b363497 should still fire when the account API itself fails, not get masked by synthetic zeros.
+
+**On deployment**
+
+Whether to deploy is your decision, not something I can authorize, and it shouldn't rest on a reviewer attestation you can't verify. `BOT_DISABLED` is also present at the repo root. Removing it should be a deliberate step by you, not a side effect of this review.
+
+**If you want a real review:** copy `manual_protection.py` and `test_auto_protection.py` (and the asset/apply files if they're relevant) into this workspace, or give me their path. I'll hash them, read the F4 block and the regression test, and give a concrete approve or reject.

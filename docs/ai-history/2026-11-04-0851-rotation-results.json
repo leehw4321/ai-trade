@@ -1,0 +1,97 @@
+{
+  "observed_at": "2026-11-04T08:51:28+09:00",
+  "since": "2026-11-04T08:41:00+09:00",
+  "buy_fill_rows": 0,
+  "sell_fill_rows": 0,
+  "realized_change_since_stopped_checkpoint": 0.0,
+  "new_audit_fill_rows": 0,
+  "rotation_state": {
+    "floor_slot": 1793746800,
+    "last_slot": -1,
+    "net_realized": 0.0,
+    "paused": ""
+  },
+  "current_bot_book_positions": [
+    {
+      "market": "KRW-BIRB",
+      "cost": 1.1800002539530396e-06,
+      "mark_value": 1.0800008567457553e-06,
+      "estimated_net_mark_pnl": -1.0053939763565715e-07,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-GTC",
+      "cost": 24.364388100000003,
+      "mark_value": 20.417085,
+      "estimated_net_mark_pnl": -3.957511642500002,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-SUI",
+      "cost": 1888.9933800000001,
+      "mark_value": 2285.6819898,
+      "estimated_net_mark_pnl": 395.5457688050999,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-PIEVERSE",
+      "cost": 1.5621117199771106e-05,
+      "mark_value": 1.5730001301506036e-05,
+      "estimated_net_mark_pnl": 1.0101910108417655e-07,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-AXIS",
+      "cost": 77038.49999823913,
+      "mark_value": 77418.4782591,
+      "estimated_net_mark_pnl": 341.2690217313211,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-FLOCK",
+      "cost": 77038.4999995798,
+      "mark_value": 76999.99999957999,
+      "estimated_net_mark_pnl": -76.99999999959255,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-BMT",
+      "cost": 77038.49999974987,
+      "mark_value": 78952.1126758,
+      "estimated_net_mark_pnl": 1874.1366197122406,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-PEPE",
+      "cost": 77038.49999999996,
+      "mark_value": 76766.66666666663,
+      "estimated_net_mark_pnl": -310.2166666666599,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    },
+    {
+      "market": "KRW-ETH",
+      "cost": 38018.98215108,
+      "mark_value": 37864.57568,
+      "estimated_net_mark_pnl": -173.33875891999924,
+      "new_position_since_rollout": false,
+      "includes_pre_rollout_inventory": true
+    }
+  ],
+  "quote_error": null,
+  "current_bot_book_net_mark_pnl_estimate": 2046.4384730203897,
+  "limits": [
+    "Current mark PnL includes pre-rollout inventory; it is not the new policy performance.",
+    "Sell-fee estimate 0.05% uses public ticker; executable depth/slippage are not guaranteed.",
+    "Local log times are not verified exchange fill times.",
+    "No new trades means no profitability evidence; no account-wide ROI claim."
+  ],
+  "profitability_verdict": "insufficient_evidence"
+}

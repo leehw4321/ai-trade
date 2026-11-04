@@ -1,0 +1,80 @@
+"""Record the bounded deferred-review result; publish only whitelisted source/docs."""
+from pathlib import Path
+import argparse,datetime as dt,hashlib,json,re,subprocess,sys
+WORK=Path(__file__).resolve().parents[1];REPO=WORK.parent/'ai-trade';STAGE=WORK/'private_handoff/current-manual';FOLDER=STAGE/'deferred';APP=WORK/'v5-app/v5'
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--approved-request',type=Path)
+    parser.add_argument('--status',default='applied');args=parser.parse_args()
+    job=json.loads((FOLDER/'job.json').read_text(encoding='utf-8'))
+    now=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds')
+    status=args.status;paths=[];receipt={}
+    if args.approved_request:
+        request=args.approved_request.resolve()
+        if request.parent!=(WORK/'docs/ai-history').resolve() or not request.name.startswith('current-manual-scope-deferred-2026-11-04-attempt-'):raise RuntimeError('Wrong review source')
+        outer=json.loads(request.with_suffix('.response.json').read_text(encoding='utf-8'))
+        from deferred_scope_apply import approved_review
+        if approved_review(outer,job['approval_hashes']) is None:
+            raise RuntimeError('Actual exact-hash approval missing')
+        for rel,sha in job['candidate_hashes'].items():
+            if hashlib.sha256((REPO/rel).read_bytes()).hexdigest()!=sha:raise RuntimeError('Source no longer equals approved hash')
+        text=(APP/'data/status.html').read_text(encoding='utf-8')
+        payload=json.loads(re.search(r'<script type="application/json" id="ap-data">(.*?)</script>',text,re.S)[1])
+        if payload['health'].get('scope_mode')!='current_manual_over_5000' or payload['health'].get('error'):raise RuntimeError('Live scope health not verified')
+        active=sorted(m for m,r in payload['rows'].items() if r['protected'])
+        receipt={'at':now,'status':'applied','active_protected':active,'approved_sha256':job['approval_hashes'],
+            'review_request':request.name,'tests':'full isolated V5/tools passed at frozen hashes before deployment'}
+        for suffix,content in [('request',request.read_text(encoding='utf-8')),('response',outer['result'])]:
+            rel='docs/ai-history/originals/'+request.stem+'.'+suffix+'.txt'
+            target=REPO/rel
+            if target.exists() and target.read_text(encoding='utf-8')!=content:raise RuntimeError('Original already exists with different content')
+            target.write_text(content,encoding='utf-8');paths.append(rel)
+        paths+=list(job['candidate_hashes'])
+        message='실제 Claude의 정확한 해시 승인 후 정상종료·백업·적용·재시작·현재계좌/시세/상단 UI 헬스 검증 완료. 현재 보호 종목: '+(', '.join(active) or '없음')
+    else:
+        if status=='applied':raise RuntimeError('Cannot record application without actual approved request')
+        private=json.loads((FOLDER/'state.json').read_text(encoding='utf-8'))
+        receipt={'at':now,'status':status,'private_state':str((FOLDER/'state.json').relative_to(WORK)),
+            'reason':private.get('error') or private.get('response_file') or '외부 검토 또는 검증 조건 미충족'}
+        message=('새 자동 기준의 배포 완료를 확인하지 못했음. 실제 상태 재조회 필요. ' if status=='stopped_requires_review' else '새 자동 기준은 배포하지 않았음. ')+receipt['reason']
+        response_name=private.get('response_file')
+        if response_name and Path(response_name).name==response_name and response_name.startswith('current-manual-scope-deferred-2026-11-04-attempt-') and response_name.endswith('.response.json'):
+            response_path=WORK/'docs/ai-history'/response_name
+            request_path=response_path.with_name(response_path.name.removesuffix('.response.json')+'.txt')
+            if response_path.exists() and request_path.exists():
+                outer=json.loads(response_path.read_text(encoding='utf-8'))
+                for suffix,content in [('request',request_path.read_text(encoding='utf-8')),('response',str(outer.get('result','')))]:
+                    rel='docs/ai-history/originals/'+request_path.stem+'.'+suffix+'.txt'
+                    target=REPO/rel
+                    if target.exists() and target.read_text(encoding='utf-8')!=content:raise RuntimeError('Review original conflict')
+                    target.write_text(content,encoding='utf-8');paths.append(rel)
+    pending=REPO/'docs/ai-history/current-manual-scope-pending.json'
+    pending.write_text(json.dumps(receipt,ensure_ascii=False,indent=2),encoding='utf-8')
+    paths.append(pending.relative_to(REPO).as_posix())
+    note=f'\n\n## {now} 현재 직접 보유·5,000원 초과 보호 — 예약 검토 결과\n- {message}\n- 기준: 현재 보유와 봇 장부의 차이 중 직접 체결 근거로 확인된 부분만 보호, 5,000원 이하/미보유/봇 잔량/과거 거래만 있는 종목은 제외. 기존 매매 파라미터·손실 기초/offset/실행권은 유지. 검토 실패는 합의로 기록하지 않음.\n'
+    for rel in ('HANDOFF.md','docs/ai-history/2026-11-04.md','docs/ai-history/집에서_이어서_2026-11-03.md','debate_tools/공유_근거자료.md'):
+        with (REPO/rel).open('a',encoding='utf-8') as file:file.write(note)
+        paths.append(rel)
+    if args.approved_request:
+        for rel in ('AGENTS.md','CLAUDE.md','docs/ai-history/permissions.md'):
+            with (REPO/rel).open('a',encoding='utf-8') as file:file.write(note)
+            paths.append(rel)
+    if args.approved_request:
+        ledger_path=REPO/'docs/ai-history/cross-review-ledger.json';ledger=json.loads(ledger_path.read_text(encoding='utf-8'))
+        ledger['items'].append({'issue':'current-manual-over-5000','author':'ChatGPT','reviewer':'Claude','status':'approved_hash_verified_deployed',
+            'approved_hashes':job['approval_hashes'],'review_original':args.approved_request.stem+'.response.txt'})
+        ledger.update(updated_kst=now,previous_author='ChatGPT',next_author='Claude',next_reviewer='ChatGPT')
+        ledger_path.write_text(json.dumps(ledger,ensure_ascii=False,indent=2),encoding='utf-8');paths.append(ledger_path.relative_to(REPO).as_posix())
+    sys.path.insert(0,str(REPO/'tools'));import ai_session
+    if ai_session.scan([REPO/rel for rel in paths]):raise RuntimeError('Selected files failed secret scan')
+    def git(*arguments):return subprocess.run(['git',*arguments],cwd=REPO,capture_output=True,text=True,encoding='utf-8',check=True).stdout
+    if git('remote','get-url','origin').strip()!='https://github.com/leehw4321/ai-trade.git' or git('branch','--show-current').strip()!='main':raise RuntimeError('Wrong Git destination')
+    if git('diff','--cached','--name-only').strip():raise RuntimeError('Unrelated staged changes; result kept locally')
+    git('add','--',*paths)
+    git('diff','--cached','--check','--',*[p for p in paths if '/originals/' not in p])
+    git('commit','-m','Apply current manual holding protection after exact-hash peer review' if args.approved_request else 'Record deferred protection review status')
+    git('push','origin','main')
+
+
+if __name__=='__main__':main()

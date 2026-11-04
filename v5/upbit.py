@@ -43,6 +43,37 @@ def _get(path, params=None, headers=None, retries=3):
             time.sleep(1 + attempt)
 
 
+def market_warning_details(row):
+    """Split Upbit warning metadata; 'warning' keeps the original combined formula.
+
+    Non-dict market_event raises ValueError. Non-dict caution keeps warning=True when
+    the warning flag or legacy CAUTION is set; otherwise raises ValueError (state unknown).
+    """
+    labels = {'PRICE_FLUCTUATIONS': '가격 급등락', 'TRADING_VOLUME_SOARING': '거래량 급증',
+              'DEPOSIT_AMOUNT_SOARING': '입금량 급증', 'GLOBAL_PRICE_DIFFERENCES': '가격 차이',
+              'CONCENTRATION_OF_SMALL_ACCOUNTS': '소수 계정 집중'}
+    ev = row.get('market_event')
+    if ev is None:
+        ev = {}
+    elif not isinstance(ev, dict):
+        raise ValueError(f'market_event 형식 불명: {type(ev).__name__}')
+    investment = bool(ev.get('warning')) or row.get('market_warning') == 'CAUTION'
+    caution = ev.get('caution')
+    if caution is None:
+        caution = {}
+    elif not isinstance(caution, dict):
+        if not investment:
+            raise ValueError(f'caution 형식 불명, 경보 여부 판정 불가: {type(caution).__name__}')
+        return {'warning': True, 'investment_warning': True, 'caution_types': [],
+                'warning_reasons': ['투자유의', '경보상세 형식 불명'], 'caution_severity': 'unknown'}
+    warned = bool(ev.get('warning')) or any(caution.values()) or row.get('market_warning') == 'CAUTION'
+    # Upbit API does not expose the 주의/경고/위험 stage, so severity is only unknown/none.
+    types = sorted(k for k, v in caution.items() if v)
+    reasons = (['투자유의'] if investment else []) + [labels.get(k, k) for k in types]
+    return {'warning': warned, 'investment_warning': investment, 'caution_types': types,
+            'warning_reasons': reasons, 'caution_severity': 'unknown' if types else 'none'}
+
+
 def krw_markets():
     """KRW markets with a warning flag (투자유의 또는 주의 항목)."""
     rows = _get('/v1/market/all', {'is_details': 'true'})
@@ -50,9 +81,7 @@ def krw_markets():
     for r in rows:
         if not r['market'].startswith('KRW-'):
             continue
-        ev = r.get('market_event') or {}
-        warned = bool(ev.get('warning')) or any((ev.get('caution') or {}).values()) or r.get('market_warning') == 'CAUTION'
-        out[r['market']] = {'name': r.get('korean_name', ''), 'warning': warned}
+        out[r['market']] = {'name': r.get('korean_name', ''), **market_warning_details(r)}
     return out
 
 

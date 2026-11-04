@@ -1,0 +1,116 @@
+# Design review: switching to current-manual-only protection
+
+I agree with the scope: protect only manual holdings you **currently** hold, worth **more than 5000 KRW**, in markets that have a **KRW quote**. With that scope, DOGE is the only market protected today. One clarification: below-minimum dust stays unsellable by the bot. Removing protection from dust does not let the bot sell it.
+
+My main challenge is the bootstrap mechanism. I propose a simpler approach based on evidence the bot already has.
+
+## 1. Replace 7-day replay with a ledger residual (main recommendation)
+
+The plan reconstructs ownership by replaying 7 days of orders sorted by `created_at`. That approach has four problems:
+- **Fill order is wrong.** Partial fills don't happen in `created_at` order.
+- **The window has gaps.** The closed-order window and paging may be incomplete. The current code only checks `len<1000` and has no time bound.
+- **It adds a second ledger.** Persisting per-owner quantities creates a parallel ledger that can drift from `state.positions`.
+- **It still can't explain deposits.** The plan admits unknown quantity remains.
+
+**Simpler rule:** `manual_qty = total(balance+locked) − bot_ledger_qty`.
+
+- Count `bot_ledger_qty` even when the position is inherited. The `inherited` flag should affect the label, not the ownership math.
+- `manual_value = manual_qty × fresh trade_price`, computed in `Decimal`.
+- A market is eligible only if `manual_value > 5000`. Exactly 5000 is excluded.
+
+Applied to today's snapshot:
+
+| Market | Total | Bot ledger | Manual value | Result |
+|---|---|---|---|---|
+| DOGE | 5010 | 0 | ~506k | **protected** |
+| CAP | 950.46 | 950.46 | 0 | not protected |
+| AXIS | 510.87 | 510.87 | 0 | not protected |
+| GTC, SUI, BIRB | equal to ledger | equal to ledger | 0 | not protected |
+| DKA, TRUST | 1e-8 | 0 | ≈0 | not protected (≤5000) |
+| APENFT, SOLO, XCORE | — | — | no quote | excluded |
+| BTC | 0 | 0 | 0 | not protected |
+
+This matches your snapshot exactly and needs no history replay. The order history is still useful, but only for:
+- **(a) Labeling:** "직접 거래" if fills explain the residual, otherwise "출처 미확인".
+- **(b) Triggering re-protection:** a new manual fill that increases the residual.
+
+Persisting owner quantities across the API window is no longer needed. The bot ledger is the persistent record. A current quantity of 0 automatically means no manual quantity, so a later bot buy cannot inherit an old manual tag.
+
+**Edge case — negative residual.** If `total < bot_ledger_qty`, the user sold the bot's coins, or the ledger is stale. In that case, fail closed for that market: block bot orders and require reconciliation. Never clamp the residual silently.
+
+## 2. Defect: unknown origin must not be unprotected
+
+The plan says "unknown initial qty does NOT automatically mean manual." That contradicts the fail-closed principle.
+
+A residual worth more than 5000 KRW that the bot cannot explain is not the bot's to trade. It should be protected, labeled "출처 미확인", and come with a release question.
+
+This narrows what is protected, not widens it, because ≤5000 KRW is still always excluded. It also matches the user's intent (DOGE is the only such market now). ChatGPT and Claude should agree on this explicitly.
+
+## 3. Defect: archived state still drives protection
+
+In `asset_protection.py`, two things keep old protections alive:
+- `effective()` unions `configured` with `doc['markets']`.
+- `mutate()` writes `effective()` back into `markets`.
+
+So any past BTC protection persists forever. In the new mode:
+
+- **Compute the active set fresh:** `active = eligible_now − {m: released at the current baseline}`.
+- **Ignore inputs as authority:** `configured`, `doc['markets']`, and old `manual`/`bootstrap`/`seen_orders` must not decide protection. Keep them as an archive only.
+- **Stop writing `markets` from `effective()`,** or the archive becomes protection again.
+- **Fix `merge()` the same way,** since it rebuilds `markets` from `effective()`.
+
+## 4. Release and re-ask semantics
+
+- **Bind releases to a quantity baseline.** A release should record the manual quantity at the time of release; the existing `external_quantities` can serve as this baseline. The CAS should check both the revision and that quantity.
+- **Re-ask only when manual quantity increases** above the released baseline by more than EPS.
+- **Price changes must never re-ask.** A move across 5000 changes eligibility only. Otherwise a holding near 5000 would flap and repeatedly ask the user.
+- **Dust exclusion is not a release.** Excluding dust must never write `protected:false` decisions. Agreed.
+
+## 5. Defect: mixed markets block risk exits
+
+In `scan()`, the `effective` check raises before the risk-exit branch. So if a market holds a large manual position plus bot inventory, the bot cannot exit its own position.
+
+**Proposal:** in a protected mixed market, allow risk exits capped at `min(bot_ledger_qty, total − manual_qty_at_baseline)`. Never place new buys. Either way, this needs an explicit decision rather than a side effect.
+
+## 6. Open manual orders
+
+A user's open buy order in a market where you hold nothing creates no holding, so under the new scope it isn't protected. The bot trading that market at the same time could still collide with it.
+
+**Proposal:** treat open manual `wait`/`watch` orders as a temporary block on new bot orders in that market. Don't add them to the protection panel. This is cheap and avoids surprises.
+
+## 7. Failure handling (agreed, with additions)
+
+- If the accounts or ticker GET fails, or the quote is stale, keep the last valid classification and block new submissions. Never use 0 or average cost as the price.
+- Keep risk exits allowed on proven bot-only inventory, using the existing equality path.
+- **Skip classification for markets with pending or risk-pending orders.** Read the ledger and accounts in a consistent order so in-flight fills aren't counted as manual residual.
+- A missing KRW market means: excluded from the panel, no forced sale, no fabricated price.
+- After a restart, block the first submission until a fresh global scan succeeds. Then rescan before each POST. This applies to the same pending-recovery path, and leaves the lease, pending, and loss basis unchanged.
+
+## 8. Deployment and handoff
+
+- Replace the hard BTC/DOGE requirement with a mode-aware health check. It should require:
+  - the mode flag,
+  - fresh `last_global_success`,
+  - a successful quote fetch,
+  - the computed active set.
+- An empty active set is valid.
+- Keep the legacy check when `current_manual_only=False`.
+
+## Tests
+
+Your list is good. I'd add the following:
+
+1. **Fresh-scan cases**
+   - Exactly 5000.000 excluded; 5000.01 included.
+   - Released holding: price changes alone never re-ask; a quantity increase does.
+   - Residual exists but no manual fills → protected as "출처 미확인".
+2. **Negative residual (`total < ledger`)** → fail closed for that market.
+3. **Archive cannot protect**
+   - Legacy `markets`, `configured` BTC, or `decisions` for unheld or dust markets cannot reactivate protection.
+   - `merge()` respects the same rule.
+4. **Mixed DOGE-style manual + bot buy** → whole market protected, and the risk-exit cap follows the agreed rule.
+5. **Inherited dust with ledger = total** → manual 0, not protected.
+6. **Stale or missing quote** → last valid classification kept, submissions blocked, no unprotect.
+7. **Read-only smoke on the live snapshot** → active set = {KRW-DOGE}. APENFT, SOLO, and XCORE absent from the panel.
+
+**Agreement needed before final code review:** §1 (ledger residual instead of replay), §2 (unknown residual over 5000 is protected), and §5 (risk-exit rule in mixed markets).

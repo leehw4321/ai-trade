@@ -1,0 +1,619 @@
+Actual Claude follow-up to MANUAL-PROTECT-v1. Tools disabled; static review only.
+Your previous actual response was conditional approval with G1–G5. We fulfilled/clarify these gates:
+G1 actual GET-only private-policy-copy preview below. Currently bot-overlap BIRB/GTC/SUI are inherited dust, NOT a newly authorized external acquisition. BTC was authorized-external but is already explicitly user-protected. User explicitly instructed: '사용자 직접주문은 보호를 원칙으로 하고 보호를 풀수있는 기능을 봇위에 만들어 추가', plus standing '모든 진행사항 진행여부 묻지마 모두 허용할게'. The latest default-protection request authorizes conservative whole-coin protection for manual/unknown sources over earlier full-account delegation. The host has shown the complete 13-market list and the 3 inherited bot-overlaps to the user in commentary, explaining stop suspension. We will apply that explicit policy with an on-screen release option, without imposing an additional confirmation question. Please accept this interpretation or identify a substantive scope conflict; do not invent missing consent for choices already explicitly authorized.
+G2 real HistoryClient success, all-market done33/cancel21/wait0/watch0, below1000. Existing upbit._auth hashes urllib.parse.urlencode(params) exactly as HistoryClient constructs URL. real JWT-authenticated GET succeeded. No credentials in this packet.
+G3 added real SUBPROCESS contention then hard-kill holder then successful acquisition test, passed. A new protected-market deposit now bumps revision and invalidates old release, with regression test.
+G4 added last_global_success/error into local panel JSON. Deployment requires fresh success afterstart, emptyerror, validatedpolicy, BTC/DOGE protected, live actionport GET/ping200. New narrowly hash-gated deployment helper included. On failure stop NEW process before rollback; keep old version stopped.
+G5 host checked unchanged source: Bot.genericexcept req.finish(False,...); liquidate/add reasons default '수동 강제 청산'/'수동 추가 매수', both route _trade; real['coins'] keys built as 'KRW-'+currency.
+Tests: 310 V5,117 tools,4 debate tests all passed in isolated copy (includes trade-workflow tests but this approval is protection deployment only). Host tests, not Claude execution.
+All previously approved hashes unchanged EXCEPT manual_protection.py,protection_panel.py,test_auto_protection.py; exact current complete changed files below. New deployment helper/test also below. Please give explicit verdict and SHA approval. No other live parameters/risk limits change. Original prior G1-G5 response is preserved.
+
+{"ok": true, "protected_markets": ["KRW-APENFT", "KRW-BIRB", "KRW-BTC", "KRW-DKA", "KRW-DOGE", "KRW-ETH", "KRW-GTC", "KRW-MPLX", "KRW-ONG", "KRW-SOLO", "KRW-SUI", "KRW-XCORE", "KRW-XRP"], "new_questions": ["KRW-BIRB", "KRW-BTC", "KRW-DKA", "KRW-DOGE", "KRW-ETH", "KRW-MPLX", "KRW-ONG", "KRW-XRP"], "seconds": 0.376, "history_counts": {"wait": 0, "watch": 0, "done": 33, "cancel": 21}, "bot_positions_whole_coin_protection": ["KRW-BIRB", "KRW-GTC", "KRW-SUI"], "position_sources": {"KRW-BIRB": "inherited", "KRW-SUI": "inherited", "KRW-GTC": "inherited"}, "runtime_policy_untouched": true}
+
+FILE manual_protection.py SHA256 71c3500e35447fc0a2687fbd9182846c8096005ed682f722c65c4769a5a575e9
+"""Conservative manual-order detection. GET only, never cancels or submits orders."""
+from decimal import Decimal
+import json
+from pathlib import Path
+import time
+import urllib.parse
+import urllib.request
+
+from asset_protection import Policy, ProtectionError, effective, normalize
+
+EPS = Decimal('0.00000001')
+
+
+class HistoryClient:
+    def get(self, path, params):
+        import upbit
+        # Parameters here contain only ASCII market/state/count/page fields.
+        request = urllib.request.Request(upbit.BASE+path+'?'+urllib.parse.urlencode(params),
+            headers=upbit._auth(params))
+        with urllib.request.urlopen(request,timeout=3) as response: return json.load(response)
+
+    def accounts(self):
+        import upbit
+        return upbit.accounts()
+
+    def orders(self, market=None):
+        rows = []
+        for state in ('wait','watch'):
+            page = 1
+            while True:
+                params={'state':state,'limit':100,'page':page}
+                if market: params['market']=market
+                batch=self.get('/v1/orders/open',params)
+                if not isinstance(batch,list): raise ProtectionError('직접 주문 조회 형식 불명')
+                rows += batch
+                if len(batch)<100: break
+                page+=1
+                if page>100: raise ProtectionError('직접 미체결 조회 한도 초과')
+        for state in ('done','cancel'):
+            params={'state':state,'limit':1000,'order_by':'desc'}
+            if market: params['market']=market
+            batch=self.get('/v1/orders/closed',params)
+            if not isinstance(batch,list) or len(batch)>=1000:
+                raise ProtectionError('직접 주문 이력 한도·완전성 확인 필요')
+            rows += batch
+        return rows
+
+
+def user_identifiers(folder):
+    """Bot-screen direct orders retain v5 IDs, so their local reason identifies them."""
+    file=Path(folder)/'orders.jsonl'
+    if not file.exists(): return set()
+    result=set()
+    for line in file.read_text(encoding='utf-8').splitlines():
+        if not line.strip(): continue
+        row=json.loads(line)
+        if str(row.get('reason','')).startswith(('수동','화면')) and row.get('identifier'):
+            result.add(row['identifier'])
+    return result
+
+
+class Detector:
+    def __init__(self, policy, live_folder, client=None, clock=time.time):
+        self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
+        self.good={}
+        self.error=''
+        self.last_global_success=0
+
+    @staticmethod
+    def _inventory(rows):
+        result={}
+        for row in rows:
+            if row.get('currency')=='KRW': continue
+            market=normalize(str(row.get('currency','')))
+            qty,locked=Decimal(str(row['balance']))+Decimal(str(row['locked'])),Decimal(str(row['locked']))
+            if not qty.is_finite() or not locked.is_finite() or qty<0 or locked<0:
+                raise ProtectionError('보유 수량 확인 불가')
+            result[market]=(qty,locked)
+        return result
+
+    @staticmethod
+    def _owned(state,market):
+        pos=state.get('positions',{}).get(market)
+        if not pos: return Decimal(0),False
+        qty=Decimal(str(pos['qty']))
+        known=not pos.get('inherited') and pos.get('acquisition_source')!='explicitly_authorized_external_exchange_fill'
+        return qty,known
+
+    def _bootstrap(self,state,inventory,markets=None):
+        doc=self.policy.read(); result=[]
+        for market,(qty,locked) in inventory.items():
+            if qty<=EPS or markets is not None and market not in markets: continue
+            pending=state.get('pending_order')
+            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
+                continue  # Its own uncertain fills are settled first, never guessed to be manual.
+            owned,known=self._owned(state,market)
+            if not known or qty>owned+EPS or locked>EPS:
+                if market not in doc.get('bootstrap',{}): result.append(market)
+                elif (abs(qty-owned)>EPS or not state.get('positions',{}).get(market)):
+                    previous=doc.get('external_quantities',{}).get(market)
+                    if previous is not None and Decimal(str(previous))==qty: continue
+                    if previous is not None: result.append(market)
+        return result
+
+    def _record_balance_evidence(self,inventory):
+        def change(doc):
+            prior=doc.setdefault('external_quantities',{})
+            for market,(qty,_) in inventory.items():
+                # This is evidence for avoiding repeated bootstrap of an explicitly released holding.
+                if market in doc.get('bootstrap',{}): prior[market]=str(qty)
+        self.policy.mutate(change)
+
+    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
+        market=normalize(market) if market else None
+        try:
+            inventory=self._inventory(self.client.accounts())
+        except Exception:
+            self.error='계좌 확인 불가: 직접 보유 보호 확인 대기'
+            raise ProtectionError(self.error) from None
+        bootstrap=self._bootstrap(state,inventory,{market} if market else None)
+        if bootstrap:
+            doc=self.policy.read()
+            fresh=[m for m in bootstrap if m in doc.get('bootstrap',{})]
+            if fresh:
+                import datetime as dt
+                self.policy.observe([{'uuid':'balance:'+m,'identifier':'external-balance','market':m,
+                    'side':'bid','state':'done','executed_volume':str(inventory[m][0]),'paid_fee':'0',
+                    'created_at':dt.datetime.fromtimestamp(self.clock(),dt.timezone.utc).isoformat()} for m in fresh])
+            self.policy.observe(bootstrap=bootstrap)
+        self._record_balance_evidence(inventory)
+        try:
+            orders=self.client.orders(market)
+            changed=self.policy.observe(orders,user_identifiers=user_identifiers(self.folder))
+            doc=self.policy.read()
+            checked={market} if market else set(inventory)|{normalize(o['market']) for o in orders}
+            for m in checked: self.good[m]={'revision':self.policy.revision(m,doc),'at':self.clock()}
+            self.error=''
+            if market is None:self.last_global_success=self.clock()
+        except Exception:
+            self.error='직접 주문 이력 확인 대기: 신규 주문 보류'
+            # Only already-proven BOT inventory may retain protective exits. Equality is
+            # stricter than <=: a manual partial sale must not expose the remaining quantity.
+            doc=self.policy.read()
+            prior=self.good.get(market)
+            qty,locked=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,known=self._owned(state,market)
+            if (market and risk and prior and known and abs(qty-owned)<=EPS and locked<=EPS
+                    and self.policy.revision(market,doc)==prior['revision']
+                    and market not in effective(doc,self.policy.configured)):
+                return min(float(qty),float(owned),float(amount)) if amount is not None else None
+            raise ProtectionError(self.error) from None
+        if market and not allow_protected and market in effective(doc,self.policy.configured):
+            raise ProtectionError('사용자 직접 주문·보유 기본 보호: 봇 주문 제외')
+        if market and amount is not None and risk:
+            qty,_=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,_=self._owned(state,market)
+            return min(float(qty),float(owned),float(amount))
+        return changed if not market else amount
+
+
+FILE protection_panel.py SHA256 19228db72c2ee7b2310b9d159dff70d2931b277318457c509fa410993255bd27
+"""Protection choices at the top of the local bot dashboard."""
+import html
+import json
+
+
+def render(live, account_markets=(), action=None):
+    if not live.cfg.get('protection_ui'): return ''
+    try:
+        policy=live.protection_policy
+        doc=policy.read(); protected=live.protected_markets()
+    except Exception:
+        return '<section id="asset-protection-board"><h2>사용자 주문 보호</h2><p class="warn">보호 상태 확인 불가 · 새 봇 주문을 보류합니다.</p></section>'
+    markets=sorted(set(account_markets)|set(live.d['positions'])|protected|set(doc.get('manual',{})))
+    e=html.escape
+    rows=[]; data={}
+    pending=[]
+    for market in markets:
+        is_protected=market in protected
+        manual=doc.get('manual',{}).get(market,{})
+        revision=policy.revision(market,doc)
+        data[market]={'protected':is_protected,'revision':revision}
+        name=e(market[4:])
+        button=(f'<button type="button" data-choice="unprotect" data-market="{e(market)}">보호 해제</button>' if is_protected
+                else f'<button type="button" data-choice="protect" data-market="{e(market)}">보호하기</button>')
+        keep=f'<button type="button" data-choice="protect" data-market="{e(market)}">보호 유지</button>'
+        if is_protected and manual.get('pending'):
+            pending.append(f'<div class="ap-pending"><b>{name}</b> 직접 주문/보유 확인 · 보호를 유지할까요? {keep} {button}</div>')
+        rows.append(f'<tr><td><b>{name}</b></td><td>{"보호 중" if is_protected else "봇 관리 허용"}</td><td>{e(str(manual.get("kind") or "사용자 지정")) if is_protected else "다음 봇 판단부터 관리"}</td><td>{button}</td></tr>')
+    inhibited=len(set(live.d['positions'])&protected)
+    warning=f'<p class="warn">봇 장부 보유 {inhibited}개 종목의 매도·손절·익절도 중단됩니다.</p>' if inhibited else ''
+    error=getattr(getattr(live,'_manual_detector',None),'error','')
+    note='<p class="warn">직접 주문 확인 지연 · 새 주문의 출처를 확인 중입니다.</p>' if error else ''
+    health={'checked_at':getattr(getattr(live,'_manual_detector',None),'last_global_success',0),'error':error}
+    payload=json.dumps({'rows':data,'action':action,'health':health},ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
+    return f'''<section id="asset-protection-board"><h2 class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span></h2>
+<p class="sub">직접 주문 종목은 우선 보호합니다. 해제하면 봇 매수·매도·손절·익절을 허용하며, 새 직접 주문을 감지하면 다시 보호합니다.</p>
+{warning}{note}{''.join(pending)}
+<details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details>
+<div id="ap-confirm" hidden><b id="ap-question"></b><p>해제는 즉시 주문을 넣지 않습니다. 다음 봇 판단부터 관리하며, 보호 중에는 봇 손절도 하지 않습니다.</p><button type="button" id="ap-yes">보호 해제 확인</button> <button type="button" id="ap-no">취소</button></div>
+<p id="ap-result" role="status">{'화면에서 보호 유지·해제를 선택할 수 있습니다.' if action else '보호 제어 연결을 기다리고 있습니다. 보호 상태는 유지됩니다.'}</p>
+<script type="application/json" id="ap-data">{payload}</script>
+<style>#asset-protection-board{{border:2px solid var(--acc,#0f6e5c)}}#asset-protection-board p{{line-height:1.6}}#asset-protection-board button{{padding:7px 12px;margin:3px;border:1px solid var(--line,#ddd);border-radius:7px;background:var(--card,#fff);color:inherit;cursor:pointer}}#asset-protection-board button:disabled{{opacity:.5;cursor:wait}}.ap-chip{{font-size:12px;background:#e0f3dc;color:#17212b;padding:4px 9px;border-radius:14px}}.ap-pending{{padding:8px 0;border-bottom:1px solid var(--line,#ddd)}}#ap-confirm{{padding:12px;background:rgba(220,150,30,.1);margin:10px 0}}#ap-confirm[hidden]{{display:none}}</style>
+<script>{SCRIPT}</script></section>'''
+
+
+SCRIPT=r'''(function(){
+const board=document.getElementById('asset-protection-board'),raw=document.getElementById('ap-data');
+if(!board||!raw)return;let D;try{D=JSON.parse(raw.textContent)}catch(e){return}
+const out=document.getElementById('ap-result'),ask=document.getElementById('ap-confirm');let chosen=null,busy=false;
+function clear(){chosen=null;ask.hidden=true;try{sessionStorage.removeItem('protectionAsk')}catch(e){}}
+function choose(m){const r=D.rows[m];if(!r)return;chosen={market:m,revision:r.revision};ask.hidden=false;document.getElementById('ap-question').textContent=m.substring(4)+' 보호를 해제하고 봇 관리를 허용할까요?';try{sessionStorage.setItem('protectionAsk',JSON.stringify(chosen))}catch(e){}}
+async function send(kind,m,rev){
+if(busy)return;if(!D.action){out.textContent='봇의 보호 제어 연결을 확인한 뒤 새로고침하세요.';return}
+busy=true;board.querySelectorAll('button').forEach(b=>b.disabled=true);out.textContent='보호 선택을 적용하고 있습니다.';
+try{const r=await fetch('http://127.0.0.1:'+D.action.port+'/'+kind,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({market:m,token:D.action.token,confirm:true,revision:rev})});const data=await r.json();out.textContent=data.message||'보호 상태를 확인하세요.';if(data.ok){clear();setTimeout(()=>location.reload(),1500)}}catch(e){out.textContent='연결을 확인하고 화면을 새로고침하세요. 보호 해제가 성공했다고 가정하지 않습니다.'}
+finally{busy=false;board.querySelectorAll('button').forEach(b=>b.disabled=false)}
+}
+board.addEventListener('click',function(e){const b=e.target.closest('button[data-choice]');if(!b)return;const m=b.dataset.market;if(!D.rows[m])return;if(b.dataset.choice==='unprotect')choose(m);else send('protect',m,D.rows[m].revision)});
+document.getElementById('ap-no').onclick=clear;
+document.getElementById('ap-yes').onclick=function(){if(chosen)send('unprotect',chosen.market,chosen.revision)};
+try{const old=JSON.parse(sessionStorage.getItem('protectionAsk')||'null');if(old&&D.rows[old.market]&&D.rows[old.market].protected&&D.rows[old.market].revision===old.revision)choose(old.market);else sessionStorage.removeItem('protectionAsk')}catch(e){}
+})();'''
+
+
+FILE test_auto_protection.py SHA256 c87f8f6fd6c171c80814ac047cd79eff5a7697ca78f023f79b90075a3429652d
+import copy
+import json
+from pathlib import Path
+import tempfile
+import threading
+import subprocess
+import sys
+import unittest
+from unittest.mock import patch
+
+from asset_protection import Policy, ProtectionError, effective, merge
+from manual_protection import Detector
+import live
+import manual_orders
+import protection_panel
+
+
+def order(uid='manual-a',volume='1',state='done',market='KRW-A',identifier=None):
+    return {'uuid':uid,'identifier':identifier,'market':market,'side':'bid','state':state,
+            'executed_volume':volume,'paid_fee':'0','created_at':'1970-01-01T00:33:21+00:00'}
+
+
+class PolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.file=Path(self.tmp.name)/'data/user_protected_assets.json'
+        self.file.parent.mkdir()
+        self.file.write_text('{"markets":["KRW-BTC","KRW-DOGE"]}')
+        self.policy=Policy(self.file,clock=lambda:2000)
+
+    def test_manual_defaults_protected_and_release_survives_same_old_event(self):
+        self.policy.observe([order()])
+        self.assertIn('KRW-A',effective(self.policy.read()))
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.policy.observe([order()])
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.assertTrue(self.policy.read()['decisions']['KRW-A']['protected'] is False)
+
+    def test_new_manual_fill_after_release_reprotects_and_invalidates_stale_page(self):
+        self.policy.observe([order(state='wait')]); stale=self.policy.revision('A')
+        self.policy.decide('A',False,expected=stale)
+        self.policy.observe([order(volume='2',state='done')])
+        self.assertIn('KRW-A',effective(self.policy.read()))
+        with self.assertRaises(ProtectionError): self.policy.decide('A',False,expected=stale)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_manual_open_and_zero_fill_cancel_both_protect(self):
+        self.policy.observe([order(volume='0',state='wait'),order('manual-b','0','cancel','KRW-B')])
+        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
+
+    def test_bot_identifier_excluded_except_explicit_user_ui_order(self):
+        row=order(identifier='v5-synthetic')
+        self.policy.observe([row]); self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.policy.observe([row],user_identifiers={'v5-synthetic'})
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_release_overrides_legacy_config_and_keep_resolves_question(self):
+        p=Policy(self.file,configured=['KRW-BTC'],clock=lambda:2000)
+        p.observe([order(market='KRW-BTC')]); p.decide('BTC',True)
+        self.assertFalse(p.read()['manual']['KRW-BTC']['pending'])
+        p.decide('BTC',False,expected=p.revision('BTC'))
+        self.assertNotIn('KRW-BTC',effective(p.read(),p.configured))
+        self.assertIn('KRW-DOGE',effective(p.read()))
+
+    def test_malformed_policy_is_never_interpreted_as_release(self):
+        self.file.write_text('{broken')
+        with self.assertRaises(ProtectionError): self.policy.read()
+        with self.assertRaises(ProtectionError): self.policy.decide('BTC',False,expected=0)
+
+    def test_writer_contention_times_out_and_stale_unheld_file_is_harmless(self):
+        other=Policy(self.file,clock=lambda:2000,lock_timeout=.05)
+        errors=[]
+        with self.policy.locked():
+            worker=threading.Thread(target=lambda:self._attempt(other,errors));worker.start();worker.join(1)
+            self.assertEqual(len(errors),1)
+            self.assertEqual(effective(self.policy.read()),{'KRW-BTC','KRW-DOGE'})
+        other.decide('A',True)
+        self.assertIn('KRW-A',effective(other.read()))
+
+    @staticmethod
+    def _attempt(policy,errors):
+        try: policy.decide('A',True)
+        except ProtectionError as e: errors.append(e)
+
+    def test_concurrent_writers_keep_both_protections(self):
+        threads=[threading.Thread(target=Policy(self.file).decide,args=(market,True)) for market in ('A','B')]
+        for t in threads:t.start()
+        for t in threads:t.join()
+        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
+
+    def test_handoff_honors_newer_release_and_preserves_other_protection(self):
+        old={'markets':['KRW-DOGE','KRW-BTC'],'decisions':{'KRW-BTC':{'protected':True,'at':100,'origin':'cli'}}}
+        new={'markets':['KRW-DOGE'],'decisions':{'KRW-BTC':{'protected':False,'at':200,'origin':'user_ui'}}}
+        self.assertEqual(effective(merge(old,new)),{'KRW-DOGE'})
+        old['decisions']['KRW-BTC']['at']=200
+        self.assertIn('KRW-BTC',effective(merge(old,new)))
+
+    def test_os_lock_contends_across_processes_and_recovers_after_crash(self):
+        before=self.file.read_bytes()
+        source=str(Path(__file__).resolve().parent)
+        holder_code="import sys,time;sys.path.insert(0,sys.argv[1]);from asset_protection import Policy;p=Policy(sys.argv[2]);\nwith p.locked():\n print('locked',flush=True);time.sleep(30)"
+        child=subprocess.Popen([sys.executable,'-B','-u','-c',holder_code,source,str(self.file)],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(),'locked')
+            contender="import sys;sys.path.insert(0,sys.argv[1]);from asset_protection import Policy,ProtectionError;\ntry: Policy(sys.argv[2],lock_timeout=.1).decide('A',True)\nexcept ProtectionError: print('blocked')"
+            result=subprocess.run([sys.executable,'-B','-c',contender,source,str(self.file)],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout.strip(),'blocked')
+            self.assertEqual(self.file.read_bytes(),before)
+        finally:
+            child.kill();child.wait(timeout=5);child.stdout.close();child.stderr.close()
+        self.policy.decide('A',True)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+
+class FakeClient:
+    def __init__(self):
+        self.rows=[{'currency':'A','balance':'1','locked':'0'}]
+        self.records=[];self.history_failure=False;self.account_failure=False
+    def accounts(self):
+        if self.account_failure:raise OSError('synthetic account failure')
+        return copy.deepcopy(self.rows)
+    def orders(self,market=None):
+        if self.history_failure:raise OSError('synthetic history failure')
+        return copy.deepcopy(self.records)
+
+
+class DetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.folder=Path(self.tmp.name)/'data/live';self.folder.mkdir(parents=True)
+        self.file=self.folder.parent/'user_protected_assets.json';self.file.write_text('{"markets":[]}')
+        self.policy=Policy(self.file,clock=lambda:2000)
+        self.api=FakeClient();self.detector=Detector(self.policy,self.folder,self.api,clock=lambda:2000)
+        self.state={'positions':{'KRW-A':{'qty':1.,'cost':100.,'stop':90.,'entry':100.}}}
+
+    def test_unknown_external_quantity_and_mixed_holding_protect_whole_market(self):
+        self.api.rows[0]['balance']='2'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_direct_sell_even_with_unchanged_balance_is_seen_from_orders(self):
+        self.api.records=[dict(order(),side='ask')]
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+
+    def test_release_persists_for_same_external_balance_new_deposit_reprotects(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.detector.scan(self.state,'KRW-A')
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.api.rows[0]['balance']='3'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+
+    def test_own_pending_fill_does_not_become_unknown_manual_inventory(self):
+        self.api.rows[0]['balance']='2'
+        self.state['pending_order']={'market':'KRW-A','side':'bid'}
+        self.detector.scan(self.state)
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+
+    def test_history_failure_blocks_buy_and_keeps_proven_unchanged_risk_exit_only(self):
+        self.detector.scan(self.state,'KRW-A')
+        self.api.history_failure=True
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',amount=10000)
+        self.assertEqual(self.detector.scan(self.state,'KRW-A',risk=True,amount=5),1.)
+        self.api.rows[0]['balance']='.5'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
+
+    def test_accounts_failure_blocks_protective_submission(self):
+        self.detector.scan(self.state,'KRW-A');self.api.account_failure=True
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
+
+    def test_deposit_while_already_protected_invalidates_old_release_revision(self):
+        self.api.rows[0]['balance']='2'; self.detector.scan(self.state)
+        old=self.policy.revision('A')
+        self.api.rows[0]['balance']='3'; self.detector.scan(self.state)
+        self.assertGreater(self.policy.revision('A'),old)
+        with self.assertRaises(ProtectionError):self.policy.decide('A',False,expected=old)
+
+
+class EndpointAndPanelTests(unittest.TestCase):
+    def test_null_origin_and_action_allowlist_and_revision_validation(self):
+        srv=manual_orders.ManualOrderServer(8765,token='synthetic',allowed_kinds={'protect','unprotect'})
+        body=lambda **kw:json.dumps(dict(token='synthetic',market='KRW-BTC',confirm=True,**kw)).encode()
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'protect')[0],200)
+        self.assertEqual(srv.check('127.0.0.1:8765','https://example.com',body(),'protect')[0],403)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(krw=5000),'buy')[0],403)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'unprotect')[0],400)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(revision=0),'unprotect')[0],200)
+
+    def test_protection_panel_has_default_question_and_explicit_release_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'protection_ui':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            worker.protection_policy.observe([order(market='KRW-BTC')])
+            worker.d['positions']['KRW-BTC']={'qty':1,'cost':100,'stop':90}
+            page=protection_panel.render(worker,{'KRW-BTC'}, {'port':8765,'token':'</script><bad>'})
+            self.assertIn('기본 자동 보호',page);self.assertIn('보호를 유지할까요?',page)
+            self.assertIn('보호 해제 확인',page);self.assertIn('봇 장부 보유 1개',page)
+            self.assertNotIn('</script><bad>',page)
+            self.assertIn('revision',page)
+
+    def test_stale_release_fails_without_order_submission(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            worker.protection_policy.observe([order()]);old=worker.protection_policy.revision('A')
+            worker.protection_policy.observe([order('manual-new','2')])
+            with patch.object(live.upbit,'market_sell',side_effect=AssertionError('no order')):
+                with self.assertRaises(ProtectionError):worker.set_user_protection('KRW-A',False,old)
+            self.assertTrue(worker.is_protected('KRW-A'))
+
+    def test_order_boundary_provenance_blocks_before_durable_intent_or_post(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'auto_manual_protection':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            with patch.object(worker,'scan_manual_orders',side_effect=live.ProtectedAssetError('manual protected')), \
+                 patch.object(worker,'save') as save, patch.object(live.upbit,'market_sell') as sell:
+                with self.assertRaises(live.ProtectedAssetError):worker._trade('ask','KRW-A',1,'stop',risk=True)
+            save.assert_not_called();sell.assert_not_called();self.assertFalse(worker.d.get('pending_order'))
+
+
+FILE apply_manual_protection.py SHA256 49e9f58671fc354c7cb50c23364cf96ae83a955796f2cbfc75c9b63f58a6ce82
+"""Hash-gated manual protection deployment; normal stop, sync, failed start stays stopped."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import sys
+import time
+import urllib.request
+
+import apply_profit_guard as safe
+import deploy_v5 as deploy
+import sync_v5 as sync
+
+NAMES={'asset_protection.py','manual_protection.py','protection_panel.py','manual_orders.py',
+       'bot.py','live.py','test_auto_protection.py'}
+PATCH={'auto_manual_protection':True,'protection_ui':True,'user_protection_required':True}
+
+
+def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+
+
+def apply(app,manifest):
+    app=Path(app).resolve(strict=True)
+    def verify():
+        if str(app)!=manifest['app'] or set(manifest['sources'])!=NAMES: raise ValueError('Unexpected target/sources')
+        for name,sha in manifest['sources'].items():
+            if digest(sync.SRC/name)!=sha: raise ValueError('Source changed: '+name)
+            if digest(app/name)!=manifest['old_sources'][name]: raise ValueError('Runtime source changed: '+name)
+        if digest(app/'config.json')!=manifest['config_sha256']: raise ValueError('Config changed')
+        if not (app.parent.parent/'launch_v5.py').exists(): raise ValueError('Launcher missing')
+        cfg=json.loads((app/'config.json').read_text(encoding='utf-8-sig'))['live']
+        if not cfg.get('enabled') or not cfg.get('user_protection_required'): raise ValueError('Unexpected live policy')
+    verify()
+    if deploy.pending_orders(app): raise RuntimeError('Unresolved order; no deployment')
+    if not safe.stop(app): raise RuntimeError('Normal stop incomplete; no code change, stop request retained')
+    changed=False; backup=None
+    try:
+        verify()
+        if deploy.pending_orders(app): raise RuntimeError('Unresolved order after shutdown')
+        backup=deploy.backup(app)
+        before=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
+        stage=backup/'approved_stage'; stage.mkdir()
+        for name in NAMES: shutil.copyfile(sync.SRC/name,stage/name)
+        previous=(sync.SRC,sync.DST); argv=sys.argv
+        try:
+            sync.SRC,sync.DST=stage,app; sys.argv=['sync_v5.py','--apply']; changed=True
+            if sync.main()!=0: raise RuntimeError('Sync rejected')
+        finally: sync.SRC,sync.DST=previous; sys.argv=argv
+        cfg=json.loads((app/'config.json').read_text(encoding='utf-8-sig'))
+        cfg['live'].update(PATCH)
+        target=app/'config.json'; temp=target.with_suffix('.protection.tmp')
+        temp.write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8'); temp.replace(target)
+        for name,sha in manifest['sources'].items():
+            if digest(app/name)!=sha: raise RuntimeError('Deployed hash mismatch')
+        after=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
+        if before!=after: raise RuntimeError('Ledger changed during stopped deployment')
+        safe.clear(app)
+        started=time.time()
+        ok,_=deploy.start_bot(app.parent.parent/'launch_v5.py')
+        if not ok: raise RuntimeError('Launcher failed')
+        import re
+        deadline=time.monotonic()+45;payload={}
+        while time.monotonic()<deadline:
+            page=(app/'data/status.html').read_text(encoding='utf-8')
+            match=re.search(r'<script type="application/json" id="ap-data">(.*?)</script>',page,re.S)
+            if match:
+                payload=json.loads(match[1]);health=payload.get('health',{})
+                if payload.get('action') and health.get('checked_at',0)>=started and not health.get('error'):break
+            time.sleep(1)
+        else:raise RuntimeError('First global protection scan or panel action failed')
+        if not all(payload['rows'].get(m,{}).get('protected') is True for m in ('KRW-BTC','KRW-DOGE')):
+            raise RuntimeError('BTC/DOGE protection missing')
+        sys.path.insert(0,str(app))
+        from asset_protection import validate
+        validate(json.loads((app/'data/user_protected_assets.json').read_text(encoding='utf-8')))
+        with urllib.request.urlopen('http://127.0.0.1:'+str(payload['action']['port'])+'/ping',timeout=3) as response:
+            if response.status!=200: raise RuntimeError('Protection ping failed')
+        current=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
+        for key in ('risk_base_krw','risk_loss_offset','risk_day','baseline_unrealized'):
+            if current.get(key)!=before.get(key): raise RuntimeError('Risk basis changed: '+key)
+        print('MANUAL_PROTECTION_DEPLOY_OK',flush=True)
+    except BaseException:
+        # Stop the NEW process before writing any rollback. Old version is never revived.
+        if not safe.stop(app): raise RuntimeError('New process did not stop; rollback not written')
+        if changed and backup:
+            for name in NAMES|{'config.json'}:
+                if (backup/name).exists(): safe.atomic_copy(backup/name,app/name)
+                elif name in NAMES: (app/name).unlink(missing_ok=True)
+        print('PROTECTION_DEPLOY_FAILED_STOPPED',flush=True)
+        raise
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser();parser.add_argument('--app',required=True,type=Path)
+    parser.add_argument('--manifest',required=True,type=Path); args=parser.parse_args()
+    apply(args.app,json.loads(args.manifest.read_text(encoding='utf-8')))
+
+
+FILE test_apply_manual_protection.py SHA256 245cb608e31d81d0d44e938cdec04c326fc104b044554b823ed27c1fc7766885
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import apply_manual_protection as deploy
+
+
+class ManualDeployTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.app=self.root/'work/v5-app/v5';self.app.mkdir(parents=True)
+        self.source=self.root/'source';self.source.mkdir()
+        (self.app.parent.parent/'launch_v5.py').write_text('launcher')
+        for name in deploy.NAMES:
+            (self.source/name).write_text('approved');(self.app/name).write_text('old')
+        (self.app/'config.json').write_text(json.dumps({'live':{'enabled':True,'user_protection_required':True}}))
+        self.manifest={'app':str(self.app),'sources':{n:deploy.digest(self.source/n) for n in deploy.NAMES},
+            'old_sources':{n:deploy.digest(self.app/n) for n in deploy.NAMES},
+            'config_sha256':deploy.digest(self.app/'config.json')}
+
+    def test_unreviewed_source_cannot_stop_running_bot(self):
+        (self.source/'live.py').write_text('changed')
+        with patch.object(deploy.sync,'SRC',self.source),patch.object(deploy.safe,'stop') as stop:
+            with self.assertRaises(ValueError):deploy.apply(self.app,self.manifest)
+        stop.assert_not_called()
+
+    def test_pending_order_never_stops_bot(self):
+        with patch.object(deploy.sync,'SRC',self.source),patch.object(deploy.deploy,'pending_orders',return_value='pending'), \
+                patch.object(deploy.safe,'stop') as stop:
+            with self.assertRaises(RuntimeError):deploy.apply(self.app,self.manifest)
+        stop.assert_not_called()
+
+    def test_missing_launcher_does_not_stop_bot(self):
+        (self.app.parent.parent/'launch_v5.py').unlink()
+        with patch.object(deploy.sync,'SRC',self.source),patch.object(deploy.safe,'stop') as stop:
+            with self.assertRaises(ValueError):deploy.apply(self.app,self.manifest)
+        stop.assert_not_called()
+
+    def test_failed_start_stops_new_process_before_rollback(self):
+        (self.app/'data/live').mkdir(parents=True)
+        (self.app/'data/live/live.json').write_text('{"positions":{}}')
+        stop_calls=[]
+        def stop(app):
+            stop_calls.append((app/'live.py').read_text());return True
+        def sync():
+            for name in deploy.NAMES: (self.app/name).write_bytes((deploy.sync.SRC/name).read_bytes())
+            return 0
+        with patch.object(deploy.sync,'SRC',self.source),patch.object(deploy.deploy,'pending_orders',return_value=''), \
+                patch.object(deploy.safe,'stop',side_effect=stop),patch.object(deploy.sync,'main',side_effect=sync), \
+                patch.object(deploy.deploy,'start_bot',return_value=(False,'failed')) as start:
+            with self.assertRaises(RuntimeError):deploy.apply(self.app,self.manifest)
+        self.assertEqual(stop_calls,['old','approved'])
+        self.assertEqual((self.app/'live.py').read_text(),'old');self.assertEqual(start.call_count,1)
+
+
+if __name__=='__main__':unittest.main()

@@ -1,0 +1,177 @@
+"""Reviewed rotation envelope, evidence, and research-only confirmation helpers.
+
+No network, credentials, order submission, process, or independent collector.
+Critical claim/pending state remains in Live's existing durable ledger.
+"""
+from dataclasses import asdict
+import copy
+import datetime as dt
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import time
+
+VERSION = 'rotation-v1'
+HOUR = 3600
+SETTLE = 20
+MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
+
+
+def finite(x):
+    return type(x) in (int, float) and math.isfinite(x)
+
+
+def enabled(p):
+    return getattr(p, 'rotation_enabled', False) is True
+
+
+def saved_loss_budget(cfg, ledger):
+    """Pure read: never fetch/save inside partially applied fill accounting."""
+    amount, pct, base = cfg.get('loss_stop_krw'), cfg.get('loss_stop_pct', 0), ledger.get('risk_base_equity')
+    if not finite(amount) or amount <= 0 or not finite(pct):
+        return None
+    if pct > 0 and finite(base) and base > 0:
+        return min(amount, base * pct)
+    return amount  # Same fixed-limit fallback when a stored percent basis is absent.
+
+
+def slot(now):
+    if not finite(now) or now < 0:
+        raise ValueError('Invalid rotation clock')
+    return int(now // HOUR) * HOUR
+
+
+def policy_hash(p):
+    # Params contains public strategy settings only, never the .env or live tokens.
+    return hashlib.sha256(json.dumps(asdict(p), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def decision_id(closed, digest):
+    return hashlib.sha256(f'{VERSION}:{closed}:{digest}'.encode()).hexdigest()
+
+
+def intent_id(closed, market, side, digest):
+    if not MARKET.fullmatch(market) or side not in ('bid', 'ask'):
+        raise ValueError('Invalid rotation intent')
+    return hashlib.sha256(f'{VERSION}:{closed}:{market}:{side}:{digest}'.encode()).hexdigest()
+
+
+def envelope(p, closed, now):
+    if (type(closed) is not int or closed % HOUR or closed != slot(now)
+            or not closed + SETTLE <= now < closed + p.tf * 60 + SETTLE):
+        raise ValueError('Rotation needs the current hourly completed exchange signal')
+    digest = policy_hash(p)
+    return {'version': VERSION, 'slot': closed, 'policy_hash': digest,
+            'decision_id': decision_id(closed, digest)}
+
+
+def validate(prop, p, now, floor_slot):
+    value = prop.get('rotation')
+    if not isinstance(value, dict):
+        raise ValueError('Missing rotation envelope; legacy proposal disabled')
+    closed = prop.get('signal_closed_at')
+    expected = envelope(p, closed, now)
+    if value != expected or closed <= floor_slot:
+        raise ValueError('Old, changed, or already baselined rotation signal')
+    if prop.get('signal_tf_minutes') != p.tf:
+        raise ValueError('Rotation source timeframe mismatch')
+    return expected
+
+
+def fresh_reentry(last, p, closed):
+    if not last:
+        return None
+    stamp = last.get('time')
+    hours = p.reentry_profit_hours if last.get('profit') else p.reentry_loss_hours
+    if not finite(stamp) or not finite(closed) or not finite(hours) or hours < 0:
+        return '재진입 기록·신호 무효: 매수 보류'
+    wait = min(hours, p.reentry_window_hours) * 3600
+    if closed <= stamp + wait:
+        return '재진입 대기 만료 이후 새 완료봉 필요: 매수 보류'
+    return None
+
+
+def row_close(row, tf):
+    try:
+        value = dt.datetime.fromisoformat(row['bar'])
+        if value.tzinfo is None:
+            return None
+        return value.timestamp() + tf * 60
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def rank_exit(state, market, rank, closed, keep, confirmations=1):
+    """Research knob only: production patch uses 1, not an invented 2-bar delay."""
+    if type(confirmations) is not int or confirmations not in (1, 2):
+        raise ValueError('Invalid rank confirmation research setting')
+    if type(rank) is not int or rank <= 0 or not finite(closed):
+        return False  # Missing data is not a confirmed boundary exit.
+    if rank <= keep:
+        state.pop(market, None)
+        return False
+    old = state.get(market, {})
+    count = old.get('count', 0)
+    if closed > old.get('closed', -1):
+        count += 1
+        state[market] = {'closed': closed, 'count': count}
+    return count >= confirmations
+
+
+def observe(pos, price, now):
+    """Observed ticks only, bounded by entry/basis revision; never backfill history."""
+    if not finite(price) or price <= 0 or not finite(pos.get('qty')) or pos['qty'] <= 0:
+        return False
+    if not finite(pos.get('cost')) or not finite(now):
+        return False
+    ref = pos['cost'] / pos['qty']
+    if not finite(ref) or ref <= 0:
+        return False
+    value = pos.get('rotation_observed')
+    if (not isinstance(value, dict) or not finite(value.get('reference'))
+            or not math.isclose(value['reference'], ref, rel_tol=1e-10)
+            or not all(finite(value.get(k)) for k in ('high', 'low', 'since'))
+            or type(value.get('samples')) is not int or value['samples'] < 0):
+        value = {'since': now, 'reference': ref, 'high': ref, 'low': ref, 'samples': 0}
+        pos['rotation_observed'] = value
+    value.update(high=max(value['high'], price), low=min(value['low'], price),
+                 last_price=price, last_at=now, samples=value['samples'] + 1)
+    value.update(mfe_pct=(value['high'] / ref - 1) * 100,
+                 mae_pct=(value['low'] / ref - 1) * 100,
+                 coverage='observed_ticks_only_buy_fee_in_basis_no_gap_backfill')
+    return True
+
+
+def trade_evidence(pos, reason, now, meta=None):
+    keys = ('stop', 'stop0', 'profit_guard_stop', 'qty', 'cost', 'rotation_observed', 'rotation_initial_risk')
+    out = {'version': VERSION, 'intent_created_at': now, 'exit_reason': str(reason)[:100],
+           'wire_submission_time': 'not_instrumented_use_exchange_order_time_if_provided'}
+    if pos:
+        out['position_at_submit'] = copy.deepcopy({k: pos[k] for k in keys if k in pos})
+    if isinstance(meta, dict):
+        out['decision'] = copy.deepcopy(meta)
+    return out
+
+
+def append_audit(path, event, max_bytes=4*1024*1024):
+    """Optional diagnostics must not block risk orders; <=3 bounded log segments."""
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps({'observed_at': time.time(), **event}, ensure_ascii=False,
+                             allow_nan=False, separators=(',', ':'))
+        if len(payload.encode('utf-8')) > 64000:
+            return False
+        if path.exists() and path.stat().st_size + len(payload.encode('utf-8')) > max_bytes:
+            first = path.with_name(path.name + '.1')
+            second = path.with_name(path.name + '.2')
+            if first.exists():
+                first.replace(second)
+            path.replace(first)
+        with path.open('a', encoding='utf-8') as out:
+            out.write(payload + '\n')
+        return True
+    except (OSError, ValueError, TypeError, OverflowError):
+        return False

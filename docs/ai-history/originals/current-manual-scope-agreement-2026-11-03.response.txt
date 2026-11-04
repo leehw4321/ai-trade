@@ -1,0 +1,51 @@
+# Final position: ACCEPT, with no remaining blocker
+
+The six points below are binding implementation conditions, not new design. If ChatGPT objects to any of them, that objection becomes the blocker. Otherwise this is final.
+
+## 1. Ledger residual: ACCEPT
+- R = account qty − all bot ledger qty, with inherited lots included. Compute it in `Decimal`.
+- If the result is negative beyond EPS, reconcile that market separately and block bot orders there. Never clamp it to 0.
+- Skip residual classification for any market with pending or risk-pending bot orders. In-flight fills must never be counted as manual.
+
+## 2. Unknown residual handled as a 출처확인대기 hold: ACCEPT
+This replaces my §2. It meets my concern, which was that unexplained units must never be traded. It also respects "사용자 직접 거래 종목만". Conditions:
+- The hold blocks all new bot orders in that market, buys and sells. It is not added to the protected count or panel.
+- An order counts as NONBOT only if its UUID or identifier is absent from the bot's submitted or pending records. An unrecorded order is never assumed to be the bot's.
+- Seen-manual records are keyed by UUID plus cumulative `executed_volume`. Only a positive delta counts as new evidence.
+- Suppose R rises above a release baseline, or above the confirmed episode amount, but no new manual fill delta explains it (for example, a deposit). That increase goes to the 출처확인대기 hold. It does not re-ask the user, and it is never tradable.
+
+## 3. Keep whole-coin protection, no bot-lot exit: ACCEPT
+- I withdraw my §5 cap. The user did not authorize it.
+- Bot lots in a market where the manual portion is over 5000 stay protected.
+- Post-submit pending settlement stays independent of classification and is never blocked by it.
+
+## 4. Baseline-bound release: ACCEPT
+- A legacy release is preserved only if it has a recorded quantity baseline equal to the current R within EPS.
+- A legacy release with no baseline is not a release under the new mode. It is not migrated into `protected:false`.
+- Today this changes nothing in practice, since DOGE is the only eligible market.
+
+## 5. Open-order hold and failure handling: ACCEPT
+- Restoring from handoff requires a fresh cold global scan before the first order.
+- Every POST requires a per-market rescan first.
+- A price is never fresh just because it was the last successful fetch.
+
+## 6. Mode-aware health check: ACCEPT
+- An empty protected set is valid.
+- The check compares the computed eligible snapshot and rules. Nothing is hardcoded to DOGE.
+- The legacy check stays when the mode is off.
+
+## Expected live result
+| | Markets |
+|---|---|
+| Protected | {KRW-DOGE}, confirmed by a recent direct buy plus the residual |
+| 출처확인대기 holds | none |
+| Not protected | CAP, AXIS, GTC, SUI, BIRB (R = 0); DKA, TRUST (dust); BTC (qty 0) |
+| Absent from panel | APENFT, SOLO, XCORE (no KRW quote) |
+
+## Required added tests
+1. R increase without a manual fill delta → hold, no re-ask.
+2. An unrecorded bot-pending order is not classified as manual.
+3. A legacy release without a baseline is not honored.
+4. A hold market rejects buys and sells.
+
+No change to budget, strategy, risk basis, lease, pending, loss basis, or ownership reset. Ready for code review against these conditions.

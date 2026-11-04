@@ -1,0 +1,122 @@
+"""Host preflight/rollback tests run only against temporary fake app directories."""
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import tempfile
+import types
+import unittest
+from unittest.mock import Mock, patch
+
+spec=importlib.util.spec_from_file_location('reviewed_driver',Path(__file__).with_name('apply_reviewed.py'))
+driver=importlib.util.module_from_spec(spec);spec.loader.exec_module(driver)
+
+def dump(path,value):path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value),encoding='utf-8')
+
+class GateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.base=self.root/'candidate';self.base.mkdir()
+        self.src=self.base/'v5';self.src.mkdir();self.repo=self.root/'repo';(self.repo/'v5').mkdir(parents=True)
+        self.app=self.root/'app';self.app.mkdir()
+        self.code=self.src/'bot.py';self.code.write_text('reviewed candidate',encoding='utf-8')
+        (self.repo/'v5/bot.py').write_text('original canonical',encoding='utf-8')
+        (self.app/'bot.py').write_text('original running',encoding='utf-8')
+        self.cfg={'strategy':{'stop_max_pct':.045,'entry_risk':.00092,'regime_filter':True,'regime_expires':9999999999,'halt_new_buys':True},'live':{'profit_guard_arm_pct':.03,'auto_proposal':True}}
+        dump(self.app/'config.json',self.cfg)
+        self.ledger=self.app/'data/live/live.json';dump(self.ledger,{'realized':0,'halted':'','positions':{}})
+        dump(self.app/'data/user_protected_assets.json',{'assets':{'KRW-DOGE':True}})
+        baseline={'sources':{'bot.py':driver.sha(self.repo/'v5/bot.py')},'runtime_config':self.cfg}
+        dump(self.base/'baseline.json',baseline)
+        dump(self.base/'config-patch.json',{'strategy':{'rotation_enabled':True},'live':{'slot_plans':True}})
+        self.patches=[patch.object(driver,k,v) for k,v in {'BASE':self.base,'SRC':self.src,'REPO':self.repo,'APP':self.app,'WORK':self.root,'ALLOW':{'bot.py'}}.items()]
+        for p in self.patches:p.start();self.addCleanup(p.stop)
+
+    def approve(self):
+        hashes={'v5/bot.py':driver.sha(self.code)}
+        dump(self.base/'review-hashes.json',hashes)
+        dump(self.base/'approved.json',{'decision':'approve','blockers':[],'conditions':[],'approved_hashes':hashes})
+
+    def test_missing_wrong_hash_and_conditional_approvals_block(self):
+        self.approve();driver.validate_approval()
+        approval=driver.read(self.base/'approved.json');approval['conditions']=['later check'];dump(self.base/'approved.json',approval)
+        with self.assertRaises(AssertionError):driver.validate_approval()
+        self.approve();self.code.write_text('changed after review',encoding='utf-8')
+        with self.assertRaises(AssertionError):driver.validate_approval()
+
+    def test_other_source_or_runtime_choice_changes_block(self):
+        driver.verify_baseline()
+        (self.repo/'v5/bot.py').write_text('other writer',encoding='utf-8')
+        with self.assertRaises(AssertionError):driver.verify_baseline()
+        baseline=driver.read(self.base/'baseline.json');baseline['sources']['bot.py']=driver.sha(self.repo/'v5/bot.py');dump(self.base/'baseline.json',baseline)
+        current=dict(self.cfg);current['strategy']={**self.cfg['strategy'],'halt_new_buys':False};dump(self.app/'config.json',current)
+        with self.assertRaises(AssertionError):driver.verify_baseline()
+
+    def test_explicit_stop_is_respected(self):
+        (self.app/'stop_shadow.txt').write_text('intentional',encoding='utf-8')
+        with self.assertRaises(AssertionError):driver.verify_baseline()
+
+    def test_actual_worker_presence_overrides_empty_locks(self):
+        dp=types.SimpleNamespace(any_alive=lambda _:False)
+        with patch.object(driver,'workers',return_value='777'),patch.object(driver.time,'sleep'),patch.object(driver.time,'monotonic',side_effect=[0,.1,1.1]):
+            self.assertFalse(driver.all_stopped(dp,timeout=1))
+
+    def fake_dp(self):
+        bk=self.app/'_backup/fixture';bk.mkdir(parents=True)
+        def backup(app):
+            for name in ('bot.py','config.json'):shutil.copyfile(app/name,bk/name)
+            return bk
+        def restore(app,folder):
+            for p in folder.iterdir():shutil.copyfile(p,app/p.name)
+        def patch_config(app,update):
+            cfg=driver.read(app/'config.json')
+            for section,values in update.items():cfg.setdefault(section,{}).update(values)
+            dump(app/'config.json',cfg)
+        calls=[0]
+        def failed_start_then_risk_only():
+            calls[0]+=1
+            if calls[0]==1:
+                d=driver.read(self.ledger);d['realized']=123.;dump(self.ledger,d)
+                return False,'simulated boot failure after a recorded fill'
+            return True,''
+        return types.SimpleNamespace(any_alive=lambda _:['bot.lock'],lock_alive=lambda *_:True,pending_orders=lambda _:'',backup=backup,
+            request_stop=Mock(),cancel_stop=Mock(),start_bot=Mock(side_effect=failed_start_then_risk_only),
+            restore=Mock(side_effect=restore),patch_config=patch_config)
+
+    def test_failed_boot_stops_candidate_before_restore_preserves_ledger_and_pauses_rotation(self):
+        self.approve();dp=self.fake_dp()
+        with patch.object(driver,'load_deploy',return_value=dp),patch.object(driver,'all_stopped',return_value=True),patch.object(driver,'restore_owned_code',wraps=driver.restore_owned_code) as restored:
+            with self.assertRaises(RuntimeError):driver.main()
+            restored.assert_called_once()
+        self.assertEqual(driver.read(self.ledger)['realized'],123.)
+        self.assertFalse(driver.read(self.app/'config.json')['live']['auto_proposal'])
+        self.assertEqual((self.app/'bot.py').read_text(encoding='utf-8'),'original running')
+        dp.restore.assert_not_called()  # restoration is explicitly code/config only
+
+    def test_live_candidate_prevents_overwrite_rollback(self):
+        self.approve();dp=self.fake_dp()
+        with patch.object(driver,'load_deploy',return_value=dp),patch.object(driver,'all_stopped',side_effect=[True,False]):
+            with self.assertRaises(RuntimeError):driver.main()
+        dp.restore.assert_not_called()
+        self.assertEqual((self.app/'bot.py').read_text(encoding='utf-8'),'reviewed candidate')
+
+    def test_checkpoint_collision_blocks_before_stop(self):
+        self.approve();dp=self.fake_dp();(self.base/'stopped-checkpoint').mkdir()
+        with patch.object(driver,'load_deploy',return_value=dp):
+            with self.assertRaises(AssertionError):driver.main()
+        dp.request_stop.assert_not_called();dp.start_bot.assert_not_called()
+
+    def test_snapshot_copy_failure_restarts_original_without_runtime_mutation(self):
+        self.approve();dp=self.fake_dp();dp.start_bot.side_effect=None;dp.start_bot.return_value=(True,'')
+        actual=shutil.copyfile
+        def fail_snapshot(source,target,*args,**kwargs):
+            if 'stopped-checkpoint' in str(target):raise OSError('simulated snapshot lock')
+            return actual(source,target,*args,**kwargs)
+        with patch.object(driver,'load_deploy',return_value=dp),patch.object(driver,'all_stopped',return_value=True),patch('shutil.copyfile',side_effect=fail_snapshot):
+            with self.assertRaises(OSError):driver.main()
+        dp.start_bot.assert_called_once();dp.cancel_stop.assert_called_once()
+        self.assertEqual((self.app/'bot.py').read_text(encoding='utf-8'),'original running')
+        self.assertEqual(driver.read(self.ledger)['realized'],0)
+
+if __name__=='__main__':unittest.main()

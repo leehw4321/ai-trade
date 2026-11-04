@@ -33,10 +33,30 @@ def differences():
 
 
 def bot_running():
-    r = subprocess.run(['powershell', '-NoProfile', '-Command',
-                        "(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'v5-app.*(bot|shadow)[.]py' }).Count"],
-                       capture_output=True, text=True)
-    return int((r.stdout or '0').strip() or 0) > 0
+    import re
+    ps = ("$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+          "Get-CimInstance Win32_Process | Where-Object { $_.Name -in 'python.exe','pythonw.exe' } "
+          "| ForEach-Object { 'P:' + ($_.CommandLine -replace '[\\r\\n\\v\\f\\x1c-\\x1e\\x85\\u2028\\u2029]', ' ') }; 'END'")
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        raise RuntimeError('프로세스 조회 실패') from None
+    if r.returncode != 0:
+        raise RuntimeError('프로세스 조회 실패')
+    lines = (r.stdout or '').lstrip('\ufeff').splitlines()
+    if not lines or lines[-1].strip() != 'END':
+        raise RuntimeError('프로세스 조회 출력 이상')
+    pat = re.compile(r'(?i)(?:^|[\s"\'\\/])(?:bot|shadow)\.py(?=["\s]|$)')
+    for line in lines[:-1]:
+        if not line.startswith('P:'):
+            raise RuntimeError('프로세스 조회 출력 이상')
+        cmd = line[2:]
+        if not cmd.strip():
+            raise RuntimeError('프로세스 명령줄 조회 불명')
+        if pat.search(cmd):
+            return True
+    return False
 
 
 def main():

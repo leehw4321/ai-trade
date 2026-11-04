@@ -1,0 +1,184 @@
+"""Explicitly invoked only AFTER exact peer approval; no scheduler/autodeploy loop."""
+import datetime as dt
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+
+BASE=Path(__file__).resolve().parent
+WORK=BASE.parents[1]
+REPO=WORK.parent/'ai-trade'
+SRC=BASE/'v5'
+APP=WORK/'v5-app/v5'
+ALLOW={'strategy.py','shadow.py','live.py','bot.py','rotation_policy.py','test_rotation_rollout.py','test_plan_slot.py'}
+
+def read(path):return json.loads(path.read_text(encoding='utf-8-sig'))
+def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def note(stage,**detail):
+    value={'at':dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds'),'stage':stage,**detail}
+    with (BASE/'deployment-events.jsonl').open('a',encoding='utf-8') as out:out.write(json.dumps(value,ensure_ascii=False)+'\n')
+    print(json.dumps(value,ensure_ascii=False),flush=True)
+
+def validate_approval():
+    manifest=read(BASE/'review-hashes.json')
+    approval=read(BASE/'approved.json')
+    assert approval.get('decision')=='approve' and approval.get('blockers')==[] and approval.get('conditions')==[]
+    assert approval.get('approved_hashes')==manifest,'Approval must cover every exact file'
+    for name,digest in manifest.items():
+        path=SRC/name[3:] if name.startswith('v5/') else BASE/name
+        assert sha(path)==digest,(name,'reviewed bytes changed')
+    assert set(n[3:] for n in manifest if n.startswith('v5/'))==ALLOW
+    return manifest
+
+def verify_sources():
+    baseline=read(BASE/'baseline.json')
+    expected={**baseline['sources'],**baseline.get('imported_other_session_sources',{})}
+    for name in ALLOW:
+        path=REPO/'v5'/name
+        if name in expected:assert path.exists() and sha(path)==expected[name],('Other session changed source',name)
+        else:assert not path.exists(),('New file collision',name)
+    return baseline
+
+def verify_baseline():
+    baseline=verify_sources()
+    current=read(APP/'config.json')
+    # The other session enabled its reviewed fixed-slot publisher during preparation.
+    reference=baseline['runtime_config']
+    for section in ('strategy','live'):
+        old=dict(reference[section]);new=dict(current[section])
+        if section=='live':old.pop('slot_plans',None);new.pop('slot_plans',None)
+        assert old==new,('Concurrent execution-setting change',section)
+    for name in ('stop.txt','중지.txt','stop_shadow.txt','data/handoff-transition.lock','data/handoff-restore-pending.json'):
+        assert not (APP/name).exists(),('Intentionally stopped/handed-off bot',name)
+    assert not (WORK/'private_handoff/current-manual/deferred/stop.txt').exists() or read(WORK/'private_handoff/current-manual/deferred/state.json')['status']=='cancelled'
+    return current
+
+def load_deploy():
+    for name in ('deploy_v5.py','sync_v5.py'):
+        assert sha(REPO/'tools'/name)==sha(BASE/'dependencies'/name),('Deployment dependency changed',name)
+    sys.path.insert(0,str(REPO/'tools'))
+    import deploy_v5 as dp
+    return dp
+
+def restore_owned_code(backup, expected):
+    for name,digest in expected.items():
+        original=backup/name;target=APP/name
+        assert original.parent.resolve()==backup.resolve() and target.parent.resolve()==APP.resolve()
+        assert name.endswith('.py') or name=='config.json'
+        assert sha(original)==digest,('Backup changed',name)
+        shutil.copyfile(original,target)
+
+def risk_basis(d):
+    return {k:d.get(k) for k in ('account_adoption','risk_base_equity','risk_baseline_unrealized','risk_loss_offset','risk_day')}
+
+def workers():
+    # Account-sync's lock can be JSON; inspect exact app commands as well as locks.
+    prefix=str(APP).replace("'","''")
+    command=("@(Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
+             f"Where-Object {{ $_.CommandLine -like '*{prefix}*' -and $_.CommandLine -match '(bot|shadow|account_sync)[.]py' }} | "
+             "Select-Object -ExpandProperty ProcessId) -join ','")
+    return subprocess.check_output(['powershell','-NoProfile','-Command',command],text=True).strip()
+
+def all_stopped(dp,timeout=180):
+    end=time.monotonic()+timeout
+    while time.monotonic()<end:
+        if not dp.any_alive(APP) and not workers():return True
+        time.sleep(2)
+    return False
+
+def main():
+    import msvcrt
+    with (BASE/'deployment.lock').open('a+b') as lock:
+        lock.seek(0,2)
+        if lock.tell()==0:lock.write(b'0');lock.flush()
+        lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
+        validate_approval();current=verify_baseline();dp=load_deploy()
+        assert dp.any_alive(APP) and dp.lock_alive(APP,'bot.lock') and dp.lock_alive(APP,'shadow.lock')
+        assert not dp.pending_orders(APP),'Wait for existing uncertain orders'
+        checkpoint=BASE/'stopped-checkpoint'
+        assert not checkpoint.exists(),'Checkpoint collision: stop not requested; preserve previous attempt'
+        old_code={p.name:sha(p) for p in APP.glob('*.py')}
+        old_owned={**old_code,'config.json':sha(APP/'config.json')}
+        backup=dp.backup(APP)
+        for name,digest in old_owned.items():assert sha(backup/name)==digest,('Pre-stop backup mismatch',name)
+        runtime_modified=False
+        try:
+            # Every operation after requesting stop is covered by restart/rollback.
+            note('normal_stop_requested',backup=str(backup))
+            dp.request_stop(APP)
+            if not all_stopped(dp):
+                dp.cancel_stop(APP);dp.start_bot();note('stop_timeout_no_runtime_changes');return 1
+            if dp.pending_orders(APP):
+                dp.cancel_stop(APP);dp.start_bot();note('pending_after_stop_no_runtime_changes');return 1
+            checkpoint.mkdir(exist_ok=False)
+            for name in ('live/live.json','live/orders.jsonl','user_protected_assets.json','manual_order_protection.json','pnl_baseline.json'):
+                source=APP/'data'/name
+                if source.exists():
+                    target=checkpoint/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
+            before=read(APP/'data/live/live.json')
+            protected=APP/'data/user_protected_assets.json'
+            protection_sha=sha(protected) if protected.exists() else None
+            validate_approval()
+            verify_sources()
+            for name in sorted(ALLOW):shutil.copyfile(SRC/name,REPO/'v5'/name)
+            for name in sorted(ALLOW):assert sha(REPO/'v5'/name)==sha(SRC/name)
+            note('reviewed_source_promoted')
+            runtime_modified=True  # even a partially copied bundle requires rollback
+            for name in sorted(ALLOW):shutil.copyfile(SRC/name,APP/name)
+            dp.patch_config(APP,read(BASE/'config-patch.json'))
+            expected=read(APP/'config.json')
+            assert expected['strategy']['stop_max_pct']==current['strategy']['stop_max_pct']
+            assert expected['strategy']['entry_risk']==current['strategy']['entry_risk']
+            assert expected['strategy'].get('regime_expires')==current['strategy'].get('regime_expires')
+            assert expected['live']['profit_guard_arm_pct']==current['live']['profit_guard_arm_pct']
+            assert expected['strategy'].get('halt_new_buys')==current['strategy'].get('halt_new_buys')
+            assert expected['strategy'].get('regime_filter')==current['strategy'].get('regime_filter')
+            dp.cancel_stop(APP)
+            stderr=APP/'data/bot.stderr.log';stderr_before=stderr.stat().st_size if stderr.exists() else 0
+            since=time.time();ok,why=dp.start_bot()
+            if not ok:raise RuntimeError('Reviewed candidate failed to start: '+str(why)[-300:])
+            deadline=time.monotonic()+120
+            while time.monotonic()<deadline:
+                if dp.lock_alive(APP,'bot.lock') and dp.lock_alive(APP,'shadow.lock') and (APP/'data/status.html').stat().st_mtime>=since:break
+                time.sleep(3)
+            else:raise RuntimeError('New bot/shadow/status health check timed out')
+            if stderr.exists():
+                with stderr.open('rb') as stream:stream.seek(stderr_before);new_errors=stream.read().decode('utf-8',errors='replace')
+                assert 'Traceback' not in new_errors,'New startup exception'
+            after=read(APP/'data/live/live.json')
+            assert risk_basis(before)==risk_basis(after),'PnL basis/stop latch changed'
+            assert not before.get('halted') or after.get('halted'),'Existing stop latch cleared'
+            assert (sha(protected) if protected.exists() else None)==protection_sha,'User protection changed'
+            assert after.get('rotation_state',{}).get('floor_slot') is not None
+            for name in sorted(ALLOW):assert sha(APP/name)==sha(SRC/name),(name,'Runtime hash mismatch')
+            note('applied_healthy',runtime_flag=True,scan=expected['strategy']['entry_scan'],
+                 stop_max_pct=expected['strategy']['stop_max_pct'],entry_risk=expected['strategy']['entry_risk'],
+                 profit_guard_arm=expected['live']['profit_guard_arm_pct'],
+                 rotation_state=after['rotation_state'],risk_basis_unchanged=True,user_protection_unchanged=True)
+            return 0
+        except BaseException as error:
+            if not runtime_modified:
+                # Snapshot/validation failure: original code/config never changed.
+                dp.cancel_stop(APP);ok,why=dp.start_bot()
+                note('precopy_failure_original_restarted',error=str(error),original_restarted=ok)
+                raise
+            # Never overwrite a still-running new process or rewind order/ledger data.
+            dp.request_stop(APP)
+            if not all_stopped(dp):
+                note('rollback_blocked_running_process',error=str(error));raise
+            restore_owned_code(backup,old_owned)
+            for name in ALLOW-set(old_code):
+                target=APP/name
+                if target.exists() and target.parent.resolve()==APP.resolve():target.unlink()
+            # Risk management only after rollback; do not silently revive old rotations.
+            dp.patch_config(APP,{'live':{'auto_proposal':False}})
+            dp.cancel_stop(APP);ok,why=dp.start_bot()
+            note('rolled_back_regular_orders_paused',error=str(error),risk_management_restarted=ok)
+            raise
+
+if __name__=='__main__':raise SystemExit(main())

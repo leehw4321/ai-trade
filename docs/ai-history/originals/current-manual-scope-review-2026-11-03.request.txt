@@ -1,0 +1,919 @@
+Actual Claude final STATIC code review, toolsdisabled. ChatGPT author; you are reviewer. No filesystem claims/execution. Latest user overrides unconditional/history protection: ONLY CURRENTmanual holdings >5000KRW; <=5000 andunheldBTCneverprotected, BOTdustexcluded. We explicitly agreed residual math/unknownhold/mixedwholecoin/coldscan/modeawarehandoff. Exactyourpreviousagreementincludedbelow.
+Implementation: newcurrent_manual puremodule calculates residual(accountqty-ALLledgerqtyincludinginherited). No secondBOT/ownerledger. It persists only direct-fill PROOFquantity boundedbyCURRENTpositive residual, so a deposit cannotbe falselymarkedmanual; closedepisode clearsproof, sameoldhistoryisarchivedandcan'treactivate. Initialproof=min(currentR,max(netNONBOTexecutedvolume,0)) using freshGET. Afterwardonlypositivecumulativefilldeltasupdatetheproof; currentmanualqty always<=R andbecomes0ifR<=0. Provenanceisnotprefix-only: recordedlocalorders/pending identifiers+UUIDs+applied-localrecoverykeys proveBOT; userUIreasonIDs countmanual. Unrecordedv5prefix countsunknown/direct, asagreed.
+Eligibility uses manual PROOF qty*freshtradeprice >5000, notwholeBOT+manualdustvalue. Accountqty0 or<=5000alwaysinactive; KRWunlistedexcluded. Unknownunexplainedresidual>5000 andnegativebeyondEPS are separatepermarketsubmissionholds, notuserprotection/panelcount. No automatictradingunknownunits. Wholecoin remainsprotectedwhenactualmanualportion>5000; nobotlotexitexception. No reply remainsprotected, validbaselineuserreleasecanpermitnextjudgment. Pricealone neverreasks a priorquestion orinvalidatesrelease; firstevercross above5000 canaskONCE ifnotpreviouslyasked. Archive/config/oldBTCdecisionsaren'tauthority: effective derivescurrenteligibleminusvalidbaseline-release; missinglegacyreleasebaseline isn'thonored.
+Accounts/history/tickerfailure keepslastvalidpolicy; newsubmissionsblocked. PreviouslyprovenBOT-only riskexit retains existingstrictfreshaccount-equality/zeroexternal-locked/unchangedrevision/zero manualqty/noseparatehold exception (nofreshprice neededforR=0). Initialglobalcheckmandatoryevenafterhandoff. PertradefreshmarketrescanBEFOREinitialprotectionguardandlaterexistingprePOSTscan; finalpolicyreloadretained. ExistingpendingGETsettlementuntouched. Pendingmarketsnotclassifiedandmanualdeltanotconsumed. Alloldmode tests/behavior retaineddefaultcurrent_manual_only=False.
+Mode-awaredeploymenthealthverifiesfreshglobal,validatedsnapshot,panelrows==eligible,protectedflags==effective,nohardcodedBTC/DOGE; emptyactivevalid. Handoffensuresmode/scopeagreement andpreservesreceivercurrentmodeevenlegacyincoming. Guardnormalstop/backups/sync/newprocessstoppedbeforefailedrollback, sourcehashgate, keepoldstopped, currentdailyrolloversettledbeforestop. Riskactualfields(risk_base_equity,risk_baseline_unrealized,offset/day)checked, noreset. Existingnewprofitarm3%/stop5.5%fromothercommitsuntouched.
+Host completed344V5/131tool PASS afternewtests; one finalcondition removesvalue>5000gatingofNEGATIVEresidual hold, soevenmissingphysicalbalancewithpositiveBOTledgerisreconcilehold(nevertheuserprotectedlist). Existingnegativecasepassed; beforedeploymenthostwillrerunfocused+suiteatfinalhash. EarlieronetestWin5tempfileatomicreplacewastransientandpassedunchangedrerun; initialnewhealthtestsloadedtheirfakeappmodule 'old' andwerefixedbyvalidatingtrustedverifiedSOURCEpath, notprependingappfakepath. Notaprofitabilityclaim. Actual GET/privatepolicycopy previewprotectedONLYDOGE,holdsnone; no runtimechangeorordersyet. Whitelistpreviewbelow.
+Please give concise <=800word APPROVE exactSHA(or specificblockers), staticonly. This is a scopedsoftwarechange, no userpermissionquestion needed; standingconsent applies. All source and newtestcontentbelow, onlydiffsforunchangedbaselinefiles.
+
+EXACT PRIOR CLAUDE AGREEMENT:
+# Final position: ACCEPT, with no remaining blocker
+
+The six points below are binding implementation conditions, not new design. If ChatGPT objects to any of them, that objection becomes the blocker. Otherwise this is final.
+
+## 1. Ledger residual: ACCEPT
+- R = account qty − all bot ledger qty, with inherited lots included. Compute it in `Decimal`.
+- If the result is negative beyond EPS, reconcile that market separately and block bot orders there. Never clamp it to 0.
+- Skip residual classification for any market with pending or risk-pending bot orders. In-flight fills must never be counted as manual.
+
+## 2. Unknown residual handled as a 출처확인대기 hold: ACCEPT
+This replaces my §2. It meets my concern, which was that unexplained units must never be traded. It also respects "사용자 직접 거래 종목만". Conditions:
+- The hold blocks all new bot orders in that market, buys and sells. It is not added to the protected count or panel.
+- An order counts as NONBOT only if its UUID or identifier is absent from the bot's submitted or pending records. An unrecorded order is never assumed to be the bot's.
+- Seen-manual records are keyed by UUID plus cumulative `executed_volume`. Only a positive delta counts as new evidence.
+- Suppose R rises above a release baseline, or above the confirmed episode amount, but no new manual fill delta explains it (for example, a deposit). That increase goes to the 출처확인대기 hold. It does not re-ask the user, and it is never tradable.
+
+## 3. Keep whole-coin protection, no bot-lot exit: ACCEPT
+- I withdraw my §5 cap. The user did not authorize it.
+- Bot lots in a market where the manual portion is over 5000 stay protected.
+- Post-submit pending settlement stays independent of classification and is never blocked by it.
+
+## 4. Baseline-bound release: ACCEPT
+- A legacy release is preserved only if it has a recorded quantity baseline equal to the current R within EPS.
+- A legacy release with no baseline is not a release under the new mode. It is not migrated into `protected:false`.
+- Today this changes nothing in practice, since DOGE is the only eligible market.
+
+## 5. Open-order hold and failure handling: ACCEPT
+- Restoring from handoff requires a fresh cold global scan before the first order.
+- Every POST requires a per-market rescan first.
+- A price is never fresh just because it was the last successful fetch.
+
+## 6. Mode-aware health check: ACCEPT
+- An empty protected set is valid.
+- The check compares the computed eligible snapshot and rules. Nothing is hardcoded to DOGE.
+- The legacy check stays when the mode is off.
+
+## Expected live result
+| | Markets |
+|---|---|
+| Protected | {KRW-DOGE}, confirmed by a recent direct buy plus the residual |
+| 출처확인대기 holds | none |
+| Not protected | CAP, AXIS, GTC, SUI, BIRB (R = 0); DKA, TRUST (dust); BTC (qty 0) |
+| Absent from panel | APENFT, SOLO, XCORE (no KRW quote) |
+
+## Required added tests
+1. R increase without a manual fill delta → hold, no re-ask.
+2. An unrecorded bot-pending order is not classified as manual.
+3. A legacy release without a baseline is not honored.
+4. A hold market rejects buys and sells.
+
+No change to budget, strategy, risk basis, lease, pending, loss basis, or ownership reset. Ready for code review against these conditions.
+ACTUAL GET PREVIEW:
+{
+  "protected": [
+    "KRW-DOGE"
+  ],
+  "mode": "current_manual_over_5000",
+  "seconds": 0.751,
+  "holds": {},
+  "current": {
+    "KRW-AXIS": {
+      "qty": "510.86956521",
+      "bot_qty": "510.86956521",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-DOGE": {
+      "qty": "5010.02004008",
+      "bot_qty": "0",
+      "manual_qty": "5010.02004008",
+      "manual_value_krw": 506012.02404808
+    },
+    "KRW-SOLO": {
+      "qty": "70.44991954",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-BIRB": {
+      "qty": "1E-8",
+      "bot_qty": "1.0000007932831068E-8",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-TRUST": {
+      "qty": "1E-8",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-FLOCK": {
+      "qty": "1461.10165356",
+      "bot_qty": "1461.10165356",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-MPLX": {
+      "qty": "810.34482758",
+      "bot_qty": "810.34482758",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-APENFT": {
+      "qty": "30779720.7780543",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-GTC": {
+      "qty": "0.06805695",
+      "bot_qty": "0.06805695",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-SUI": {
+      "qty": "1.88899338",
+      "bot_qty": "1.88899338",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-PIEVERSE": {
+      "qty": "49.45407835",
+      "bot_qty": "49.45407835",
+      "manual_qty": "0E-8",
+      "manual_value_krw": 0.0
+    },
+    "KRW-CAP": {
+      "qty": "1E-8",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-DKA": {
+      "qty": "1E-8",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    },
+    "KRW-XCORE": {
+      "qty": "8.78750026",
+      "bot_qty": "0",
+      "manual_qty": "0",
+      "manual_value_krw": null
+    }
+  },
+  "runtime_untouched": true
+}
+
+FILE tools/apply_manual_protection.py SHA256 2e26a7acedb5700ae2253143fda38a7fd39b10d2f4083f1b50cd5427e1b2db72
+
+--- old/tools/apply_manual_protection.py
++++ new/tools/apply_manual_protection.py
+@@ -1,5 +1,6 @@
+ """Hash-gated manual protection deployment; normal stop, sync, failed start stays stopped."""
+ import argparse
++import datetime as dt
+ import hashlib
+ import json
+ import re
+@@ -13,9 +14,11 @@
+ import deploy_v5 as deploy
+ import sync_v5 as sync
+ 
+-NAMES={'asset_protection.py','manual_protection.py','protection_panel.py','manual_orders.py',
++if str(sync.SRC) not in sys.path:sys.path.append(str(sync.SRC))
++
++NAMES={'asset_protection.py','manual_protection.py','protection_panel.py','manual_orders.py','current_manual.py',
+        'bot.py','live.py','test_auto_protection.py'}
+-PATCH={'auto_manual_protection':True,'protection_ui':True,'user_protection_required':True}
++PATCH={'auto_manual_protection':True,'protection_ui':True,'user_protection_required':True,'current_manual_only':True}
+ 
+ 
+ def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+@@ -35,6 +38,22 @@
+     raise RuntimeError('First global protection scan or panel action failed')
+ 
+ 
++def verify_scope_panel(app,payload,started):
++    from asset_protection import validate,effective
++    doc=validate(json.loads((app/'data/user_protected_assets.json').read_text(encoding='utf-8')))
++    cfg=json.loads((app/'config.json').read_text(encoding='utf-8-sig'))['live']
++    if cfg.get('current_manual_only'):
++        import current_manual
++        scope=doc.get('current_scope',{})
++        if (payload.get('health',{}).get('scope_mode')!=current_manual.MODE
++                or scope.get('global_checked_at',0)<started):raise RuntimeError('Current holding scope not fresh')
++        if set(payload.get('rows',{}))!=current_manual.eligible(scope):raise RuntimeError('Panel includes stale/dust/nonmanual holdings')
++        active=effective(doc)
++        if any(row.get('protected') is not (m in active) for m,row in payload['rows'].items()):raise RuntimeError('Panel protection differs from current scope')
++    elif not all(payload['rows'].get(m,{}).get('protected') is True for m in ('KRW-BTC','KRW-DOGE')):
++        raise RuntimeError('BTC/DOGE protection missing')
++
++
+ def apply(app,manifest):
+     app=Path(app).resolve(strict=True)
+     def verify():
+@@ -46,6 +65,10 @@
+         if not (app.parent.parent/'launch_v5.py').exists(): raise ValueError('Launcher missing')
+         cfg=json.loads((app/'config.json').read_text(encoding='utf-8-sig'))['live']
+         if not cfg.get('enabled') or not cfg.get('user_protection_required'): raise ValueError('Unexpected live policy')
++        today=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
++        if cfg.get('loss_daily'):
++            ledger=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
++            if ledger.get('risk_day')!=today:raise RuntimeError('Daily risk rollover not yet settled; retry without stopping')
+     verify()
+     if deploy.pending_orders(app): raise RuntimeError('Unresolved order; no deployment')
+     if not safe.stop(app): raise RuntimeError('Normal stop incomplete; no code change, stop request retained')
+@@ -75,15 +98,11 @@
+         ok,_=deploy.start_bot(app.parent.parent/'launch_v5.py')
+         if not ok: raise RuntimeError('Launcher failed')
+         payload=wait_for_panel(app,started)
+-        if not all(payload['rows'].get(m,{}).get('protected') is True for m in ('KRW-BTC','KRW-DOGE')):
+-            raise RuntimeError('BTC/DOGE protection missing')
+-        sys.path.insert(0,str(app))
+-        from asset_protection import validate
+-        validate(json.loads((app/'data/user_protected_assets.json').read_text(encoding='utf-8')))
++        verify_scope_panel(app,payload,started)
+         with urllib.request.urlopen('http://127.0.0.1:'+str(payload['action']['port'])+'/ping',timeout=3) as response:
+             if response.status!=200: raise RuntimeError('Protection ping failed')
+         current=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
+-        for key in ('risk_base_krw','risk_loss_offset','risk_day','baseline_unrealized'):
++        for key in ('risk_base_equity','risk_baseline_unrealized','risk_loss_offset','risk_day','risk_base_krw','baseline_unrealized'):
+             if current.get(key)!=before.get(key): raise RuntimeError('Risk basis changed: '+key)
+         print('MANUAL_PROTECTION_DEPLOY_OK',flush=True)
+     except BaseException:
+
+
+FILE v5/asset_protection.py SHA256 d6622e2e0d3eb781cd3676fe4ff28d8e843137f7efe554e8e75f9c7a3dbed112
+
+--- old/v5/asset_protection.py
++++ new/v5/asset_protection.py
+@@ -70,11 +70,17 @@
+         try: quantity=Decimal(str(value))
+         except InvalidOperation: raise ProtectionError('직접 보유 수량 오류') from None
+         if not quantity.is_finite(): raise ProtectionError('직접 보유 수량 오류')
++    if 'current_scope' in doc:
++        import current_manual
++        current_manual.validate_scope(doc['current_scope'])
+     return doc
+ 
+ 
+ def effective(doc, configured=()):
+     validate(doc)
++    if 'current_scope' in doc:
++        import current_manual
++        return current_manual.active(doc['current_scope'],doc.get('decisions',{}))
+     result = {normalize(m) for m in list(configured) + doc['markets']}
+     for market, choice in doc.get('decisions', {}).items():
+         if choice['protected']: result.add(normalize(market))
+@@ -92,6 +98,7 @@
+     """Latest explicit choice wins; equally dated/unknown conflicts favor protection."""
+     validate(left); validate(right)
+     out = deepcopy(right)
++    if 'current_scope' in left and 'current_scope' not in right:out['current_scope']=deepcopy(left['current_scope'])
+     markets = effective(left, left_configured) | effective(right, right_configured)
+     decisions = {}
+     for market in markets | set(left.get('decisions', {})) | set(right.get('decisions', {})):
+@@ -113,6 +120,7 @@
+     # coincidentally equal counter. Revisions must never move backwards.
+     out['revisions']={m:max(left.get('revisions',{}).get(m,0),right.get('revisions',{}).get(m,0))+1
+         for m in set(left.get('revisions',{}))|set(right.get('revisions',{}))}
++    if 'current_scope' in out:out['markets']=sorted(effective(out))
+     return validate(out)
+ 
+ 
+@@ -213,6 +221,12 @@
+             if not protect and (type(expected) is not int or expected != self.revision(market,doc)):
+                 raise ProtectionError('새 직접 주문 또는 보호 변경이 있습니다. 새로고침 후 다시 확인하세요.')
+             self._choice(doc,market,protect,origin)
++            if 'current_scope' in doc:
++                import current_manual
++                scope=doc['current_scope']
++                if market not in current_manual.eligible(scope):raise ProtectionError('현재 직접 보유분 5,000원 초과 종목만 보호 선택 가능')
++                if not protect:scope.setdefault('release_baselines',{})[market]=scope['holdings'][market]['manual_quantity']
++                else:scope.setdefault('release_baselines',{}).pop(market,None)
+             return {'market':market,'protected':protect,'revision':self.revision(market,doc)}
+         return self.mutate(change)
+ 
+
+
+FILE v5/current_manual.py SHA256 ba0c4d731d3d3e09cdbf1b7dbc8087902165092113257216caf37cc2ade2e32c
+
+--- old/v5/current_manual.py
++++ new/v5/current_manual.py
+@@ -0,0 +1,155 @@
++"""Current external/manual inventory scope. No orders, credentials, or HTTP calls."""
++from decimal import Decimal,InvalidOperation
++import hashlib
++import json
++import math
++from asset_protection import ProtectionError,normalize
++
++MODE='current_manual_over_5000'
++EPS=Decimal('0.00000001')
++
++
++def decimal(value,nonnegative=True):
++    try:result=Decimal(str(value))
++    except (ValueError,InvalidOperation):raise ProtectionError('현재 보유 수량·시세 형식 오류') from None
++    if not result.is_finite() or nonnegative and result<0:raise ProtectionError('현재 보유 수량·시세 무효')
++    return result
++
++
++def validate_scope(scope):
++    if not isinstance(scope,dict) or scope.get('mode')!=MODE:raise ProtectionError('현재 보유 보호 기준 확인 필요')
++    if decimal(scope.get('min_value_krw'))!=5000:raise ProtectionError('직접 보유 보호 금액 기준 오류')
++    for key in ('checked_at','global_checked_at'):
++        if type(scope.get(key)) not in (float,int) or not math.isfinite(scope[key]):raise ProtectionError('보유 확인 시각 오류')
++    if not isinstance(scope.get('holdings'),dict) or not isinstance(scope.get('manual_seen'),dict):raise ProtectionError('현재 보유 보호 자료 오류')
++    if not isinstance(scope.get('release_baselines',{}),dict):raise ProtectionError('현재 보유 해제 기준 오류')
++    if not isinstance(scope.get('asked',{}),dict) or any(type(v) is not bool for v in scope.get('asked',{}).values()):raise ProtectionError('현재 보유 해제 질문 기록 오류')
++    for market,value in scope.get('release_baselines',{}).items():
++        if normalize(market)!=market:raise ProtectionError('현재 보유 해제 종목 오류')
++        decimal(value)
++    for market,row in scope['holdings'].items():
++        if normalize(market)!=market or not isinstance(row,dict):raise ProtectionError('현재 보유 종목 오류')
++        q,owned,manual=(decimal(row.get(k)) for k in ('quantity','ledger_quantity','manual_quantity'))
++        if manual>max(Decimal(0),q-owned)+EPS:raise ProtectionError('직접 보유 수량이 현재 차이 수량을 초과')
++        if type(row.get('listed')) is not bool or not isinstance(row.get('hold_reason',''),str):raise ProtectionError('현재 보유 출처 오류')
++        if row.get('price') is not None:
++            if decimal(row['price'])<=0:raise ProtectionError('시세 무효')
++        elif row['listed'] and q>EPS:raise ProtectionError('현재 시세 누락: 보호 판단 보류')
++    for key,row in scope['manual_seen'].items():
++        if (not isinstance(key,str) or len(key)!=64 or any(c not in 'abcdef0123456789' for c in key)
++                or not isinstance(row,dict) or normalize(row.get('market'))!=row['market']
++                or row.get('state') not in ('wait','watch','done','cancel')
++                or row.get('side') not in ('bid','ask') or not isinstance(row.get('revision'),str)
++                or len(row['revision'])!=64 or any(c not in 'abcdef0123456789' for c in row['revision'])
++                or type(row.get('seen_at')) not in (int,float) or not math.isfinite(row['seen_at'])):
++            raise ProtectionError('직접 주문 증거 형식 오류')
++        decimal(row.get('volume'))
++    return scope
++
++
++def eligible(scope):
++    validate_scope(scope)
++    return {m for m,r in scope['holdings'].items() if r['listed'] and r.get('price') is not None
++        and decimal(r['quantity'])>EPS and decimal(r['quantity'])*decimal(r['price'])>5000
++        and decimal(r['manual_quantity'])*decimal(r['price'])>5000}
++
++
++def active(scope,decisions):
++    result=eligible(scope)
++    for market in list(result):
++        choice=decisions.get(market,{})
++        if choice.get('protected') is False and choice.get('origin') in ('user_ui','cli'):
++            baseline=scope.get('release_baselines',{}).get(market)
++            if baseline is not None and abs(decimal(scope['holdings'][market]['manual_quantity'])-decimal(baseline))<=EPS:
++                result.remove(market)
++    return result
++
++
++def reconcile(policy,state,inventory,orders,listed,prices,user_ids,now,market=None,known_bot_ids=()):
++    """Derive active protection only from current quantities, direct-fill proof, and quote."""
++    observed={};user_ids=set(user_ids);known_bot_ids=set(known_bot_ids)
++    pending_markets=set(state.get('risk_pending_orders') or {})
++    if state.get('pending_order'):pending_markets.add(state['pending_order']['market'])
++    for order in orders:
++        ident=order.get('identifier') or ''
++        if ident not in user_ids and (ident in known_bot_ids or order.get('uuid') in known_bot_ids):continue
++        uid=order.get('uuid') or ident
++        if not isinstance(uid,str) or not uid:raise ProtectionError('직접 주문 출처 불명')
++        m=normalize(order['market']);volume=decimal(order.get('executed_volume') or 0)
++        side,st=order.get('side'),order.get('state')
++        if side not in ('bid','ask') or st not in ('wait','watch','done','cancel'):raise ProtectionError('직접 주문 상태 불명')
++        key=hashlib.sha256(uid.encode()).hexdigest()
++        revision=hashlib.sha256(json.dumps([m,side,st,str(volume)]).encode()).hexdigest()
++        row={'market':m,'volume':str(volume),'side':side,'state':st,'revision':revision,'seen_at':now}
++        if key not in observed or (volume,st in ('done','cancel'))>(decimal(observed[key]['volume']),observed[key]['state'] in ('done','cancel')):observed[key]=row
++
++    def change(doc):
++        prior=doc.get('current_scope');initial=prior is None
++        if initial and market is not None:raise ProtectionError('먼저 전체 현재 보유 확인 필요')
++        if prior is not None:validate_scope(prior)
++        scope=doc.setdefault('current_scope',{'mode':MODE,'min_value_krw':5000,'checked_at':now,
++            'global_checked_at':0,'holdings':{},'manual_seen':{},'release_baselines':{},
++            'archived_markets':list(doc.get('markets',[]))})
++        seen=scope['manual_seen'];changes={};net={};open_manual=set()
++        for key,row in observed.items():
++            m=row['market'];v=decimal(row['volume']);old=seen.get(key)
++            if m in pending_markets:continue
++            if old and v<decimal(old['volume']):raise ProtectionError('직접 체결 누적 수량 역전')
++            net[m]=net.get(m,Decimal(0))+(v if row['side']=='bid' else -v)
++            if row['state'] in ('wait','watch'):open_manual.add(m)
++            dv=v-(decimal(old['volume']) if old else Decimal(0))
++            if not old or old['revision']!=row['revision']:
++                info=changes.setdefault(m,{'delta':Decimal(0),'event':False})
++                info['delta']+=dv if row['side']=='bid' else -dv;info['event']=True
++            seen[key]=row
++        if len(seen)>10000:
++            stale=sorted((k for k,v in seen.items() if v['state'] in ('done','cancel') and v['seen_at']<now-7*86400),key=lambda k:seen[k]['seen_at'])
++            for key in stale[:len(seen)-10000]:del seen[key]
++            if len(seen)>10000:raise ProtectionError('직접 주문 증거 상한: 대사 필요')
++        targets=({market} if market else set(inventory)|set(state.get('positions',{}))|set(scope['holdings'])|set(doc.get('decisions',{}))|set(doc.get('markets',[]))|open_manual)
++        changed=[]
++        for m in targets:
++            q,_=inventory.get(m,(Decimal(0),Decimal(0)));q=decimal(q)
++            owned=decimal(state.get('positions',{}).get(m,{}).get('qty',0))
++            previous=scope['holdings'].get(m,{})
++            if m in pending_markets:
++                # Do not consume fill evidence while the BOT ledger is not settled.
++                if previous:previous['hold_reason']='봇 미확정 주문 정산 대기'
++                else:scope['holdings'][m]={'quantity':str(q),'ledger_quantity':str(owned),'manual_quantity':'0',
++                    'price':prices.get(m),'listed':m in listed,'hold_reason':'봇 미확정 주문 정산 대기'}
++                continue
++            residual=q-owned
++            info=changes.get(m,{'delta':Decimal(0),'event':False})
++            manual=min(max(residual,Decimal(0)),max(net.get(m,Decimal(0)) if initial else decimal(previous.get('manual_quantity',0))+info['delta'],Decimal(0)))
++            price=prices.get(m) if m in listed and q>EPS else None
++            if q>EPS and m in listed and price is None:raise ProtectionError('현재 시세 누락: 기존 보호 유지')
++            px=decimal(price) if price is not None else None
++            total_value=q*px if px is not None else Decimal(0)
++            hold=''
++            if m in open_manual:hold='사용자 미체결 주문 진행 중'
++            if residual < -EPS:hold='실제 잔고가 봇 장부보다 적음: 대사 필요'
++            elif px is not None and (max(residual,Decimal(0))-manual)*px>5000:hold='현재 외부 보유 출처 확인 대기'
++            scope['holdings'][m]={'quantity':str(q),'ledger_quantity':str(owned),'manual_quantity':str(manual),
++                'price':str(px) if px is not None else None,'listed':m in listed,'hold_reason':hold}
++            qualifies=px is not None and q>EPS and total_value>5000 and manual*px>5000
++            old_choice=doc.get('decisions',{}).get(m,{})
++            if qualifies:
++                old_manual=decimal(previous.get('manual_quantity',0))
++                new_event=not initial and info['event']
++                # Price alone cannot invalidate an explicit user release or re-ask.
++                baseline=scope.get('release_baselines',{}).get(m)
++                released=(old_choice.get('protected') is False and baseline is not None and abs(manual-decimal(baseline))<=EPS)
++                first_question=not scope.get('asked',{}).get(m) and not released
++                if (initial and not released) or new_event or first_question:
++                    doc.setdefault('manual',{})[m]={'at':now,'pending':True,'kind':'현재 직접 보유분 5,000원 초과'}
++                    policy._choice(doc,m,True,'manual');scope.setdefault('release_baselines',{}).pop(m,None)
++                    scope.setdefault('asked',{})[m]=True;changed.append(m)
++                elif manual!=old_manual:
++                    rev=doc.setdefault('revisions',{});rev[m]=rev.get(m,0)+1
++                    if old_choice.get('protected') is False:
++                        doc.setdefault('manual',{})[m]={'at':now,'pending':True,'kind':'현재 직접 보유 수량 변경 확인'}
++            elif m in doc.get('manual',{}):doc['manual'][m]['pending']=False
++        scope['checked_at']=now
++        if market is None:scope['global_checked_at']=now
++        return changed
++    return policy.mutate(change)
+
+
+FILE v5/live.py SHA256 30702ef9c0a19065b4ce58d5b2440131e14d751ca55236b74d4ffc0b87c574c1
+
+--- old/v5/live.py
++++ new/v5/live.py
+@@ -65,7 +65,7 @@
+             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
+             'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
+             'protected_markets': [], 'auto_manual_protection': False,
+-            'protection_ui': False}  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
++            'protection_ui': False,'current_manual_only':False}  # 현재 직접 보유분 기준은 명시 활성 시 적용
+ 
+ 
+ def parse(text):
+@@ -155,7 +155,11 @@
+     def protected_markets(self):
+         """Reload at each decision/submission; malformed state blocks submissions."""
+         try:
+-            return asset_protection.effective(self.protection_policy.read(),self.protection_policy.configured)
++            doc=self.protection_policy.read()
++            if self.cfg.get('current_manual_only'):
++                if ('current_scope' not in doc or not getattr(getattr(self,'_manual_detector',None),'last_global_success',0)):
++                    raise asset_protection.ProtectionError('현재 계좌 전체 확인 전: 새 주문 보류')
++            return asset_protection.effective(doc,self.protection_policy.configured)
+         except (OSError, ValueError, KeyError, TypeError) as ex:
+             raise ProtectedAssetError('사용자 보호 목록 확인 실패: 주문 보류 (' + type(ex).__name__ + ')') from None
+ 
+@@ -176,7 +180,7 @@
+     @property
+     def manual_detector(self):
+         if not hasattr(self,'_manual_detector'):
+-            self._manual_detector=manual_protection.Detector(self.protection_policy,self.folder)
++            self._manual_detector=manual_protection.Detector(self.protection_policy,self.folder,current_only=bool(self.cfg.get('current_manual_only')))
+         return self._manual_detector
+ 
+     def scan_manual_orders(self, market=None, risk=False, amount=None, allow_protected=False):
+@@ -455,6 +459,7 @@
+         return not self.has_uncertain_orders()
+ 
+     def _trade(self, side, market, amount, reason, risk=False, entry_context=None, validate_entry=False):
++        if self.cfg.get('current_manual_only'):self.scan_manual_orders(market,allow_protected=True)
+         self.assert_unprotected(market)
+         if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
+         if risk:
+
+
+FILE v5/manual_protection.py SHA256 f3bb74b5ebaba2ef0728a857178673ed86f959b26a50eea1749da69211bd5354
+
+--- old/v5/manual_protection.py
++++ new/v5/manual_protection.py
+@@ -12,6 +12,13 @@
+ 
+ 
+ class HistoryClient:
++    def valuation(self,inventory):
++        import upbit
++        listed=set(upbit.krw_markets())
++        markets=[m for m,(qty,_) in inventory.items() if qty>EPS and m in listed]
++        quotes=upbit.tickers(markets) if markets else {}
++        prices={m:quotes[m]['trade_price'] for m in markets if m in quotes}
++        return listed,prices
+     def get(self, path, params):
+         import upbit
+         # Parameters here contain only ASCII market/state/count/page fields.
+@@ -59,12 +66,75 @@
+     return result
+ 
+ 
++def bot_identifiers(folder,state):
++    """Only submitted/pending/reconciled BOT records prove origin, never a prefix alone."""
++    folder=Path(folder);manual=user_identifiers(folder);result=set()
++    file=folder/'orders.jsonl'
++    if file.exists():
++        for line in file.read_text(encoding='utf-8').splitlines():
++            if not line.strip():continue
++            row=json.loads(line)
++            if row.get('identifier') in manual:continue
++            for key in ('identifier','uuid'):
++                if row.get(key):result.add(row[key])
++    pending=[state.get('pending_order')]+list((state.get('risk_pending_orders') or {}).values())
++    for row in pending:
++        if row:
++            for key in ('identifier','uuid'):
++                if row.get(key) and row.get(key) not in manual:result.add(row[key])
++    for file in (folder.parent/'reconciliation').glob('exchange-*/applied-local.json'):
++        applied=json.loads(file.read_text(encoding='utf-8'))
++        if not isinstance(applied,dict):raise ProtectionError('복구 주문 장부 형식 오류')
++        result.update(key for key in applied if key.startswith('v5-') and key not in manual)
++    return result
++
++
+ class Detector:
+-    def __init__(self, policy, live_folder, client=None, clock=time.time):
++    def __init__(self, policy, live_folder, client=None, clock=time.time,current_only=False):
+         self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
+         self.good={}
+         self.error=''
+         self.last_global_success=0
++        self.current_only=current_only
++
++    def scan_current(self,state,market,risk,amount,allow_protected):
++        import current_manual
++        try:
++            # Fill history precedes accounts to reduce execution/balance snapshot races.
++            orders=self.client.orders(market)
++            inventory=self._inventory(self.client.accounts())
++            listed,prices=self.client.valuation(inventory)
++            changed=current_manual.reconcile(self.policy,state,inventory,orders,listed,prices,
++                user_identifiers(self.folder),self.clock(),market,bot_identifiers(self.folder,state))
++            doc=self.policy.read();scope=doc['current_scope']
++            self.error=''
++            for m in ({market} if market else scope['holdings']):
++                self.good[m]={'revision':self.policy.revision(m,doc),'at':self.clock()}
++            if market is None:self.last_global_success=self.clock()
++        except Exception as error:
++            self.error='현재 보유·직접 거래·시세 확인 대기: '+type(error).__name__
++            if market and risk and amount is not None:
++                try:
++                    fresh=self._inventory(self.client.accounts());qty,locked=fresh.get(market,(Decimal(0),Decimal(0)))
++                    owned,known=self._owned(state,market);doc=self.policy.read();prior=self.good.get(market)
++                    row=doc.get('current_scope',{}).get('holdings',{}).get(market,{})
++                    if (prior and known and abs(qty-owned)<=EPS and locked<=EPS
++                            and self.policy.revision(market,doc)==prior['revision']
++                            and Decimal(str(row.get('manual_quantity',0)))==0 and not row.get('hold_reason')
++                            and market not in effective(doc,self.policy.configured)):
++                        return min(float(qty),float(owned),float(amount))
++                except Exception:pass
++            if isinstance(error,ProtectionError):raise
++            raise ProtectionError(self.error) from None
++        if market and not allow_protected:
++            row=scope['holdings'].get(market,{})
++            if row.get('hold_reason'):raise ProtectionError(row['hold_reason'])
++            if market in effective(doc,self.policy.configured):raise ProtectionError('현재 직접 보유분 5,000원 초과: 사용자 보호')
++        if market and risk and amount is not None:
++            qty,_=inventory.get(market,(Decimal(0),Decimal(0)))
++            owned,_=self._owned(state,market)
++            return min(float(qty),float(owned),float(amount))
++        return changed if market is None else amount
+ 
+     @staticmethod
+     def _inventory(rows):
+@@ -118,6 +188,7 @@
+ 
+     def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
+         market=normalize(market) if market else None
++        if self.current_only:return self.scan_current(state,market,risk,amount,allow_protected)
+         try:
+             inventory=self._inventory(self.client.accounts())
+         except Exception:
+
+
+FILE v5/protection_panel.py SHA256 e224484825ce1920be28b8736f3363106d8a6addcd36bd8f83fb9ed9b46c6d58
+
+--- old/v5/protection_panel.py
++++ new/v5/protection_panel.py
+@@ -10,7 +10,11 @@
+         doc=policy.read(); protected=live.protected_markets()
+     except Exception:
+         return '<section id="asset-protection-board"><h2>사용자 주문 보호</h2><p class="warn">보호 상태 확인 불가 · 새 봇 주문을 보류합니다.</p></section>'
+-    markets=sorted(set(account_markets)|set(live.d['positions'])|protected|set(doc.get('manual',{})))
++    current_only=bool(live.cfg.get('current_manual_only'))
++    if current_only:
++        import current_manual
++        markets=sorted(current_manual.eligible(doc['current_scope']))
++    else:markets=sorted(set(account_markets)|set(live.d['positions'])|protected|set(doc.get('manual',{})))
+     e=html.escape
+     rows=[]; data={}
+     pending=[]
+@@ -31,10 +35,14 @@
+     error=getattr(getattr(live,'_manual_detector',None),'error','')
+     note='<p class="warn">직접 주문 확인 지연 · 새 주문의 출처를 확인 중입니다.</p>' if error else ''
+     health={'checked_at':getattr(getattr(live,'_manual_detector',None),'last_global_success',0),'error':error}
++    health['scope_mode']=doc.get('current_scope',{}).get('mode')
++    scope_note=('<p class="sub">현재 직접 보유분의 평가액이 5,000원 초과인 종목만 보호합니다. 미보유·5,000원 이하 잔량·봇 보유분·과거 거래 이력만 있는 종목은 제외합니다.</p>' if current_only else '')
++    holds=[m for m,r in doc.get('current_scope',{}).get('holdings',{}).items() if r.get('hold_reason')]
++    if holds:scope_note+='<p class="sub">별도 주문 확인 대기: '+e(', '.join(m[4:] for m in sorted(holds)))+' · 보호 목록과 구분됩니다.</p>'
+     payload=json.dumps({'rows':data,'action':action,'health':health},ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
+     return f'''<section id="asset-protection-board"><h2 class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span></h2>
+ <p class="sub">업비트에서 직접 주문한 종목은 감지 즉시 종목 전체를 보호합니다. 자동 해제는 없으며, 직접 해제를 확인하기 전까지 봇은 그 종목을 매수·매도·손절·익절하지 않습니다. 해제한 뒤에도 새 직접 주문을 감지하면 다시 보호합니다.</p>
+-{warning}{note}{''.join(pending)}
++{scope_note}{warning}{note}{''.join(pending)}
+ <details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details>
+ <div id="ap-confirm" hidden><b id="ap-question"></b><p>해제는 즉시 주문을 넣지 않습니다. 다음 봇 판단부터 관리하며, 보호 중에는 봇 손절도 하지 않습니다.</p><button type="button" id="ap-yes">보호 해제 확인</button> <button type="button" id="ap-no">취소</button></div>
+ <p id="ap-result" role="status">{'화면에서 보호 유지·해제를 선택할 수 있습니다.' if action else '보호 제어 연결을 기다리고 있습니다. 보호 상태는 유지됩니다.'}</p>
+
+
+FILE tools/secure_handoff.py SHA256 20d60a98648075b37ac5adf7f5465264d2bbb5b8e4a843a44c3d10063c110211
+
+--- old/tools/secure_handoff.py
++++ new/tools/secure_handoff.py
+@@ -111,7 +111,10 @@
+             released = asset_protection.explicit_release(protection_data,'KRW-DOGE')
+         except (ValueError,TypeError):
+             raise HandoffError('User protection policy malformed') from None
+-        if 'KRW-DOGE' not in protected and not released:
++        scoped=protection_data.get('current_scope',{}).get('mode')=='current_manual_over_5000'
++        if scoped and config.get('live',{}).get('current_manual_only') is not True:
++            raise HandoffError('Current holding scope/config mismatch')
++        if 'KRW-DOGE' not in protected and not released and not scoped:
+             raise HandoffError('DOGE whole-asset protection must survive handoff')
+         baseline_present = 'runtime/pnl_baseline.json' in names
+         baseline_sha = hashlib.sha256(archive.read('runtime/pnl_baseline.json')).hexdigest() if baseline_present else None
+@@ -256,6 +259,8 @@
+     except (ValueError,TypeError): raise HandoffError('User protection merge failed') from None
+     union=asset_protection.effective(protection)
+     config.setdefault('live', {}).update(user_protection_required=True, protected_markets=sorted(union))
++    if protection.get('current_scope',{}).get('mode')=='current_manual_over_5000':
++        config['live']['current_manual_only']=True
+     protection.update(policy='user_managed_no_bot_orders',handoff_merge_policy='latest_explicit_choice_or_protective_union')
+     return config, protection
+ 
+
+
+FILE tools/test_apply_manual_protection.py SHA256 316abfc79d56514637dfed849f07b40a92953999b807eb915fa214ad508af79b
+
+--- old/tools/test_apply_manual_protection.py
++++ new/tools/test_apply_manual_protection.py
+@@ -62,5 +62,33 @@
+                 patch.object(deploy.time,'sleep'):
+             self.assertEqual(deploy.wait_for_panel(self.app,100,1),payload)
+ 
++    def scoped_panel(self):
++        (self.app/'config.json').write_text('{"live":{"current_manual_only":true}}')
++        (self.app/'data').mkdir(exist_ok=True)
++        scope={'mode':'current_manual_over_5000','min_value_krw':5000,'checked_at':200,'global_checked_at':200,
++            'holdings':{},'manual_seen':{},'release_baselines':{}}
++        (self.app/'data/user_protected_assets.json').write_text(json.dumps({'markets':['KRW-BTC'],'current_scope':scope}))
++        return {'rows':{},'health':{'scope_mode':'current_manual_over_5000'}},scope
++
++    def test_current_scope_health_allows_no_current_manual_holdings(self):
++        payload,_=self.scoped_panel();deploy.verify_scope_panel(self.app,payload,100)
++
++    def test_current_scope_health_rejects_archive_btc_on_panel(self):
++        payload,_=self.scoped_panel();payload['rows']['KRW-BTC']={'protected':True}
++        with self.assertRaises(RuntimeError):deploy.verify_scope_panel(self.app,payload,100)
++
++    def test_current_scope_health_requires_fresh_account_scope(self):
++        payload,_=self.scoped_panel()
++        with self.assertRaises(RuntimeError):deploy.verify_scope_panel(self.app,payload,300)
++
++    def test_daily_rollover_is_checked_before_stopping(self):
++        (self.app/'data/live').mkdir(parents=True)
++        (self.app/'data/live/live.json').write_text('{"risk_day":"2000-01-01"}')
++        (self.app/'config.json').write_text('{"live":{"enabled":true,"user_protection_required":true,"loss_daily":true}}')
++        self.manifest['config_sha256']=deploy.digest(self.app/'config.json')
++        with patch.object(deploy.sync,'SRC',self.source),patch.object(deploy.safe,'stop') as stop:
++            with self.assertRaises(RuntimeError):deploy.apply(self.app,self.manifest)
++        stop.assert_not_called()
++
+ 
+ if __name__=='__main__':unittest.main()
+
+
+FILE v5/test_current_manual.py SHA256 15a07c880b7c7e6a8ec95e6a597f8cafb18dedaead55068c8ef9d04b2474848b
+
+--- old/v5/test_current_manual.py
++++ new/v5/test_current_manual.py
+@@ -0,0 +1,159 @@
++import copy,json
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import patch
++
++from asset_protection import Policy,ProtectionError,effective,merge
++from manual_protection import Detector
++import current_manual
++import live
++import protection_panel
++
++
++def order(m='KRW-DOGE',q='1',side='bid',uid='direct-a',identifier=None,state='done'):
++    return {'market':m,'executed_volume':q,'side':side,'uuid':uid,'identifier':identifier,'state':state}
++
++
++class API:
++    def __init__(self):
++        self.rows=[{'currency':'DOGE','balance':'1','locked':'0'}];self.records=[order()]
++        self.listed={'KRW-DOGE','KRW-BTC','KRW-CAP'};self.prices={'KRW-DOGE':6000,'KRW-CAP':10000}
++        self.fail=None
++    def accounts(self):
++        if self.fail=='account':raise OSError('account failed')
++        return copy.deepcopy(self.rows)
++    def orders(self,market=None):
++        if self.fail=='history':raise OSError('history failed')
++        return copy.deepcopy([r for r in self.records if market is None or r['market']==market])
++    def valuation(self,inventory):
++        if self.fail=='quote':raise OSError('quote failed')
++        return self.listed,copy.deepcopy(self.prices)
++
++
++class CurrentManualTests(unittest.TestCase):
++    def setUp(self):
++        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
++        self.root=Path(self.temp.name);self.folder=self.root/'data/live';self.folder.mkdir(parents=True)
++        self.file=self.folder.parent/'user_protected_assets.json'
++        self.file.write_text('{"markets":["KRW-BTC","KRW-DOGE","KRW-SUI","KRW-XCORE"]}')
++        self.policy=Policy(self.file,configured=['KRW-BTC','KRW-DOGE'],clock=lambda:2000)
++        self.api=API();self.state={'positions':{},'pending_order':None,'risk_pending_orders':{}}
++        self.detector=Detector(self.policy,self.folder,self.api,clock=lambda:2000,current_only=True)
++    def scan(self,market=None,**kw):return self.detector.scan(self.state,market,**kw)
++
++    def test_only_current_manual_above_threshold_not_historical_btc(self):
++        self.api.records+=[order('KRW-BTC','10',uid='old-btc')]
++        self.scan();self.assertEqual(effective(self.policy.read(),self.policy.configured),{'KRW-DOGE'})
++        self.assertTrue(self.policy.read()['manual']['KRW-DOGE']['pending'])
++        self.assertEqual(self.detector.last_global_success,2000)
++
++    def test_exactly_5000_and_below_excluded_even_direct_holding(self):
++        for price,expected in ((4999,False),(5000,False),(5000.01,True)):
++            with self.subTest(price=price):
++                self.api.prices['KRW-DOGE']=price;self.scan()
++                self.assertEqual('KRW-DOGE' in effective(self.policy.read()),expected)
++                if expected:self.assertTrue(self.policy.read()['manual']['KRW-DOGE']['pending'])
++
++    def test_all_bot_ledger_including_inherited_dust_is_subtracted(self):
++        self.api.rows += [{'currency':'CAP','balance':'9','locked':'0'},{'currency':'SUI','balance':'2','locked':'0'}]
++        self.state['positions']={'KRW-CAP':{'qty':9},'KRW-SUI':{'qty':2,'inherited':True}}
++        self.api.listed.add('KRW-SUI');self.api.prices['KRW-SUI']=1000
++        self.scan();self.assertEqual(effective(self.policy.read()),{'KRW-DOGE'})
++
++    def test_manual_dust_does_not_protect_large_bot_part_of_same_coin(self):
++        self.api.rows=[{'currency':'DOGE','balance':'11','locked':'0'}]
++        self.state['positions']['KRW-DOGE']={'qty':10}
++        self.api.prices['KRW-DOGE']=1000;self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()))
++
++    def test_full_close_then_bot_rebuy_cannot_inherit_old_manual_tag(self):
++        self.scan();self.api.rows=[];self.scan()
++        self.api.rows=[{'currency':'DOGE','balance':'2','locked':'0'}]
++        self.state['positions']['KRW-DOGE']={'qty':2};self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()))
++        self.assertEqual(self.policy.read()['current_scope']['holdings']['KRW-DOGE']['manual_quantity'],'0')
++
++    def test_release_price_changes_do_not_reask_new_direct_buy_does(self):
++        self.scan();self.policy.decide('DOGE',False,expected=self.policy.revision('DOGE'))
++        version=self.policy.revision('DOGE');self.api.prices['KRW-DOGE']=4999;self.scan()
++        self.api.prices['KRW-DOGE']=7000;self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()));self.assertEqual(self.policy.revision('DOGE'),version)
++        self.api.rows[0]['balance']='2';self.api.records.append(order(q='1',uid='new-direct'))
++        self.scan();self.assertIn('KRW-DOGE',effective(self.policy.read()))
++        with self.assertRaises(ProtectionError):self.policy.decide('DOGE',False,expected=version)
++
++    def test_unknown_deposit_is_separate_hold_not_user_protection(self):
++        self.api.records=[];self.scan()
++        self.assertEqual(effective(self.policy.read()),set())
++        self.assertIn('출처',self.policy.read()['current_scope']['holdings']['KRW-DOGE']['hold_reason'])
++        for risk in (False,True):
++            with self.assertRaises(ProtectionError):self.scan('KRW-DOGE',risk=risk,amount=1)
++
++    def test_deposit_after_release_does_not_fake_new_manual_buy(self):
++        self.scan();self.policy.decide('DOGE',False,expected=self.policy.revision('DOGE'))
++        version=self.policy.revision('DOGE');self.api.rows[0]['balance']='3';self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()));self.assertEqual(self.policy.revision('DOGE'),version)
++        self.assertFalse(self.policy.read()['manual']['KRW-DOGE']['pending'])
++        with self.assertRaises(ProtectionError):self.scan('KRW-DOGE',amount=1)
++
++    def test_negative_residual_is_not_manual_and_requires_reconciliation(self):
++        self.api.records=[];self.state['positions']['KRW-DOGE']={'qty':2};self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()))
++        with self.assertRaises(ProtectionError):self.scan('KRW-DOGE',risk=True,amount=1)
++
++    def test_unknown_prefix_is_not_proof_of_bot_origin_pending_id_is(self):
++        self.api.records=[order(identifier='v5-unrecorded')];self.scan()
++        self.assertIn('KRW-DOGE',effective(self.policy.read()))
++
++    def test_pending_fill_is_not_classified_or_consumed(self):
++        self.state['pending_order']={'market':'KRW-DOGE','identifier':'v5-pending'}
++        self.api.records=[order(identifier='v5-pending')];self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()))
++        self.state['positions']['KRW-DOGE']={'qty':1};self.state['pending_order']=None;self.scan()
++        self.assertNotIn('KRW-DOGE',effective(self.policy.read()))
++
++    def test_legacy_release_without_current_baseline_does_not_waive_protection(self):
++        self.policy.decide('DOGE',False,expected=self.policy.revision('DOGE'))
++        self.scan();self.assertIn('KRW-DOGE',effective(self.policy.read()))
++
++    def test_missing_quote_and_api_failure_never_clear_valid_protection(self):
++        self.scan();before=self.file.read_bytes()
++        for failure in ('quote','history','account'):
++            self.api.fail=failure
++            with self.assertRaises(ProtectionError):self.scan()
++            self.assertEqual(self.file.read_bytes(),before)
++        self.api.fail=None;self.api.prices={}
++        with self.assertRaises(ProtectionError):self.scan()
++        self.assertEqual(self.file.read_bytes(),before)
++
++    def test_proven_bot_only_risk_exit_retains_existing_equality_exception(self):
++        self.api.records=[];self.state['positions']['KRW-DOGE']={'qty':1};self.scan()
++        self.api.fail='history'
++        self.assertEqual(self.scan('KRW-DOGE',risk=True,amount=3),1.)
++        with self.assertRaises(ProtectionError):self.scan('KRW-DOGE',amount=10000)
++
++    def test_unlisted_assets_and_empty_snapshot_are_valid_not_protected(self):
++        self.api.rows.append({'currency':'XCORE','balance':'100','locked':'0'})
++        self.api.records.append(order('KRW-XCORE','100',uid='unlisted'))
++        self.scan();self.assertEqual(effective(self.policy.read()),{'KRW-DOGE'})
++        self.api.rows=[];self.scan();self.assertEqual(effective(self.policy.read()),set())
++
++    def test_merge_cannot_restore_archive_btc_or_drop_current_scope(self):
++        self.scan();doc=self.policy.read()
++        merged=merge(doc,{'markets':['KRW-BTC','KRW-DOGE']},['KRW-BTC'],['KRW-BTC'])
++        self.assertEqual(effective(merged),{'KRW-DOGE'})
++
++    def test_current_panel_only_shows_qualifying_current_direct_holdings(self):
++        worker=live.Live(self.folder,{'enabled':True,'auto_manual_protection':True,'current_manual_only':True,'protection_ui':True},live.st.Params())
++        worker._manual_detector=self.detector;worker._protection_policy=self.policy
++        self.scan();page=protection_panel.render(worker,{'KRW-BTC','KRW-CAP','KRW-DOGE','KRW-XCORE'})
++        self.assertIn('5,000원 초과',page);self.assertIn('KRW-DOGE',page)
++        self.assertNotIn('KRW-BTC',page);self.assertNotIn('KRW-CAP',page);self.assertNotIn('KRW-XCORE',page)
++
++    def test_cold_start_rejects_trading_before_global_current_scan(self):
++        worker=live.Live(self.folder,{'enabled':True,'auto_manual_protection':True,'current_manual_only':True},live.st.Params())
++        with self.assertRaises(live.ProtectedAssetError):worker.protected_markets()
++
++
++if __name__=='__main__':unittest.main()
+
+
+FILE tools/test_current_scope_handoff.py SHA256 71c17edcc30bfc3cbbdabf21c95b1cced7c0339d2e7c3da32631ccfb7ffa4b95
+
+--- old/tools/test_current_scope_handoff.py
++++ new/tools/test_current_scope_handoff.py
+@@ -0,0 +1,45 @@
++import hashlib,json
++from pathlib import Path
++import tempfile
++import unittest
++import zipfile
++import secure_handoff as handoff
++from asset_protection import effective
++
++
++class ScopeHandoffTests(unittest.TestCase):
++    def setUp(self):
++        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
++        self.root=Path(self.temp.name);self.app=self.root/'app';(self.app/'data').mkdir(parents=True)
++        self.scope={'mode':'current_manual_over_5000','min_value_krw':5000,'checked_at':100,'global_checked_at':100,
++            'holdings':{},'manual_seen':{},'release_baselines':{}}
++    def package(self,mode=True,policy=None):
++        ledger=b'{"positions":{},"pending_order":null,"risk_pending_orders":{}}'
++        manifest={'final_export_requested':True,'live_restore_allowed':True,'ledger_changed_during_export':False,
++            'env_files_included':False,'missing_during_export':[],'ledger_sha256':hashlib.sha256(ledger).hexdigest()}
++        path=self.root/'final.zip'
++        with zipfile.ZipFile(path,'w') as archive:
++            archive.writestr('manifest.json',json.dumps(manifest));archive.writestr(handoff.LEDGER_PATH,ledger)
++            archive.writestr(handoff.PROTECTION_PATH,json.dumps(policy or {'markets':[],'current_scope':self.scope}))
++            archive.writestr('runtime/config.json',json.dumps({'live':{'user_protection_required':True,'current_manual_only':mode}}))
++        return path
++    def test_empty_current_protection_is_valid_without_unheld_btc_or_doge(self):
++        info=handoff.inspect_final_zip(self.package());self.assertIn('protection_sha256',info)
++    def test_scope_and_mode_mismatch_is_rejected(self):
++        with self.assertRaises(handoff.HandoffError):handoff.inspect_final_zip(self.package(mode=False))
++    def test_invalid_current_scope_is_not_a_way_to_bypass_protection(self):
++        self.scope['min_value_krw']=0
++        with self.assertRaises(handoff.HandoffError):handoff.inspect_final_zip(self.package())
++    def test_restore_merge_does_not_reintroduce_legacy_btc(self):
++        (self.app/'config.json').write_text('{"live":{"protected_markets":["KRW-BTC"]}}')
++        (self.app/'data/user_protected_assets.json').write_text('{"markets":["KRW-BTC"]}')
++        with zipfile.ZipFile(self.package()) as archive:cfg,policy=handoff.protection_union(self.app,archive)
++        self.assertTrue(cfg['live']['current_manual_only']);self.assertEqual(effective(policy),set())
++    def test_older_legacy_transfer_cannot_drop_receivers_current_scope(self):
++        (self.app/'config.json').write_text('{"live":{"current_manual_only":true}}')
++        (self.app/'data/user_protected_assets.json').write_text(json.dumps({'markets':[],'current_scope':self.scope}))
++        with zipfile.ZipFile(self.package(False,{'markets':['KRW-DOGE']})) as archive:cfg,policy=handoff.protection_union(self.app,archive)
++        self.assertTrue(cfg['live']['current_manual_only']);self.assertEqual(effective(policy),set())
++
++
++if __name__=='__main__':unittest.main()

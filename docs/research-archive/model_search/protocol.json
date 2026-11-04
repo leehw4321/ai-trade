@@ -1,0 +1,49 @@
+{
+  "created_utc": "2026-10-30T03:31:10.355113+00:00",
+  "dataset": "../ytd_v4/historical/candles_1m.sqlite",
+  "data_end_kst": "2026-10-30T12:11:00+09:00",
+  "selection_train": [
+    "2026-01-01T00:00:00+09:00",
+    "2026-05-01T00:00:00+09:00"
+  ],
+  "selection_validation": [
+    "2026-05-01T00:00:00+09:00",
+    "2026-07-01T00:00:00+09:00"
+  ],
+  "evaluation_test": [
+    "2026-07-01T00:00:00+09:00",
+    "2026-10-30T12:11:00+09:00"
+  ],
+  "max_candidates": 16,
+  "tuning": "fixed catalog, no grid or post-test parameter changes",
+  "training_eligibility": "at least10 closedtrades",
+  "validation_eligibility": "at least5 closedtrades, netbase>0, netstress>0, maxDD<=5%",
+  "selection": "highest validation netreturn among eligible, tie lower drawdown; if none best validation candidate marked experimental not qualified",
+  "test_policy": "selected config frozen before test; only selected tested, no reselection from holdout",
+  "paper_approval": "qualifiedtrainvalidation, holdoutbase>0, holdoutstress>0, holdoutatleast10trades, holdoutDD<=5%; elsefalse",
+  "scope": "fixed10 currently listedKRW pairs, no historicalfull299universe; selection/survivorshipbias",
+  "portfolio": {
+    "initial_krw": 1000000,
+    "risk": 0.0025,
+    "max_position": 0.25,
+    "max_total": 0.5,
+    "max_positions": 4,
+    "max_open_risk": 0.01,
+    "daily_entry_halt": 0.015,
+    "daily_liquidation_trigger": 0.02,
+    "permanent_peak_review_lock": 0.05
+  },
+  "execution": {
+    "next_5m_open_entry": true,
+    "samebarstopandtarget": "stopfirst",
+    "fee_per_side": 0.0005,
+    "base_adverse_slippage": 0.0005,
+    "base_half_spread": 0.0002,
+    "stress_adverse_slippage": 0.001,
+    "stress_half_spread": 0.0004,
+    "final_liquidation": "lastavailableclosewithcost, explicitlyresearchwindowboundary"
+  },
+  "forecast_claim": "No globalprofitmaximum orfutureexpectedreturn inferred",
+  "baseline_comparability": "previous -1.09%touchfillcurrentV4 uses2slotsand.5%risk; thissearchusesnewmarketordermodel4slots1% andtherefore notidenticalexecution comparison.",
+  "candidate_sha256": "cf0e9b63e5e8b5b0e3d78522b8e0a65e4990835f8943e01f690bd56a3bdabbe5"
+}

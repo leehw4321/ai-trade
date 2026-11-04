@@ -1,0 +1,72 @@
+The four files aren't in this workspace (no `trade_review.py`, `test_trade_review.py`, `test_trade_broker.py` or `토론진행기.py` anywhere under the repo or `v5-app/`). So **I reviewed the pasted text only. I could not confirm the SHA256 values, and I did not run any tests.** Any approval below applies to "the content as pasted". Someone on the host must confirm that the content matches the SHAs.
+
+## Verdict
+
+**Conditional reject of these exact SHAs. Approve after three small fixes (B1–B3).** The read-only design is sound. `trade_review.py` imports nothing beyond stdlib, filesystem and locking modules, so it makes no network calls, reads no credentials and does no order work. The sharing boundary in `debate_context` is a real second allowlist. It re-validates types, enums, the regex and timestamps, rejects bools, NaN and oversize input, and drops all free text and identifiers. The blockers are correctness problems in the parts this change claims to add: the receipts, safe broker integration and accurate limit labels.
+
+## Blockers
+
+**B1. Receipts can record the wrong version.** The receipt calls `debate_context()` again *after* the AI replies. `source_version` hashes the whole journal, including non-fill lines and any partial trailing line. Any journal append during the turn therefore changes the version. The AI correctly acknowledges the version it was given, and the receipt logs `acknowledged=False` against a newer version. If the packet went stale (>120s) during a long turn, `json.loads` fails and **no receipt is written at all**. Fix:
+- Return the version and context from `prompt_for` and pass it through.
+- Record that exact version.
+- Write an explicit `{'source_version': None, 'status': 'unavailable'}` receipt when no packet was sent.
+- Write the receipt only after `tmp.replace(DOC)` succeeds.
+
+**B2. Broker import path is unsafe, and the test hides it.**
+- `sys.path.insert(0, ROOT.parent/'tools')` runs on every prompt and every reply. The list grows, and every module in `tools/` now shadows stdlib and third-party names for the rest of the broker process.
+- If the import fails, `prompt_for` raises and the debate stops instead of degrading to "unavailable".
+- `test_trade_broker` patches `ROOT` to a temp dir, so `ROOT.parent/'tools'` doesn't exist. The test only passes because `trade_review` is already in `sys.modules` from the test file's top-level import. The production path resolution is untested.
+
+Fix: load the module once by explicit path with `importlib.util.spec_from_file_location`. Wrap the load so that any failure yields the "unavailable" string. Add a test that runs the broker in a fresh subprocess, or removes the module from `sys.modules` first.
+
+**B3. The limit labels overclaim.**
+- `inherited_cost_and_missing_history_excluded` / "기록된 매수 lot만 원가 추적" is false in a mixed case. Suppose inherited coins are held, a recorded add-buy follows (relevant given recent add-buy work), and then a sell ≤ the recorded qty happens. That sell is charged at the add-buy basis, so the inherited inventory is silently mis-attributed.
+- Rows are processed in **file order**. Delayed recovery rows can put a sell before its buy, which breaks matching and makes gaps null.
+
+Minimum fix: add Korean limit text for both cases (`상속 보유분과 기록 lot 혼재 시 원가 오귀속 가능`, `복구 지연 행은 순서 역전 가능`). Also add a `non_monotonic_rows` count to the summary. A further label is missing from the Korean list: `trades는 최근 80건, summary는 전체`.
+
+## Non-blocking (fix when convenient)
+
+- `debate_context` doesn't catch `OSError`. A Windows read during `os.replace` can raise `PermissionError`. Add it to the except tuple.
+- A late zero-qty sell fee increments `unknown_basis_sell_rows`, while `sell_rows` counts only qty>0. Then `matched + unknown ≠ sell_rows`. Use a separate `unassigned_fee_rows` counter.
+- Zero-qty rows with side 매수/매도 count toward `fill_rows`.
+- `source_version` should hash only complete lines.
+- A single malformed closed line fails the whole build forever. That is fail-closed, which is fine, but only `health.json` surfaces it. Log the line index.
+- A leftover `stop.txt`, or a held lock, makes the tool exit silently with no `health.json`. Print a reason.
+- `Decimal(str(None))` raises `InvalidOperation`, which is not a `ValueError`. It is caught by `main`, but tests that expect `ValueError` would miss it.
+- Prompt conflict: the new "equal decision rights" line sits beside the existing "ROLE OVERRIDE… Claude is the sole active reviewer/lead". Update the role file and quota flag *before* activation so the override never triggers. Ideally, delete or condition the old line.
+- Missing tests: the mixed inherited and recorded case, out-of-order rows, receipt version capture, and import-failure degradation.
+
+## The limitations framing
+
+ChatGPT's position is adequate, and I agree with it. The current packet is descriptive. It uses weighted observed-lot basis rather than FIFO roundtrips, and journal times rather than exchange times. It must not be scored as E1. The two ≤60s rebuys and the −15,225.52 KRW are correlations from n=34, not evidence for a cooldown. No live cooldown will come from this data. After B3, the labels say that accurately. Sending the last 80 fills (market, time, volume, funds) to both providers falls within the broker context the user already authorized, and identifiers and free text stay local.
+
+## Selected E1 plan (revised)
+
+**Hypothesis.** Bot-initiated reentry into the same market within W = 2 × strategy timeframe after a full bot exit has negative expected net value.
+
+**Design.** Paired, event-level shadow comparison, not portfolio replay:
+1. Freeze the baseline strategy SHA, W, and the analysis code before collection starts. Any change to W means a new experiment.
+2. Each live qualifying reentry is a **blocked event** in the shadow, where the cooldown applies. The shadow skips it and takes the first logged buy signal for that market after W expires, at that signal's recorded price, with the same fee, spread and slippage model.
+3. Per-event delta = shadow net result − live net result. Both are FIFO roundtrips, net of actual fees, closed by the same exit rule (the live exit, or the shadow's own exit signal). If no signal occurs before the next portfolio action, delta is the live result negated (shadow held cash).
+4. Exclude manual, protected and inherited positions by provenance flag, not by reason text.
+
+**Pre-registered decision.**
+- Evaluate only on events after the freeze, in chronological order, with one interim look at N=20 and a final look at N=40. N counts qualifying events, not rows.
+- Adopt for **paper-only continuation** if the mean delta is > 0 and the one-sided bootstrap 90% lower bound is > 0 at N=40.
+- Reject if the mean delta is ≤ 0 at N=20, or if the lower bound is ≤ 0 at N=40.
+- Discard the result if one market contributes >40% of the total delta.
+- Live adoption needs a separate user decision.
+
+**Collection needed (none exists today):**
+- Exchange fill timestamps and per-trade prices from order detail. Order UUIDs stay local only.
+- Position provenance flag: bot / manual / protected / inherited.
+- Structured decision reason enum, replacing Korean-text matching.
+- **Every** buy signal, taken or not: timestamp, signal price, rank, best bid and ask.
+- Strategy timeframe and the frozen code SHA on each record.
+- 1-minute candles from entry to exit + W for exit-rule simulation.
+- A FIFO lot ledger seeded from exchange history, so inherited cost isn't guessed.
+
+## Activation
+
+Once B1–B3 are fixed and the SHAs are re-confirmed on the host, this can be activated as **read-only**. It touches no trade APIs, configuration or deployment, and it is independent of the live protection feature. Please send the revised hashes and the host test output. I'll review the diff for those three items only.

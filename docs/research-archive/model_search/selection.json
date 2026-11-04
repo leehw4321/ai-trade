@@ -1,0 +1,60 @@
+{
+  "status": "no_qualified_model",
+  "created_kst": "2026-10-30T12:36:03.015002+09:00",
+  "selected_config": {
+    "id": "breakout_1h_48",
+    "family": "breakout",
+    "timeframe_s": 3600,
+    "stop_atr": 2.5,
+    "target_r": 3.0,
+    "max_hold_s": 259200,
+    "lookback": 48,
+    "reclaim_ema": null,
+    "volume_ratio": 1.0,
+    "name": "60분 추세 돌파 (breakout_1h_48)",
+    "timeframe": "60분"
+  },
+  "selected_metrics": {
+    "train": {
+      "return_pct": -4.4118228997209075,
+      "trades": 33,
+      "max_drawdown_pct": 5.305493839153552,
+      "win_rate_pct": 12.121212121212121,
+      "profit_factor": 0.3722644852167119,
+      "start": "2026-01-01T00:00:00+09:00",
+      "end": "2026-05-01T00:00:00+09:00"
+    },
+    "validation": {
+      "return_pct": -0.5972220012223861,
+      "trades": 34,
+      "max_drawdown_pct": 3.4357355859122474,
+      "win_rate_pct": 29.411764705882355,
+      "profit_factor": 0.8972239541658305,
+      "start": "2026-05-01T00:00:00+09:00",
+      "end": "2026-07-01T00:00:00+09:00"
+    },
+    "test": {
+      "return_pct": 3.2646746831970885,
+      "trades": 75,
+      "max_drawdown_pct": 3.393251518335416,
+      "win_rate_pct": 37.333333333333336,
+      "profit_factor": 1.3012785880239492,
+      "start": "2026-07-01T00:00:00+09:00",
+      "end": "2026-10-30T12:11:00+09:00"
+    }
+  },
+  "stress_test_metrics": {
+    "return_pct": 1.3907998195133775,
+    "trades": 75,
+    "max_drawdown_pct": 3.578117824659466,
+    "win_rate_pct": 36.0,
+    "profit_factor": 1.1238276658339579,
+    "start": "2026-07-01T00:00:00+09:00",
+    "end": "2026-10-30T12:11:00+09:00"
+  },
+  "selection_rule": "highest validation netreturn among eligible, tie lower drawdown; if none best validation candidate marked experimental not qualified",
+  "approved_paper": false,
+  "scope": "2026-01-01~10-30 · 현재 상장 대표10종목 · 현물 매수 · 수수료·슬리피지 포함; 전체299종목 아님",
+  "paper_only": true,
+  "expected_future_return_estimated": false
+}

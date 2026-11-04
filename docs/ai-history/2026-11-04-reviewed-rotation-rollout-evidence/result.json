@@ -1,0 +1,70 @@
+{
+  "at": "2026-11-04T08:46:44+09:00",
+  "status": "reviewed_code_deployed_profitability_NOT_PROVEN",
+  "actual_deployment": {
+    "at": "2026-11-04T08:41:07+09:00",
+    "stage": "applied_healthy",
+    "runtime_flag": true,
+    "scan": 5,
+    "stop_max_pct": 0.045,
+    "entry_risk": 0.00184,
+    "profit_guard_arm": 0.03,
+    "rotation_state": {
+      "floor_slot": 1793746800,
+      "last_slot": -1,
+      "net_realized": 0.0,
+      "paused": ""
+    },
+    "risk_basis_unchanged": true,
+    "user_protection_unchanged": true
+  },
+  "review_source": "Unconditional actual review-02 approval; later user-authorized sizing/resume choices preserved, not changed by this patch",
+  "actual_peer_responses": 4,
+  "v5_tests": 378,
+  "host_tests": 8,
+  "tool_tests": 125,
+  "existing_buy_choice_preserved": true,
+  "halt_new_buys_value_at_deploy": false,
+  "entry_risk_preserved": 0.00184,
+  "stop_max_pct_preserved": 0.045,
+  "profit_guard_arm_preserved": 0.03,
+  "independent_observer_recreated": false,
+  "continuous_debate_restarted": false,
+  "performance_claim": "None; reduced capital is not improved percentage return",
+  "unproven": [
+    "positive after-cost expectancy",
+    "comparison against same-capital independent baseline",
+    "entry/hold7, 2-bar-confirmation, 15m issuance, arm2 versus3 profitability"
+  ],
+  "originals": [
+    {
+      "name": "plan",
+      "request": "originals/rotation-rollout-2026-11-04-plan.request.txt",
+      "response": "originals/rotation-rollout-2026-11-04-plan.response.txt",
+      "source": "private_handoff/rotation-rollout-2026-11-04/plan.response.json#result"
+    },
+    {
+      "name": "revision-01",
+      "request": "originals/rotation-rollout-2026-11-04-revision-01.request.txt",
+      "response": "originals/rotation-rollout-2026-11-04-revision-01.response.txt",
+      "source": "private_handoff/rotation-rollout-2026-11-04/revision-01.response.json#result"
+    },
+    {
+      "name": "review-01",
+      "request": "originals/rotation-rollout-2026-11-04-review-01.request.txt",
+      "response": "originals/rotation-rollout-2026-11-04-review-01.response.txt",
+      "source": "private_handoff/rotation-rollout-2026-11-04/review-01.response.json#result"
+    },
+    {
+      "name": "review-02",
+      "request": "originals/rotation-rollout-2026-11-04-review-02.request.txt",
+      "response": "originals/rotation-rollout-2026-11-04-review-02.response.txt",
+      "source": "private_handoff/rotation-rollout-2026-11-04/review-02.response.json#result"
+    },
+    {
+      "name": "deploy-confirm-01",
+      "request": "originals/rotation-rollout-2026-11-04-deploy-confirm-01.request.txt",
+      "status": "600_second_timeout_no_response_not_used_for_code_approval"
+    }
+  ]
+}

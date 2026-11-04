@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy'}
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
@@ -35,8 +35,9 @@ class _ExclusiveServer(ThreadingHTTPServer):
 
 
 class Request:
-    def __init__(self, market, kind='liquidate', krw=None):
+    def __init__(self, market, kind='liquidate', krw=None, revision=None):
         self.market, self.kind, self.krw = market, kind, krw
+        self.revision=revision
         self.event = threading.Event()
         self.ok = False
         self.message = '처리 시간 초과: 봇이 응답하지 않았습니다. 주문 기록에서 결과를 확인하세요.'
@@ -47,7 +48,7 @@ class Request:
 
 
 class ManualOrderServer:
-    def __init__(self, port=DEFAULT_PORT, token=None, clock=time.time):
+    def __init__(self, port=DEFAULT_PORT, token=None, clock=time.time, allowed_kinds=None):
         self.port = int(port)
         self.token = token or secrets.token_urlsafe(24)
         self.clock = clock
@@ -56,6 +57,7 @@ class ManualOrderServer:
         self.recent = {}
         self.httpd = None
         self.thread = None
+        self.allowed_kinds=set(('buy','liquidate') if allowed_kinds is None else allowed_kinds)
 
     # ---------- 검증 (서버 없이 시험할 수 있게 분리) ----------
     def check(self, host, origin, body, kind='liquidate'):
@@ -64,6 +66,8 @@ class ManualOrderServer:
             return 403, '허용되지 않은 호스트'
         if origin not in (None, 'null'):
             return 403, '허용되지 않은 출처'
+        if kind not in self.allowed_kinds:
+            return 403, '이 화면에서 허용되지 않은 기능'
         if len(body) > MAX_BODY:
             return 413, '요청이 너무 큼'
         try:
@@ -80,9 +84,11 @@ class ManualOrderServer:
             krw = doc.get('krw')
             if type(krw) is not int or not MIN_KRW <= krw <= MAX_KRW:
                 return 400, '매수 금액이 올바르지 않음'
+        if kind == 'unprotect' and (type(doc.get('revision')) is not int or doc['revision']<0):
+            return 400, '보호 상태를 새로고침한 뒤 다시 확인하세요'
         return 200, (market, krw)
 
-    def submit(self, market, kind='liquidate', krw=None):
+    def submit(self, market, kind='liquidate', krw=None, revision=None):
         """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
         now = self.clock()
         key = (kind, market)
@@ -92,7 +98,7 @@ class ManualOrderServer:
             return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}
         try:
             self.recent[key] = now
-            req = Request(market, kind, krw)
+            req = Request(market, kind, krw, revision)
             self.queue.put(req)
             req.event.wait(WAIT_SECONDS)
             return 200, {'ok': req.ok, 'message': req.message}
@@ -149,13 +155,16 @@ class ManualOrderServer:
                 code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body, kind)
                 if code != 200:
                     return self._send(code, {'ok': False, 'message': value})
-                code, doc = server.submit(value[0], kind, value[1])
+                revision=json.loads(body.decode('utf-8')).get('revision') if kind=='unprotect' else None
+                code, doc = (server.submit(value[0],kind,value[1],revision) if kind=='unprotect'
+                             else server.submit(value[0],kind,value[1]))
                 self._send(code, doc)
 
         try:
             self.httpd = _ExclusiveServer(('127.0.0.1', self.port), Handler)
         except OSError:
             return False
+        self.port=int(self.httpd.server_address[1])
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         return True

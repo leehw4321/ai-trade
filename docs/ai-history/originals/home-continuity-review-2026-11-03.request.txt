@@ -1,0 +1,15 @@
+Bounded read-only operational review for Claude, tools disabled. Reply briefly in Korean.
+The user asks to transfer trading authority back to the home PC, read all company work from Git and continue. All shared source/history is now fast-forwarded to public origin/main690ca75. The common handoff document requires DOGE whole-market protection, preservation of loss baseline/last_sell/stops, no force takeover/no new adoption to reset PnL, and a final private runtime ZIP after source bot shutdown. User temporarily delegated sole ChatGPT work until15:40KST; current time is about14:48KST. This review will be recorded as an actual response only if received.
+
+Verified locally:
+- Old home order bot stopped11:04; old local ledger lastwrite11:04. Shadow normally stopped now for code copy. No trading bot was started.
+- Company traded later and deployed profit guard and user DOGE protection. Company final current ledger is not in Git.
+- Remote session owner/request now empty, updated14:05:52, but its checkpoint DOES NOT match the old home ledger.
+- Read-only current exchange balance comparison disagrees with old home WAVES/MPLX quantities. Exchange wait/watch order counts0/0. No order/cancel/lease write performed.
+- Desktop/Downloads/workspace search found no final private transfer ZIP. Two ZIPs in company handoff docs are reference-only, live_restore_allowed=false, located on the company D: drive.
+-261V5 offline tests pass;18observer/export/sync tests pass. The known company source was backed up and copied to the STOPPED home runtime without replacing config/data/env. DOGE protection file installed and live.user_protection_required=true; ledger bytes/loss baseline unchanged.
+- A public-only observer is resuming in a separate hidden process, no account/order calls. Company raw observations have not transferred.
+
+Proposed action: do NOT start the order bot with the mismatching ledger or use account adoption to reset it. Ask only for the local path of the company's fresh final private ZIP, not repeated trading permission. Continue source analysis/public observations meanwhile. When final ZIP exists, stage+CRC/manifest validate, verify final flag and raw ledger hash, separately compare normalized JSON checkpoint to remote, preserve config/ledger/PnL baseline/protected union and pending state, recheck balances/ownership/openorders, then acquire via normal existing SessionGuard and start. No unverified checkpoint edits. If company final state cannot be obtained, state the concrete missing dependency and do not claim trading handoff complete.
+
+Do you agree with this exact operational plan? Flag any missing verification or accidental baseline/protection reset. No new trading thresholds or production code proposed here.

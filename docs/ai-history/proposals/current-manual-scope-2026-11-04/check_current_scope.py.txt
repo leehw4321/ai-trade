@@ -1,0 +1,19 @@
+from pathlib import Path
+import hashlib,json,os,shutil,subprocess,sys
+WORK=Path(__file__).resolve().parents[1];REPO=WORK.parent/'ai-trade';STAGE=WORK/'private_handoff/current-manual';CHECK=WORK/'private_handoff/current-scope-check'
+tool_names={'apply_manual_protection.py','test_apply_manual_protection.py','secure_handoff.py','test_current_scope_handoff.py'}
+for folder in ('v5','tools'):
+    (CHECK/folder).mkdir(parents=True,exist_ok=True)
+    for file in (REPO/folder).glob('*.py'):shutil.copyfile(file,CHECK/folder/file.name)
+for file in STAGE.glob('*.py'):
+    folder='tools' if file.name in tool_names else 'v5'
+    shutil.copyfile(file,CHECK/folder/file.name)
+results={}
+for folder,pattern in [('v5','test_*.py'),('tools','test_*.py')]:
+    run=subprocess.run([sys.executable,'-B','-m','unittest','discover','-s','.','-p',pattern],cwd=CHECK/folder,
+        capture_output=True,encoding='utf-8',errors='replace',
+        env={**os.environ,'PYTHONPATH':str(CHECK/'v5')+os.pathsep+str(CHECK/'tools')})
+    (CHECK/(folder+'-tests.log')).write_text(run.stdout+run.stderr,encoding='utf-8')
+    print(folder,run.returncode,(run.stdout+run.stderr)[-2500:]);results[folder]=run.returncode
+manifest={'tests':results,'hashes':{('tools/' if file.name in tool_names else 'v5/')+file.name:hashlib.sha256(file.read_bytes()).hexdigest() for file in STAGE.glob('*.py')}}
+(STAGE/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8');sys.exit(any(results.values()))

@@ -1,0 +1,82 @@
+# MANUAL-PROTECT-v1 follow-up: static review verdict
+
+**Verdict: Conditional, not yet a full SHA approval.** G1–G5 are satisfied. However, `manual_protection.py` has two logic defects that could leave a bot-opened position without exits, or let a new deposit go undetected. `apply_manual_protection.py` needs a small robustness fix. `protection_panel.py` is approved as-is.
+
+I can't compute hashes because tools are disabled. Every SHA approval below covers only the exact bytes in this packet, and the host must confirm each file matches its SHA before deploying.
+
+## Gates
+
+| Gate | Result |
+|---|---|
+| G1 | **Accepted.** Protecting manual and unknown holdings by default, with a release option on screen, matches the explicit instruction and the standing "don't ask" consent. Protecting the inherited BIRB/GTC/SUI dust is the conservative reading. Stopping exits on dust is acceptable and was disclosed. BTC stays protected. No scope conflict. |
+| G2 | Accepted. Parameters are signed with the same `urlencode` used to build the URL, and a real authenticated GET succeeded. |
+| G3 | Accepted. The OS lock blocks a second process, recovers after the holder is killed, and a deposit bumps the revision. |
+| G4 | Accepted in design. See F3 for one issue in the implementation. |
+| G5 | Accepted. |
+
+## Required fixes
+
+**F1. A scan of one market overwrites balance evidence for every market (`manual_protection.py`, `scan`).**
+
+`_bootstrap` is filtered to `{market}`, but `_record_balance_evidence(inventory)` writes `external_quantities` for all bootstrap markets. Example:
+
+1. The user releases Y while holding an external balance of 100.
+2. A transfer from another exchange raises Y to 150.
+3. The bot scans X before trading X, which records Y = 150.
+4. The next global scan sees `previous == qty` for Y and skips it.
+
+Order history won't catch this, because exchange transfers aren't orders, so Y stays released. Fix: use the same filter for the evidence write.
+
+```python
+scope=None if market is None else {market}
+...
+self._record_balance_evidence(state,{k:v for k,v in inventory.items() if scope is None or k in scope})
+```
+
+**F2. The external baseline uses total balance, so the bot's own fills re-protect a released market (`_bootstrap` and `_record_balance_evidence`).**
+
+Example:
+
+1. The user releases a market that has external quantity E.
+2. The bot buys q, so the balance becomes E+q, and `previous=E` no longer matches.
+3. The market is re-protected, which suspends the stop and take-profit on the bot's new position.
+
+That fails unsafe for bot-owned risk. Fix: record and compare only the quantity outside the ledger.
+
+```python
+owned,known=self._owned(state,market)
+external=qty-(owned if known else Decimal(0))
+# compare: previous is not None and abs(Decimal(str(previous))-external)<=EPS -> continue
+# record:  prior[market]=str(external)
+```
+
+The bot's own sells and buys then leave `external` unchanged. Any outside deposit or withdrawal still re-protects the market.
+
+**F3. The deploy health loop fails hard on a transient read (`apply_manual_protection.py`).**
+
+If `status.html` is missing or half-written while the loop reads it, `read_text` or `json.loads` raises. That aborts the deploy and leaves the bot stopped, with no bot stops running. Fix: wrap the read and parse in `try/except (OSError, ValueError): pass` inside the loop, and keep the 45 s deadline as the only failure path.
+
+## Notes (not blocking)
+
+- **Order history window.** I believe Upbit's `/v1/orders/closed` defaults to a window of roughly 7 days when no `start_time` is given. Please confirm in the docs. If so, history only catches recent manual orders, and older ones are caught only through balance differences. That is fine with F1 and F2 applied.
+- **Midnight rollover.** If the deploy crosses midnight KST, `risk_day` could change legitimately and trigger a false failure. Avoid deploying near midnight.
+- **Stop on an already-stopped bot.** The failure path calls `safe.stop` even when the failure happened before start. Confirm that it returns `True` when no process is running. The test mocks this.
+- **Operator presence.** On failure the bot ends stopped by design. Someone should be present to deal with it.
+
+## Tests to add
+
+- **F1:** Release Y with balance 2. Raise Y's balance to 3, then call `scan(state,'KRW-X')`, then `scan(state)`. Y must be protected.
+- **F2:** Position A has qty 1 (known) and balance 2, so it is protected and then released. Set ledger qty 2 and balance 3, then scan: A must not be protected. Set balance 4, then scan: A must be protected.
+- **F3:** Make the `status.html` read fail first and succeed second. The deploy must succeed.
+
+## SHA status
+
+| File | SHA (as submitted) | Status |
+|---|---|---|
+| protection_panel.py | `19228db7…bd27` | **Approved** |
+| manual_protection.py | `71c3500e…75e9` | **Not approved** until F1 and F2 are fixed |
+| test_auto_protection.py | `c87f8f6f…652d` | Superseded once the F1 and F2 tests are added |
+| apply_manual_protection.py | `49e9f586…ce82` | **Not approved** until F3 is fixed |
+| test_apply_manual_protection.py | `245cb608…6885` | Approved; add the F3 test |
+
+Resubmit only the changed files with their new SHAs and test counts. If the fixes are limited to what's described above, I expect to approve without reopening G1–G5. No live parameters or risk limits are affected by this review.

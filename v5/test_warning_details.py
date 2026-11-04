@@ -1,0 +1,102 @@
+import copy
+import unittest
+
+from upbit import market_warning_details as mwd
+
+LABELS = {'PRICE_FLUCTUATIONS': '가격 급등락', 'TRADING_VOLUME_SOARING': '거래량 급증',
+          'DEPOSIT_AMOUNT_SOARING': '입금량 급증', 'GLOBAL_PRICE_DIFFERENCES': '가격 차이',
+          'CONCENTRATION_OF_SMALL_ACCOUNTS': '소수 계정 집중'}
+NONE = {'warning': False, 'investment_warning': False, 'caution_types': [],
+        'warning_reasons': [], 'caution_severity': 'none'}
+UNKNOWN = {'warning': True, 'investment_warning': True, 'caution_types': [],
+           'warning_reasons': ['투자유의', '경보상세 형식 불명'], 'caution_severity': 'unknown'}
+BAD = ['X', ['PRICE_FLUCTUATIONS'], [], True, False, 1, 0, '']
+
+
+def legacy(r):
+    ev = r.get('market_event') or {}
+    return bool(ev.get('warning')) or any((ev.get('caution') or {}).values()) or r.get('market_warning') == 'CAUTION'
+
+
+class MarketWarningDetailsTest(unittest.TestCase):
+    def test_both_true(self):
+        d = mwd({'market': 'KRW-A', 'market_event': {'warning': True, 'caution': {'PRICE_FLUCTUATIONS': True, 'TRADING_VOLUME_SOARING': False}}})
+        self.assertEqual(d, {'warning': True, 'investment_warning': True, 'caution_types': ['PRICE_FLUCTUATIONS'],
+                             'warning_reasons': ['투자유의', '가격 급등락'], 'caution_severity': 'unknown'})
+
+    def test_legacy_caution_only(self):
+        d = mwd({'market': 'KRW-A', 'market_warning': 'CAUTION'})
+        self.assertIs(d['warning'], True)
+        self.assertIs(d['investment_warning'], True)
+        self.assertEqual(d['caution_types'], [])
+        self.assertEqual(d['caution_severity'], 'none')
+        self.assertEqual(d['warning_reasons'], ['투자유의'])
+        self.assertEqual(mwd({'market_warning': 'NONE'}), NONE)
+
+    def test_all_false_and_missing_fields(self):
+        for r in [{}, {'market_event': None}, {'market_event': {}}, {'market_event': {'caution': None}},
+                  {'market_event': {'warning': False, 'caution': {k: False for k in LABELS}}}]:
+            with self.subTest(r=r):
+                self.assertEqual(mwd(r), NONE)
+
+    def test_caution_only_is_not_investment_warning(self):
+        d = mwd({'market_event': {'warning': False, 'caution': {'CONCENTRATION_OF_SMALL_ACCOUNTS': True}}})
+        self.assertIs(d['warning'], True)
+        self.assertIs(d['investment_warning'], False)
+        self.assertEqual(d['warning_reasons'], ['소수 계정 집중'])
+        self.assertEqual(d['caution_severity'], 'unknown')
+
+    def test_unknown_key_preserved_and_sorted(self):
+        d = mwd({'market_event': {'caution': {'ZZ_NEW': True, 'DEPOSIT_AMOUNT_SOARING': True}}})
+        self.assertEqual(d['caution_types'], ['DEPOSIT_AMOUNT_SOARING', 'ZZ_NEW'])
+        self.assertEqual(d['warning_reasons'], ['입금량 급증', 'ZZ_NEW'])
+
+    def test_mapping_all_five(self):
+        d = mwd({'market_event': {'caution': {k: True for k in LABELS}}})
+        self.assertEqual(d['caution_types'], sorted(LABELS))
+        self.assertEqual(dict(zip(d['caution_types'], d['warning_reasons'])), LABELS)
+
+    def test_input_not_mutated(self):
+        r = {'market': 'KRW-A', 'market_warning': 'CAUTION',
+             'market_event': {'warning': True, 'caution': {'GLOBAL_PRICE_DIFFERENCES': True, 'X': False}}}
+        snap = copy.deepcopy(r)
+        mwd(r)
+        self.assertEqual(r, snap)
+
+    def test_warning_parity_with_original_formula(self):
+        cases = [{}, {'market_event': None}, {'market_warning': 'CAUTION'}, {'market_warning': 'NONE'},
+                 {'market_event': {'warning': 1}}, {'market_event': {'warning': 0, 'caution': {'A': 0, 'B': 1}}},
+                 {'market_event': {'caution': {'A': False}}, 'market_warning': 'CAUTION'},
+                 {'market_event': {'warning': True, 'caution': {k: True for k in LABELS}}}]
+        for r in cases:
+            with self.subTest(r=r):
+                self.assertIs(mwd(r)['warning'], legacy(r))
+
+    def test_malformed_caution_warning_true_preserved(self):
+        for bad in BAD:
+            for r in [{'market_event': {'warning': True, 'caution': bad}},
+                      {'market_event': {'caution': bad}, 'market_warning': 'CAUTION'}]:
+                with self.subTest(r=r):
+                    snap = copy.deepcopy(r)
+                    self.assertEqual(mwd(r), UNKNOWN)
+                    self.assertEqual(r, snap)
+            r = {'market_event': {'warning': True, 'caution': bad}}
+            self.assertIs(mwd(r)['warning'], legacy(r))
+
+    def test_malformed_caution_warning_false_raises(self):
+        for bad in BAD:
+            for r in [{'market_event': {'warning': False, 'caution': bad}},
+                      {'market_event': {'caution': bad}, 'market_warning': 'NONE'}]:
+                with self.subTest(r=r), self.assertRaises(ValueError):
+                    mwd(r)
+
+    def test_malformed_market_event_raises(self):
+        for bad in ['x', [], [{'warning': True}], True, False, 1, 0, '']:
+            for extra in [{}, {'market_warning': 'CAUTION'}]:
+                r = dict(extra, market_event=bad)
+                with self.subTest(r=r), self.assertRaises(ValueError):
+                    mwd(r)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,50 @@
+{
+  "id": "TACTICAL-20261103",
+  "status": "not_ready_spec_registered_not_running",
+  "implementation_owner": "Claude",
+  "reviewer": "ChatGPT",
+  "live_change": false,
+  "allowed_research": [
+    "no_warning",
+    "caution_price_volume_only"
+  ],
+  "exclude": [
+    "investment_warning",
+    "delisting",
+    "technical_issue",
+    "other_or_mixed_caution"
+  ],
+  "research_caps": {
+    "budget_fraction": 0.05,
+    "risk_per_trade_fraction": 0.001,
+    "concurrent_positions": 1,
+    "max_holding_minutes": 30
+  },
+  "unresolved": [
+    "breakout_N",
+    "turnover_multiplier",
+    "stop_distance",
+    "exit_rules",
+    "sample_size",
+    "evaluation_period",
+    "pass_fail_thresholds"
+  ],
+  "no_lookahead": true,
+  "era_today_excluded_from_final_test": true,
+  "evidence": "docs/ai-history/2026-11-03-era-opportunity.md",
+  "latest_review_evidence": "docs/ai-history/2026-11-03-warning-conditional-trading.md",
+  "latest_review_status": "proposal_pending_claude_limit",
+  "observation": {
+    "status": "removed_by_user_not_running",
+    "version": "public-features-v1",
+    "path": "data/tactical_observer",
+    "review": "ChatGPT solo under user authorization until 2026-11-03T15:40:00+09:00",
+    "orders_enabled": false,
+    "previous_status": "public_feature_observer_running_not_paper_trading",
+    "former_source": "tools/tactical_observer.py",
+    "removed_at": "2026-11-04T07:55:25+09:00",
+    "removal_reason": "관측기는 삭제해",
+    "automatic_restart_allowed": false,
+    "historical_data_preserved": true
+  }
+}

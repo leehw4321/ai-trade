@@ -1,0 +1,22 @@
+{
+  "source_window": {
+    "from": "2026-11-03T18:00:00+09:00",
+    "through": "2026-11-04T07:31:41+09:00"
+  },
+  "closed_n": 11,
+  "actual_net_krw": -5514.803473811626,
+  "uniform_half_size_diagnostic_net_krw": -2757.401736905813,
+  "same_fixed_100000_krw_per_closed_trade_diagnostic_net_krw": -5393.31587766181,
+  "actual_win_rate": 0.2727272727272727,
+  "mean_net_return_pct_per_closed_trade": -0.4903014434238009,
+  "actual_profit_factor": 0.373371365177789,
+  "uniform_scaling_changes_winrate_or_return_pct": false,
+  "old_r_multiple": "unavailable_complete_entry_stop_and_quantity_history_not_assumed",
+  "new_policy_profitability": "not_proven_no_paired_out_of_sample_execution_path",
+  "limits": [
+    "Scaling assumes unchanged fill prices and proportional fees; actual depth/slippage can differ.",
+    "Fixed-notional totals are not account return or independent strategy backtest.",
+    "Includes only closed trades; still-open positions are not ignored as proof of success.",
+    "A minimum of 30 observations would not by itself prove an edge or guarantee confidence."
+  ]
+}

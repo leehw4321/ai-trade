@@ -1,0 +1,152 @@
+"""One scoped deferred review. Financial changes require exact-hash Claude approval."""
+from pathlib import Path
+import datetime as dt,hashlib,json,os,shutil,subprocess,sys,time
+
+WORK=Path(__file__).resolve().parents[1];REPO=WORK.parent/'ai-trade';STAGE=WORK/'private_handoff/current-manual'
+FOLDER=STAGE/'deferred';DOC=WORK/'docs/ai-history';KST=dt.timezone(dt.timedelta(hours=9))
+PYTHON=str(Path(sys.executable).with_name('python.exe'))
+
+
+def digest(file):return hashlib.sha256(file.read_bytes()).hexdigest() if file.exists() else None
+def approved_review(outer,expected):
+    if not isinstance(outer,dict) or outer.get('is_error'):return None
+    try:review=json.loads(outer['result'])
+    except (ValueError,KeyError,TypeError):return None
+    if not isinstance(review,dict) or set(review)!={'verdict','approved_sha256','blockers','conditions','notes'}:return None
+    if (review['verdict']!='approve' or review['blockers']!=[] or review['conditions']!=[]
+            or review['approved_sha256']!=expected):return None
+    return review
+def now():return dt.datetime.now(KST).isoformat(timespec='seconds')
+def atomic(file,value):
+    temp=file.with_suffix('.tmp');temp.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
+    for attempt in range(4):
+        try:os.replace(temp,file);return
+        except PermissionError:
+            if attempt==3:raise
+            time.sleep(.1)
+def state(status,**details):
+    value={'at':now(),'status':status,'pid':os.getpid(),**details};atomic(FOLDER/'state.json',value)
+    with (FOLDER/'events.jsonl').open('a',encoding='utf-8') as file:file.write(json.dumps(value,ensure_ascii=False)+'\n')
+def cancelled():return (FOLDER/'stop.txt').exists()
+def wait_until(target):
+    while not cancelled():
+        seconds=target-dt.datetime.now(dt.timezone.utc).timestamp()
+        if seconds<=0:return True
+        time.sleep(min(30,seconds))
+    return False
+def command(args,cwd=WORK):
+    result=subprocess.run(args,cwd=cwd,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=700)
+    with (FOLDER/'commands.log').open('a',encoding='utf-8') as file:file.write(result.stdout+result.stderr+'\n')
+    if result.returncode:raise RuntimeError('Command failed: '+Path(args[0]).name+' exit '+str(result.returncode))
+    return result.stdout
+def verify(job):
+    if cancelled():raise RuntimeError('Cancelled by stop marker')
+    if digest(Path(__file__))!=job['driver_sha256']:raise RuntimeError('Deferred driver changed')
+    if digest(WORK/'private_handoff/record_deferred_scope_result.py')!=job['recorder_sha256']:raise RuntimeError('Deferred recorder changed')
+    if digest(WORK/'private_handoff/check_current_scope.py')!=job['checker_sha256']:raise RuntimeError('Test checker changed')
+    if digest(DOC/'run_claude_review.py')!=job['review_runner_sha256']:raise RuntimeError('Review runner changed')
+    if digest(FOLDER/'review-template.txt')!=job['review_prompt_sha256']:raise RuntimeError('Review prompt changed')
+    for rel,sha in job['candidate_hashes'].items():
+        if digest(STAGE/Path(rel).name)!=sha:raise RuntimeError('Candidate changed: '+rel)
+    for rel,sha in job['source_dependencies'].items():
+        if digest(REPO/rel)!=sha:raise RuntimeError('Source context changed: '+rel)
+    app=WORK/'v5-app/v5'
+    # A deferred config change must never revive a bot stopped for PC handoff.
+    for marker in ('stop.txt','중지.txt','stop_shadow.txt','data/handoff-transition.lock',
+                   'data/handoff-restore-pending.json','data/reconciliation/APPLYING'):
+        if (app/marker).exists():raise RuntimeError('Stop/handoff marker present; no deferred restart')
+    for name in ('bot.lock','shadow.lock'):
+        lock=app/name
+        pid=lock.read_text(encoding='utf-8').strip() if lock.exists() else ''
+        if not pid.isdigit():raise RuntimeError('Target bot/shadow was stopped; no deferred restart')
+        running=subprocess.run(['tasklist','/FI','PID eq '+pid,'/FO','CSV','/NH'],capture_output=True,text=True,errors='replace',timeout=10)
+        if running.returncode or '"'+pid+'"' not in running.stdout:raise RuntimeError('Target bot/shadow is not running; no deferred restart')
+    policy=json.loads((app/'data/user_protected_assets.json').read_text(encoding='utf-8'))
+    if any(c.get('origin') in ('cli','user_ui') and c.get('at',0)>job['created_epoch']
+            for c in policy.get('decisions',{}).values()):raise RuntimeError('New explicit protection choice; refresh review before applying')
+    branch=command(['git','branch','--show-current'],REPO).strip()
+    remote=command(['git','remote','get-url','origin'],REPO).strip()
+    if branch!='main' or remote!='https://github.com/leehw4321/ai-trade.git':raise RuntimeError('Wrong Git destination')
+    if command(['git','diff','--cached','--name-only'],REPO).strip():raise RuntimeError('Unrelated staged changes')
+
+
+def main():
+    FOLDER.mkdir(exist_ok=True)
+    lock=(FOLDER/'runner.lock').open('a+b');lock.seek(0,2)
+    if not lock.tell():lock.write(b'0');lock.flush()
+    lock.seek(0)
+    import msvcrt
+    try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
+    except OSError:return
+    job=json.loads((FOLDER/'job.json').read_text(encoding='utf-8'))
+    state('scheduled',not_before=job['not_before'])
+    if not wait_until(dt.datetime.fromisoformat(job['not_before']).timestamp()):state('cancelled');return
+    deployed=False
+    try:
+        verify(job)
+        approved=None
+        for attempt in range(1,7):
+            if not wait_until(dt.datetime.fromisoformat(job['not_before']).timestamp()+(attempt-1)*300):state('cancelled');return
+            verify(job);name=f'current-manual-scope-deferred-2026-11-04-attempt-{attempt:02d}.txt'
+            target=DOC/name
+            if not target.exists():target.write_bytes((FOLDER/'review-template.txt').read_bytes())
+            if digest(target)!=job['review_prompt_sha256']:raise RuntimeError('Attempt prompt differs from frozen template')
+            state('peer_review_running',attempt=attempt)
+            response=target.with_suffix('.response.json')
+            if not response.exists():
+                result=subprocess.run([PYTHON,str(DOC/'run_claude_review.py'),name],cwd=WORK,
+                    capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=660)
+                with (FOLDER/'commands.log').open('a',encoding='utf-8') as file:file.write(result.stdout+result.stderr+'\n')
+            if not response.exists():state('review_timeout_retry',attempt=attempt);continue
+            outer=json.loads(response.read_text(encoding='utf-8'))
+            if outer.get('is_error'):
+                message=str(outer.get('result',''))
+                if any(word in message.lower() for word in ('limit','quota','429')):
+                    state('provider_limit_retry',attempt=attempt);continue
+                raise RuntimeError('Peer provider failure')
+            review=approved_review(outer,job['approval_hashes'])
+            if review is None:
+                state('changes_requested',attempt=attempt,response_file=response.name)
+                command([PYTHON,str(WORK/'private_handoff/record_deferred_scope_result.py'),'--status','changes_requested'])
+                return
+            approved=target;break
+        if approved is None:
+            state('provider_limit_unresolved')
+            command([PYTHON,str(WORK/'private_handoff/record_deferred_scope_result.py'),'--status','provider_limit_unresolved']);return
+        verify(job);state('approved_running_host_checks',response_file=approved.with_suffix('.response.json').name)
+        command([PYTHON,'-B',str(WORK/'private_handoff/check_current_scope.py')])
+        tested=json.loads((STAGE/'manifest.json').read_text(encoding='utf-8'))
+        if any(tested['tests'].values()):raise RuntimeError('Host tests failed')
+        for rel,sha in job['candidate_hashes'].items():
+            if tested['hashes'].get(rel)!=sha:raise RuntimeError('Tested candidate hash mismatch')
+        verify(job)
+        app=WORK/'v5-app/v5'
+        for _ in range(24):
+            ledger=json.loads((app/'data/live/live.json').read_text(encoding='utf-8'))
+            if not ledger.get('pending_order') and not ledger.get('risk_pending_orders'):break
+            if cancelled():raise RuntimeError('Cancelled before deployment')
+            time.sleep(5)
+        else:raise RuntimeError('Pending orders remain; no stop or promotion')
+        state('deploying_reviewed_hashes')
+        for rel in job['candidate_hashes']:
+            if not (rel.startswith('v5/') or rel.startswith('tools/')) or Path(rel).name!=rel.split('/')[1]:raise RuntimeError('Invalid promotion path')
+            shutil.copyfile(STAGE/Path(rel).name,REPO/rel)
+        names=job['deployment_names']
+        manifest={'app':str(app),'sources':{n:digest(REPO/'v5'/n) for n in names},
+            'old_sources':{n:digest(app/n) for n in names},'config_sha256':digest(app/'config.json')}
+        atomic(FOLDER/'deploy-manifest.json',manifest)
+        command([PYTHON,str(REPO/'tools/apply_manual_protection.py'),'--app',str(app),
+            '--manifest',str(FOLDER/'deploy-manifest.json')])
+        deployed=True
+        command([PYTHON,str(WORK/'private_handoff/record_deferred_scope_result.py'),'--approved-request',str(approved)])
+        state('applied_and_recorded',approved_response=approved.with_suffix('.response.json').name)
+    except Exception as error:
+        if deployed:
+            state('applied_recording_pending',error=type(error).__name__+': '+str(error)[:240]);return
+        state('stopped_requires_review',error=type(error).__name__+': '+str(error)[:240])
+        try:command([PYTHON,str(WORK/'private_handoff/record_deferred_scope_result.py'),'--status','stopped_requires_review'])
+        except Exception:pass
+    finally:lock.close()
+
+
+if __name__=='__main__':main()

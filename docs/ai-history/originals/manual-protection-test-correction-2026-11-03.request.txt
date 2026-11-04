@@ -1,0 +1,6 @@
+Actual Claude peer review of a test-only correction to the final manual protection packet currently under separate static review. No trading code changes. That packet mistakenly claimed315passed before the last testprocess finished:314passed, one newtest failed ONLY because Decimal persisted residual string '1.0' was compared to expected string '1'. Both represent the correct residual; productioncode was correct. Host fixed the assertion to compare numeric value, then reran full isolated315V5/118tool/4broker tests and all passed. Original request preserved, this is an explicit correction, not an attempt to hide a failing test. Approve/reject only this exact test change and newSHA, with a short answer. Existing finalreview must still approve productionfiles before deployment.
+Diff:
+- self.assertEqual(self.policy.read()['external_quantities']['KRW-A'],'1')
++ self.assertEqual(float(self.policy.read()['external_quantities']['KRW-A']),1.)
+
+New test_auto_protection.py SHA256 e435e2abbcba25f9c514efffb24782232c30d0053a87afed77238359407ce44c

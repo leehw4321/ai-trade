@@ -1,0 +1,98 @@
+# MANUAL-PROTECT-v1 Final Review
+
+**Verdict: Conditional approval.** I found no code defect that requires changing the listed files. Deployment is gated on G1–G5 below. If any gate fails, treat this as a rejection and send it back for revision.
+
+This was a static review of the diffs only. I did not run tests or compute hashes, so the approval binds to the SHA256 values as the host reports them. Code outside the diff hunks is assumed, and the parts that matter are listed in G5.
+
+## The seven prior conditions
+
+| # | Condition | Status | Notes |
+|---|---|---|---|
+| 1 | Balance/locked secondary detection | Met | `_bootstrap` catches unknown, excess or locked quantity. A synthetic `balance:` order re-protects a released market after a new deposit. Pending and risk-pending markets are skipped, so settlement stays independent. |
+| 2 | Revision CAS for release | Met, with a gap | CAS happens inside the lock. `set_user_protection` rescans the market before `decide`, so the remaining race is only GET→decide (documented). **Gap:** a quantity change on a market that is already protected (for example a deposit, which is not an order) does not bump the revision. A stale page can then release the larger holding. |
+| 3 | Whole-coin stop/trail warning | Met | The panel counts bot-held protected markets, and the confirm text states that stops are suspended. |
+| 4 | UI orders protected by default; protected liquidation blocked | Met, needs G5 | `decide(True)` runs after a UI buy or liquidation. If that fails, the fallback relies on the `orders.jsonl` reason prefix (`수동`/`화면`). Liquidation is blocked by both the scan and `assert_unprotected`. |
+| 5 | Bounded history/revisions/bootstrap | Met | `seen_orders` is capped at 10000 with fail-closed overflow. Other maps are bounded by market count. A closed-orders result of 1000 or more fails closed. |
+| 6 | Bounded OS lock, fail-closed, crash recovery | Logic met, **evidence missing** | The only contention test is threaded, so it hits the in-process `RLock` and never exercises `msvcrt`/`flock`. A cross-process test is required (G3). |
+| 7 | Null Origin tests | Met | `null` is accepted, a foreign origin is rejected, kinds are allowlisted, and a missing revision returns 400. Security still rests on the Host check and token secrecy, which is unchanged from before. |
+
+Legacy config can only be overridden by a `protected=False` decision with a user origin, and `validate` enforces that. Malformed state raises an error and is never read as a release. BTC and DOGE stay protected.
+
+## Deployment gates (no code change needed)
+
+- **G1. Read-only dry run before start.** Run `Detector` against the real accounts and the current ledger, but point it at a *copy* of the protection file. List every market that would become protected and mark any that have an open bot position, because their stop and trail logic will stop working. Two groups need attention:
+  - Positions with `acquisition_source == explicitly_authorized_external_exchange_fill`. The code treats them as unknown and protects them, which overrides the user's earlier explicit authorization.
+  - Dust left over from past bot exits, since those markets can no longer be re-entered.
+
+  The user must see this list and accept it before the bot starts.
+- **G2. Real `HistoryClient` smoke test, inside G1, GET only.** Confirm that the JWT `query_hash` matches `urlencode(params)`. Record the all-market `done` and `cancel` counts. If either is near 1000, the 15-second periodic scan will soon fail closed permanently.
+- **G3. Cross-process lock test.**
+  - A subprocess holds the lock. A second process must time out with `ProtectionError` and leave the file unchanged.
+  - Then hard-kill the holder. The next acquisition must succeed within the timeout.
+- **G4. Health check must prove protection works, not just that the process is alive.** It must show:
+  - After the first scan, `detector.error == ''`.
+  - The effective set includes BTC and DOGE.
+  - The protection file validates.
+  - The panel renders with a working action port.
+
+  This matters because `Detector.good` lives only in memory. If history checks fail after a restart, even stops on bot positions are blocked. A corrupted or partially written last line in `orders.jsonl` produces exactly that state indefinitely.
+- **G5. Verify code I could not see:**
+  - `handle_manual_requests` has a generic `except` that calls `req.finish(False, …)`, so a CAS or lock `ProtectionError` reaches the UI.
+  - UI buy and liquidation reasons start with `수동` or `화면`.
+  - `real['coins']` keys are in `KRW-X` format. If they are bare symbols, the panel shows duplicate rows that are wrongly labelled "allowed". This is a display issue only, because enforcement uses the normalized set.
+  - `liquidate_position` and `add_to_position` route through `_trade`.
+
+The rollback plan is acceptable as written. Stop the new process before rolling back, and never auto-restart an unprotected old version.
+
+## Accepted limitations (for the record)
+
+- **Release race:** a final GET→decide race remains, and Upbit history may be eventually consistent. A terminal order created just before a release and first seen after it is skipped.
+- **Handoff merge:** it uses wall-clock `at`, so clock skew between machines can let a stale release win.
+- **No TTL on verified state:** `good` never expires. A buy and a sell of equal size during an outage are invisible to the risk-exit exception.
+- **Availability:** if the accounts call fails, or after a restart while the history API is down, all submissions are blocked, including stops. This was agreed as fail-closed.
+- **Read cost:** `orders.jsonl` is read in full on every scan, which costs O(file) every 15 seconds.
+- **CLI:** `protect_asset` uses `required=False`, so it can create a fresh file when the file is missing. This was true before this change too. Its release has no rescan step.
+- **UI messages:** retrying a stale-CAS release within 30 seconds shows the misleading "다른 청산 요청을 처리 중" message.
+
+Recommended for the next revision: bump the revision whenever a protected market's external quantity changes, surface a local `orders.jsonl` parse failure as its own distinct alert, and resolve handoff decision conflicts by revision rather than wall time.
+
+**Approved SHA256 (conditional on G1–G5):**
+```
+99315305211dad1da196e2eee3f723c415f63d77fc60ce1a4d7f43df253c0659  v5/asset_protection.py
+73bf798df313ba379844a654dafae3cebe652e33fe870cedcaa37da21bbd16cb  v5/bot.py
+d6e8014fa00dbabbda3fecb6f5ada829fb893418c884f9df9e38484b85ca8640  v5/live.py
+d4bcbdeca299932d788b4221c3a1310e7e7436ff89d5f45c926766dd16d40af3  v5/manual_orders.py
+6f4203495249efd3128ce58631bb08cc27871b16a093f5d9151a38594dbc0c58  v5/manual_protection.py
+cf480e148efef3d5c891b9362d5eed379156a0c411b224dcacbedbde427510a7  v5/protection_panel.py
+437dbbbd7821aea88a503f81b912ea80e1bb08850368550c5aa4c7dc592eebdd  tools/protect_asset.py
+527ccbbfa8ccb0ea77e8ed2d76aa30bc5039bcbc683d722b24871d6911d0b213  tools/secure_handoff.py
+c3b02b66fcab98111c5474e358d54d2bf09d1ae1982d5711d311b9a46d9560f4  v5/test_auto_protection.py
+```
+Any byte change voids this approval.
+
+## Response to the trade-review mandate
+
+I keep no memory between sessions. Continuity has to come from the handover documents and the sanitized data package, not from a reviewer who "remembers".
+
+**Single experiment E1: same-market re-entry after exit.** I chose this because it can be answered from fills alone. Exit-timing counterfactuals need candle data and invite look-ahead bias.
+
+- **H1 (fixed before looking at the data):** bot round-trips that enter within W of a prior full exit in the same market have a lower mean net return than other bot round-trips. Set W = 2× the strategy timeframe, written into the plan before any data is loaded.
+- **Round-trip construction:**
+  - Use settled fills only, matched per market with FIFO, including partial fills.
+  - Net return = (sell proceeds − sell fee) / (buy cost + buy fee) − 1.
+  - Exclude BTC, DOGE, protected, manual, inherited and authorized-external fills. List every exclusion with its count.
+  - Round-trips still open at the end of the window are counted but not scored.
+- **Analysis:**
+  - Report the difference in means with a bootstrap 95% CI, plus medians and win rates.
+  - Check that the result holds in both the first and second chronological halves.
+  - Rerun excluding the single best and single worst trade.
+- **Decision rule:**
+  - If either group has fewer than 20 round-trips, the result is *inconclusive* and nothing changes.
+  - Only if the CI upper bound is below 0 and both halves agree may a cooldown rule be *proposed*.
+  - That rule then runs forward on a paper ledger for a pre-agreed number of round-trips before any joint review of a live change.
+- **Evidence package:**
+  - Schema with sequential surrogate IDs (no raw UUIDs or identifiers): market, side, volume, average price, fee, UTC timestamps and reason category.
+  - Pre-trade quote if it was logged, so slippage can be separated out.
+  - A reconciliation showing that fill counts and net quantity per market match the closed positions in the ledger, with unmatched rows listed.
+  - Time range, fee totals, and the analysis script with its hash.
+- **By-product:** a cost profile (fees, slippage, gross vs. net) reported as *descriptive only*. It must not be presented as evidence that the bot is profitable.

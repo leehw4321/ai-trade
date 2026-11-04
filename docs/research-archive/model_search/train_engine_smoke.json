@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "cost": "base",
+  "quality": {
+    "KRW-ADA": {
+      "observed_1m": 159238,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35401,
+      "absent_5m_between_observations": 203,
+      "partial_observed_minutes_buckets": 11741,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-AVAX": {
+      "observed_1m": 108589,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 33827,
+      "absent_5m_between_observations": 1777,
+      "partial_observed_minutes_buckets": 26972,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-BTC": {
+      "observed_1m": 177381,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35480,
+      "absent_5m_between_observations": 124,
+      "partial_observed_minutes_buckets": 12,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-DOGE": {
+      "observed_1m": 170226,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35468,
+      "absent_5m_between_observations": 136,
+      "partial_observed_minutes_buckets": 5042,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-ETH": {
+      "observed_1m": 177355,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35480,
+      "absent_5m_between_observations": 124,
+      "partial_observed_minutes_buckets": 38,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-HBAR": {
+      "observed_1m": 103775,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 33278,
+      "absent_5m_between_observations": 2326,
+      "partial_observed_minutes_buckets": 27162,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-LINK": {
+      "observed_1m": 132778,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 34949,
+      "absent_5m_between_observations": 655,
+      "partial_observed_minutes_buckets": 22144,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-SOL": {
+      "observed_1m": 176816,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35480,
+      "absent_5m_between_observations": 124,
+      "partial_observed_minutes_buckets": 528,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-SUI": {
+      "observed_1m": 156291,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35329,
+      "absent_5m_between_observations": 275,
+      "partial_observed_minutes_buckets": 12651,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    },
+    "KRW-XRP": {
+      "observed_1m": 177388,
+      "invalid_1m_rejected": 0,
+      "bars_5m": 35480,
+      "absent_5m_between_observations": 124,
+      "partial_observed_minutes_buckets": 5,
+      "first_5m": "2025-12-28T09:00:00+09:00",
+      "last_5m": "2026-04-30T23:55:00+09:00"
+    }
+  },
+  "baseline": {
+    "label": "50% equal-weight buy-and-hold, 50% cash, no risk stops",
+    "final_equity": 882097.5645935722,
+    "net_return_pct": -11.790243540642786,
+    "markets": {
+      "KRW-ADA": {
+        "allocated": 50000.0,
+        "net_profit": -13991.848804405978,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-AVAX": {
+        "allocated": 50000.0,
+        "net_profit": -12822.593098508107,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-BTC": {
+        "allocated": 50000.0,
+        "net_profit": -5812.293070522261,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-DOGE": {
+        "allocated": 50000.0,
+        "net_profit": -5971.716584634494,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-ETH": {
+        "allocated": 50000.0,
+        "net_profit": -11238.827804649103,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-HBAR": {
+        "allocated": 50000.0,
+        "net_profit": -9160.632207005314,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-LINK": {
+        "allocated": 50000.0,
+        "net_profit": -12396.34386792859,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-SOL": {
+        "allocated": 50000.0,
+        "net_profit": -16080.40710533988,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-SUI": {
+        "allocated": 50000.0,
+        "net_profit": -17985.237172708734,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      },
+      "KRW-XRP": {
+        "allocated": 50000.0,
+        "net_profit": -12442.535690725286,
+        "entry_t": 1767193200,
+        "exit_t": 1777561200
+      }
+    }
+  },
+  "results": [
+    {
+      "summary": {
+        "candidate_id": "breakout_5m_20",
+        "start_kst": "2026-01-01T00:00:00+09:00",
+        "end_exclusive_kst": "2026-05-01T00:00:00+09:00",
+        "initial_cash": 1000000.0,
+        "final_equity": 953291.9834141053,
+        "net_profit": -46708.016585894744,
+        "net_return_pct": -4.670801658589474,
+        "max_drawdown_pct": 5.0839304041677025,
+        "trade_count": 124,
+        "raw_signal_count": 4457,
+        "win_rate_pct": 28.225806451612907,
+        "profit_factor": 0.5406211106755999,
+        "average_trade_pnl": -376.6775531120544,
+        "average_trade_return_pct": -0.17634204876431928,
+        "fees_paid": 27460.64961873116,
+        "adverse_execution_cost": 38444.91887302403,
+        "entry_rejections": {
+          "already_held": 63,
+          "below_minimum_or_no_budget": 117,
+          "risk_halt": 4148,
+          "position_slots": 5
+        },
+        "exit_reasons": {
+          "stop_intrabar": 77,
+          "target_intrabar": 35,
+          "time_next_open": 11,
+          "stop_open_gap": 1
+        },
+        "peak_halted": true,
+        "peak_halt_t": 1767602400,
+        "max_entry_exposure_fraction": 0.5000000000000001,
+        "max_entry_aggregate_risk_fraction": 0.005000556099505606,
+        "max_observed_slots": 4,
+        "monthly": {
+          "2026-01": {
+            "start_equity": 1000000.0,
+            "end_equity": 953291.9834141053,
+            "net_return_pct": -4.670801658589474
+          },
+          "2026-02": {
+            "start_equity": 953291.9834141053,
+            "end_equity": 953291.9834141053,
+            "net_return_pct": 0.0
+          },
+          "2026-03": {
+            "start_equity": 953291.9834141053,
+            "end_equity": 953291.9834141053,
+            "net_return_pct": 0.0
+          },
+          "2026-04": {
+            "start_equity": 953291.9834141053,
+            "end_equity": 953291.9834141053,
+            "net_return_pct": 0.0
+          }
+        },
+        "config": {
+          "initial_cash": 1000000.0,
+          "risk_per_trade": 0.0025,
+          "max_open_risk": 0.01,
+          "max_position_fraction": 0.25,
+          "max_exposure_fraction": 0.5,
+          "max_positions": 4,
+          "min_order": 5000.0,
+          "fee_rate": 0.0005,
+          "adverse_slippage": 0.0005,
+          "half_spread": 0.0002,
+          "daily_entry_halt": 0.015,
+          "daily_liquidation": 0.02,
+          "peak_drawdown_halt": 0.05
+        },
+        "limitations": [
+          "OHLC market-fill proxy, not historical order-book replay",
+          "bar-close drawdown and daily guards can miss intrabar account losses",
+          "last available quotes mark missing-market bars; stale quotes possible",
+          "fixed sample of ten currently listed markets has selection/survivorship bias",
+          "risk stops may overrun on gaps; final close flatten is a research convention"
+        ]
+      },
+      "halt_events": [
+        {
+          "t": 1767363000,
+          "kst": "2026-01-02T23:10:00+09:00",
+          "reason": "daily_entry_halt",
+          "stage": "close",
+          "equity": 984025.1547469539,
+          "loss_fraction": 0.015369975170217542
+        },
+        {
+          "t": 1767522000,
+          "kst": "2026-01-04T19:20:00+09:00",
+          "reason": "daily_entry_halt",
+          "stage": "close",
+          "equity": 963628.6581716271,
+          "loss_fraction": 0.01500864218582687
+        },
+        {
+          "t": 1767602400,
+          "kst": "2026-01-05T17:40:00+09:00",
+          "reason": "permanent_peak_drawdown_halt",
+          "stage": "close",
+          "equity": 953763.5561724617,
+          "loss_fraction": 0.05036977494114525
+        }
+      ]
+    }
+  ]
+}

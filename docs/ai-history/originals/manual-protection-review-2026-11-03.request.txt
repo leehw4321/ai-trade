@@ -1,0 +1,1104 @@
+You are the actual Claude peer reviewer. ChatGPT authored this candidate for the user's standing authorized bot project. Tools disabled; never claim to execute tests. Host reports 308 V5 tests and 45 handoff tool tests passed in an isolated source copy; 19 are new protection cases. No deployment yet.
+Review MANUAL-PROTECT-v1 final implementation against your prior seven conditions: balance/locked secondary detection; revision CAS for release; whole-coin stop/trail warning; UI direct orders default protected and protected liquidation blocked; bounded history/revisions/bootstrap; bounded OS lock fail-closed and crash recovery; null Origin tests. BTC/DOGE remain protected until user releases. Legacy config is overridden only by valid explicit user choice. Pending settlement remains independent of this detector.
+History API defaults last7days, closed limit1000 => at cap new submission failclosed. Best-effort race since final GET documented. Unknown inherited positions are conservatively protected once. On history failure only previously verified, exactly unchanged account qty, zero locked, unchanged policy revision, BOT-known risk exit may continue with min quantity. Accounts failure blocks all new submissions. No profit threshold changes. New runtime config auto_manual_protection/protection_ui=True, user_protection_required staysTrue. Plan to stop normally, back up, verify exact hashes, copy these reviewed modules, preserve ledger/risk offset and source lease, start and health check; on failure stop new process before rollback, never automatically restart an unprotected old version.
+Please identify concrete blockers, reject if necessary. If acceptable return explicit approval of listed SHA256, and limitations. Do not force agreement.
+New user mandate: at15:40 Claude returns, receive handover and jointly inspect EVERY executed trade to refine profitable patterns. Actual Claude availability is confirmed by this earlier successful plan review. Existing broker was incorrectly holding Claude until17:42 from12:42+5h; host preserved old quota record and resumed tools-disabled debate after verified success at16:46. Next separate read-only work will feed sanitized actual fills from orders.jsonl (no rawIDs/secrets) to that broker, analyze costs/roundtrips/reentry and prospective entry/exit models. Please respond to this mandate too: select a single testable experiment and specify evidence required, no untested live changes or profitability claims.
+Only source and tests below, no account, keys or runtime data.
+
+
+FILE v5/asset_protection.py SHA256 99315305211dad1da196e2eee3f723c415f63d77fc60ce1a4d7f43df253c0659
+
+--- old/asset_protection.py
++++ new/asset_protection.py
+@@ -0,0 +1,267 @@
++"""User-owned asset protection policy. No exchange or order access."""
++from contextlib import contextmanager
++from copy import deepcopy
++from decimal import Decimal, InvalidOperation
++import datetime as dt
++import hashlib
++import json
++import math
++from pathlib import Path
++import re
++import threading
++import time
++
++MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
++_LOCKS, _LOCKS_GUARD = {}, threading.Lock()
++USER_ORIGINS = {'user_ui', 'cli'}
++
++
++class ProtectionError(ValueError):
++    pass
++
++
++def normalize(value):
++    if not isinstance(value, str): raise ProtectionError('종목 형식 오류')
++    market = value.strip().upper()
++    if not market.startswith('KRW-'): market = 'KRW-' + market
++    if not MARKET.fullmatch(market): raise ProtectionError('종목 형식 오류')
++    return market
++
++
++def validate(doc):
++    if not isinstance(doc, dict) or not isinstance(doc.get('markets'), list):
++        raise ProtectionError('보호 목록 형식 오류')
++    for value in doc['markets']:
++        if normalize(value) != value: raise ProtectionError('보호 종목 표준 형식 오류')
++    decisions = doc.get('decisions', {})
++    if not isinstance(decisions, dict): raise ProtectionError('보호 결정 형식 오류')
++    for market, choice in decisions.items():
++        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
++        if (not isinstance(choice, dict) or type(choice.get('protected')) is not bool
++                or type(choice.get('at')) not in (int, float) or not math.isfinite(choice['at'])
++                or choice['at'] < 0 or choice.get('origin') not in USER_ORIGINS | {'manual', 'bootstrap'}):
++            raise ProtectionError('보호 결정 형식 오류')
++        if not choice['protected'] and choice['origin'] not in USER_ORIGINS:
++            raise ProtectionError('사용자 선택 없는 보호 해제')
++    for key in ('seen_orders', 'manual', 'revisions', 'bootstrap'):
++        if not isinstance(doc.get(key, {}), dict): raise ProtectionError('보호 상태 형식 오류')
++    for market, revision in doc.get('revisions', {}).items():
++        if normalize(market) != market: raise ProtectionError('보호 종목 표준 형식 오류')
++        if type(revision) is not int or revision < 0: raise ProtectionError('보호 버전 오류')
++    for market, item in doc.get('manual', {}).items():
++        if (normalize(market) != market or not isinstance(item, dict)
++                or type(item.get('pending')) is not bool or not isinstance(item.get('kind'), str)
++                or type(item.get('at')) not in (int,float) or not math.isfinite(item['at'])):
++            raise ProtectionError('직접 주문 보호 기록 오류')
++    for key, item in doc.get('seen_orders', {}).items():
++        if (not isinstance(key,str) or not re.fullmatch('[a-f0-9]{64}',key)
++                or not isinstance(item,dict) or normalize(item.get('market')) != item['market']
++                or not isinstance(item.get('revision'),str) or not re.fullmatch('[a-f0-9]{64}',item['revision'])
++                or item.get('state') not in ('wait','watch','done','cancel')
++                or not isinstance(item.get('created_at'),str)
++                or type(item.get('seen_at')) not in (int,float) or not math.isfinite(item['seen_at'])):
++            raise ProtectionError('직접 주문 출처 기록 오류')
++        _decimal(item.get('volume'))
++    for market, value in doc.get('bootstrap',{}).items():
++        if normalize(market) != market or value is not True: raise ProtectionError('직접 보유 기록 오류')
++    if not isinstance(doc.get('external_quantities',{}),dict): raise ProtectionError('직접 보유 수량 오류')
++    for market,value in doc.get('external_quantities',{}).items():
++        if normalize(market) != market: raise ProtectionError('직접 보유 종목 오류')
++        _decimal(value)
++    return doc
++
++
++def effective(doc, configured=()):
++    validate(doc)
++    result = {normalize(m) for m in list(configured) + doc['markets']}
++    for market, choice in doc.get('decisions', {}).items():
++        if choice['protected']: result.add(normalize(market))
++        else: result.discard(normalize(market))
++    return result
++
++
++def explicit_release(doc, market):
++    validate(doc)
++    choice = doc.get('decisions', {}).get(normalize(market), {})
++    return choice.get('protected') is False and choice.get('origin') in USER_ORIGINS
++
++
++def merge(left, right, left_configured=(), right_configured=()):
++    """Latest explicit choice wins; equally dated/unknown conflicts favor protection."""
++    validate(left); validate(right)
++    out = deepcopy(right)
++    markets = effective(left, left_configured) | effective(right, right_configured)
++    decisions = {}
++    for market in markets | set(left.get('decisions', {})) | set(right.get('decisions', {})):
++        choices = [d.get('decisions', {}).get(market) for d in (left, right)]
++        choices = [c for c in choices if c]
++        if choices:
++            selected = max(choices, key=lambda c: (c['at'], c['protected']))
++            decisions[market] = deepcopy(selected)
++            if selected['protected']: markets.add(market)
++            else: markets.discard(market)
++    out['decisions'], out['markets'] = decisions, sorted(markets)
++    for key in ('seen_orders', 'manual', 'bootstrap', 'external_quantities'):
++        out[key] = {**deepcopy(left.get(key, {})), **deepcopy(right.get(key, {}))}
++    for key,time_key in (('seen_orders','seen_at'),('manual','at')):
++        for name,item in left.get(key,{}).items():
++            other=out[key].get(name)
++            if other is None or item[time_key] > other[time_key]: out[key][name]=deepcopy(item)
++    # A transfer invalidates every rendered page from either machine, including a
++    # coincidentally equal counter. Revisions must never move backwards.
++    out['revisions']={m:max(left.get('revisions',{}).get(m,0),right.get('revisions',{}).get(m,0))+1
++        for m in set(left.get('revisions',{}))|set(right.get('revisions',{}))}
++    return validate(out)
++
++
++def _decimal(value):
++    try: result = Decimal(str(value or 0))
++    except InvalidOperation: raise ProtectionError('주문 수량 형식 오류') from None
++    if not result.is_finite() or result < 0: raise ProtectionError('주문 수량 형식 오류')
++    return format(result.normalize(), 'f')
++
++
++class Policy:
++    def __init__(self, file, configured=(), required=True, clock=time.time, lock_timeout=1.):
++        self.file = Path(file)
++        self.configured, self.required = list(configured), required
++        self.clock, self.lock_timeout = clock, lock_timeout
++        self.last_valid = None
++
++    def read(self):
++        try:
++            if not self.file.exists():
++                if self.required: raise ProtectionError('필수 보호 파일 없음')
++                doc = {'markets': []}
++            else: doc = json.loads(self.file.read_text(encoding='utf-8'))
++            validate(doc)
++        except (OSError, ValueError, TypeError) as error:
++            raise ProtectionError('보호 상태 확인 불가: 새 주문 보류') from None
++        self.last_valid = deepcopy(doc)
++        return doc
++
++    @contextmanager
++    def locked(self):
++        self.file.parent.mkdir(parents=True, exist_ok=True)
++        name = str(self.file.resolve())
++        with _LOCKS_GUARD: local = _LOCKS.setdefault(name, threading.RLock())
++        if not local.acquire(timeout=self.lock_timeout): raise ProtectionError('보호 목록 사용 중')
++        handle, acquired = None, False
++        try:
++            handle = self.file.with_suffix('.lock').open('a+b')
++            handle.seek(0, 2)
++            if not handle.tell(): handle.write(b'0'); handle.flush()
++            until = time.monotonic() + self.lock_timeout
++            while True:
++                try:
++                    handle.seek(0)
++                    if __import__('os').name == 'nt':
++                        import msvcrt
++                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
++                    else:
++                        import fcntl
++                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                    acquired = True; break
++                except OSError:
++                    if time.monotonic() >= until: raise ProtectionError('보호 목록 잠금 확인 불가') from None
++                    time.sleep(.02)
++            yield
++        finally:
++            if handle:
++                if acquired:
++                    handle.seek(0)
++                    if __import__('os').name == 'nt':
++                        import msvcrt
++                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
++                    else:
++                        import fcntl
++                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
++                handle.close()
++            local.release()
++
++    def mutate(self, change):
++        with self.locked():
++            doc = self.read()
++            before = json.dumps(doc, sort_keys=True)
++            result = change(doc)
++            if json.dumps(doc, sort_keys=True) != before:
++                doc['version'] = 2
++                doc['markets'] = sorted(effective(doc, self.configured))
++                doc['updated_at'] = dt.datetime.fromtimestamp(self.clock(),dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds')
++                validate(doc)
++                temp = self.file.with_suffix('.tmp')
++                temp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding='utf-8')
++                temp.replace(self.file)
++                self.last_valid = deepcopy(doc)
++            return result
++
++    def revision(self, market, doc=None):
++        return (self.read() if doc is None else doc).get('revisions', {}).get(normalize(market), 0)
++
++    def _choice(self, doc, market, protected, origin):
++        doc.setdefault('decisions', {})[market] = {'protected':protected,'origin':origin,'at':self.clock()}
++        revisions = doc.setdefault('revisions', {})
++        revisions[market] = revisions.get(market, 0) + 1
++        if market in doc.get('manual', {}): doc['manual'][market]['pending'] = origin not in USER_ORIGINS
++
++    def decide(self, market, protect, origin='user_ui', expected=None):
++        market = normalize(market)
++        if origin not in USER_ORIGINS or type(protect) is not bool: raise ProtectionError('사용자 보호 선택 오류')
++        def change(doc):
++            if not protect and (type(expected) is not int or expected != self.revision(market,doc)):
++                raise ProtectionError('새 직접 주문 또는 보호 변경이 있습니다. 새로고침 후 다시 확인하세요.')
++            self._choice(doc,market,protect,origin)
++            return {'market':market,'protected':protect,'revision':self.revision(market,doc)}
++        return self.mutate(change)
++
++    def observe(self, orders=(), bootstrap=(), user_identifiers=()):
++        user_identifiers = set(user_identifiers)
++        def change(doc):
++            seen = doc.setdefault('seen_orders', {})
++            manual = doc.setdefault('manual', {})
++            now = self.clock()
++            doc.setdefault('scan_started_at',now)
++            changed = []
++            latest = {}
++            for row in orders:
++                ident = row.get('identifier') or ''
++                if ident.startswith('v5-') and ident not in user_identifiers: continue
++                market = normalize(row.get('market'))
++                uid = row.get('uuid') or ident
++                if not isinstance(uid,str) or not uid: raise ProtectionError('주문 출처 식별 불가')
++                volume = _decimal(row.get('executed_volume'))
++                state = row.get('state')
++                if state not in ('wait','watch','done','cancel'): raise ProtectionError('주문 상태 불명')
++                key = hashlib.sha256(uid.encode()).hexdigest()
++                rev = hashlib.sha256(json.dumps([market,row.get('side'),state,volume,_decimal(row.get('paid_fee'))]).encode()).hexdigest()
++                item = {'market':market,'revision':rev,'volume':volume,'state':state,
++                        'created_at':str(row.get('created_at') or ''),'seen_at':now}
++                rank = (Decimal(volume),state in ('done','cancel'))
++                if key not in latest or rank > latest[key][0]: latest[key] = (rank,item)
++            for key,(_,item) in latest.items():
++                old = seen.get(key)
++                if old and old['revision'] == item['revision']: continue
++                # Pruned historic terminal orders never undo an explicit later release.
++                choice = doc.get('decisions', {}).get(item['market'], {})
++                try: created = dt.datetime.fromisoformat(item['created_at']).timestamp()
++                except ValueError: created = now
++                old_terminal = not old and item['state'] in ('done','cancel') and created < choice.get('at',0)
++                seen[key] = item
++                if old_terminal and choice.get('protected') is False: continue
++                market = item['market']
++                manual[market] = {'at':now,'event':key,'pending':True,'kind':'직접 주문 또는 출처 미확인 주문'}
++                self._choice(doc,market,True,'manual'); changed.append(market)
++            marked = doc.setdefault('bootstrap',{})
++            for value in bootstrap:
++                market = normalize(value)
++                if market in marked: continue
++                marked[market] = True
++                if explicit_release(doc,market): continue
++                manual[market] = {'at':now,'pending':True,'kind':'직접 보유 또는 출처 미확인 수량'}
++                self._choice(doc,market,True,'bootstrap'); changed.append(market)
++            if len(seen) > 10000:
++                old = sorted((k for k,v in seen.items() if v['state'] in ('done','cancel') and v['seen_at'] < now-7*86400), key=lambda k:seen[k]['seen_at'])
++                for key in old[:max(0,len(seen)-10000)]: del seen[key]
++                if len(seen) > 10000: raise ProtectionError('직접 주문 출처 기록 한도: 대사 필요')
++            return sorted(set(changed))
++        return self.mutate(change)
+
+
+FILE v5/bot.py SHA256 73bf798df313ba379844a654dafae3cebe652e33fe870cedcaa37da21bbd16cb
+
+--- old/bot.py
++++ new/bot.py
+@@ -16,6 +16,7 @@
+ 
+ import manual_orders
+ import position_popup
++import protection_panel
+ import strategy as st
+ import upbit
+ from session_guard import SessionGuard, SessionLost, notify
+@@ -354,7 +355,8 @@
+         # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
+         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
+             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
+-        blocks = self.real_block(prices) + self.live_block(prices) + \
++        protection_top=protection_panel.render(self.live,((self.real or {}).get('coins') or {}),self.protection_action())
++        blocks = protection_top + self.real_block(prices) + self.live_block(prices) + \
+             '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
+         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
+ <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
+@@ -415,12 +417,19 @@
+             self.init_t0()
+         self.align_timeframe(time.time())
+         self.log('봇 실행 시작 (실거래 활성 · 기존 보유분 위임 관리 포함)' if self.live.cfg['enabled'] else '봇 실행 시작 (모의 운영)')
+-        last_snap = last_stop = last_live = last_display = last_trail = 0
++        last_snap = last_stop = last_live = last_display = last_trail = last_manual_scan = 0
+         stop_iv = min(self.p.stop_seconds, 10) if self.live.cfg['enabled'] and self.live.cfg.get('profit_guard_enabled') is True else self.p.stop_seconds
+         self.manual_server = None
+-        if self.live.cfg['enabled'] and self.live.cfg.get('manual_ui'):
+-            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT))
+-            if srv.start():
++        if self.live.cfg['enabled'] and (self.live.cfg.get('manual_ui') or self.live.cfg.get('protection_ui')):
++            kinds=set()
++            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
++            if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
++            srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
++            started=srv.start()
++            if not started and self.live.cfg.get('protection_ui'):
++                srv=manual_orders.ManualOrderServer(0,allowed_kinds=kinds)
++                started=srv.start()
++            if started:
+                 self.manual_server = srv
+                 self.log(f'화면 강제 청산 요청 서버 시작 (127.0.0.1:{srv.port}, 토큰 인증)')
+             else:
+@@ -432,7 +441,13 @@
+                 break
+             now = time.time()
+             try:
++                if self.live.cfg.get('auto_manual_protection') and now-last_manual_scan>=15:
++                    try: self.live.scan_manual_orders()
++                    except Exception as ex: self.log('직접 주문 보호 확인 대기: '+type(ex).__name__)
++                    last_manual_scan=now
+                 self.handle_manual_requests()
++                if getattr(self,'_protection_ui_dirty',False):
++                    last_display=0; self._protection_ui_dirty=False
+                 TF = self.p.tf * 60
+                 end4 = boundary(now - SETTLE, TF)
+                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
+@@ -487,7 +502,11 @@
+         """화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."""
+         srv = getattr(self, 'manual_server', None)
+         cap = min(self.live.cfg.get('manual_buy_max_krw', 100000), self.live.cfg['max_order_krw'])
+-        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv else None
++        return {'port': srv.port, 'token': srv.token, 'buy_max': cap} if srv and self.live.cfg.get('manual_ui') else None
++
++    def protection_action(self):
++        srv=getattr(self,'manual_server',None)
++        return {'port':srv.port,'token':srv.token} if srv and self.live.cfg.get('protection_ui') else None
+ 
+     def handle_manual_requests(self):
+         """화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."""
+@@ -496,13 +515,24 @@
+             return
+         for req in srv.drain():
+             try:
+-                if req.kind == 'buy':
++                if req.kind in ('protect','unprotect'):
++                    ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
++                    label='사용자 보호 선택'; self._protection_ui_dirty=True
++                elif req.kind == 'buy':
+                     ok, msg = self.live.add_to_position(req.market, req.krw, self.markets or upbit.krw_markets())
+                     label = f'수동 추가 매수 {req.krw:,}원'
+-                else:
++                    if self.live.cfg.get('auto_manual_protection'):
++                        self.live.protection_policy.decide(req.market,True)
++                        self._protection_ui_dirty=True
++                elif req.kind=='liquidate':
+                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
+                     ok, msg = self.live.liquidate_position(req.market, prices)
+                     label = '수동 강제 청산'
++                    if self.live.cfg.get('auto_manual_protection'):
++                        self.live.protection_policy.decide(req.market,True)
++                        self._protection_ui_dirty=True
++                else:
++                    req.finish(False,'허용되지 않은 요청'); continue
+                 req.finish(ok, msg)
+                 self.log(f'{label} {req.market}: {"성공" if ok else "보류"} · {msg}')
+             except SessionLost as ex:
+
+
+FILE v5/live.py SHA256 d6e8014fa00dbabbda3fecb6f5ada829fb893418c884f9df9e38484b85ca8640
+
+--- old/live.py
++++ new/live.py
+@@ -22,6 +22,8 @@
+ 
+ import strategy as st
+ import upbit
++import asset_protection
++import manual_protection
+ from paper import now_iso
+ from session_guard import SessionLost
+ 
+@@ -62,7 +64,8 @@
+             'manual_buy_max_krw': 100000,  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
+             'profit_guard_enabled': False,  # 도입 후 관측 고점 기준 이익 일부를 실시간 보호선으로 보존. 꺼져 있으면 기존 동작 그대로
+             'profit_guard_arm_pct': 0.02, 'profit_guard_giveback': 0.4,
+-            'protected_markets': []}  # 사용자 지정 종목 전체를 자동 매매에서 제외
++            'protected_markets': [], 'auto_manual_protection': False,
++            'protection_ui': False}  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
+ 
+ 
+ def parse(text):
+@@ -152,19 +155,42 @@
+     def protected_markets(self):
+         """Reload at each decision/submission; malformed state blocks submissions."""
+         try:
+-            configured = self.cfg.get('protected_markets', [])
+-            if not isinstance(configured, list): raise ValueError('config protection list invalid')
+-            if self.cfg.get('user_protection_required') and not self.protection_file.exists():
+-                raise ValueError('required protection file missing')
+-            saved = json.loads(self.protection_file.read_text(encoding='utf-8')) if self.protection_file.exists() else {'markets': []}
+-            markets = saved['markets']
+-            if not isinstance(markets, list): raise ValueError('saved protection list invalid')
+-            return {normalize_protected_market(m) for m in configured + markets}
++            return asset_protection.effective(self.protection_policy.read(),self.protection_policy.configured)
+         except (OSError, ValueError, KeyError, TypeError) as ex:
+             raise ProtectedAssetError('사용자 보호 목록 확인 실패: 주문 보류 (' + type(ex).__name__ + ')') from None
+ 
+     def is_protected(self, market):
+         return normalize_protected_market(market) in self.protected_markets()
++
++    @property
++    def protection_policy(self):
++        configured=self.cfg.get('protected_markets',[])
++        if not isinstance(configured,list): raise asset_protection.ProtectionError('설정 보호 목록 형식 오류')
++        if not hasattr(self,'_protection_policy'):
++            self._protection_policy=asset_protection.Policy(self.protection_file,configured,
++                required=bool(self.cfg.get('user_protection_required')))
++        self._protection_policy.configured=configured
++        self._protection_policy.required=bool(self.cfg.get('user_protection_required'))
++        return self._protection_policy
++
++    @property
++    def manual_detector(self):
++        if not hasattr(self,'_manual_detector'):
++            self._manual_detector=manual_protection.Detector(self.protection_policy,self.folder)
++        return self._manual_detector
++
++    def scan_manual_orders(self, market=None, risk=False, amount=None, allow_protected=False):
++        if not self.cfg.get('auto_manual_protection'): return amount
++        try:
++            return self.manual_detector.scan(self.d,market,risk,amount,allow_protected)
++        except (asset_protection.ProtectionError,OSError,ValueError,TypeError) as error:
++            raise ProtectedAssetError(str(error)) from None
++
++    def set_user_protection(self, market, protect, revision=None):
++        if not protect: self.scan_manual_orders(market,allow_protected=True)
++        result=self.protection_policy.decide(market,protect,expected=revision)
++        self.record({'event':'사용자 보호 선택','market':result['market'],'protected':protect})
++        return True, ('보호 유지: 봇 주문·손절·익절 제외' if protect else '보호 해제: 다음 봇 판단부터 관리 허용')
+ 
+     def assert_unprotected(self, market):
+         if self.is_protected(market):
+@@ -444,12 +470,14 @@
+             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
+             if atr is None or not math.isfinite(atr) or atr <= 0:
+                 raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+-            if validate_entry:
+-                # The ATR lookup can take time or cross a candle boundary. Re-read the
+-                # ask and source immediately before durable intent and submission.
+-                book = upbit.orderbooks([market]).get(market, {})
+-                why = self.entry_chase_block(market, entry_context, book.get('ask'))
+-                if why: raise ValueError(why)
++        checked=self.scan_manual_orders(market,risk,amount)
++        if checked is not None: amount=checked
++        if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
++        if side=='bid' and validate_entry:
++            # Provenance and ATR lookups precede the final executable quote check.
++            book = upbit.orderbooks([market]).get(market, {})
++            why = self.entry_chase_block(market, entry_context, book.get('ask'))
++            if why: raise ValueError(why)
+         self.assert_unprotected(market)  # ATR/quote requests may have taken time.
+         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
+                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr}
+
+
+FILE v5/manual_orders.py SHA256 d4bcbdeca299932d788b4221c3a1310e7e7436ff89d5f45c926766dd16d40af3
+
+--- old/manual_orders.py
++++ new/manual_orders.py
+@@ -17,7 +17,7 @@
+ DEFAULT_PORT = 8765
+ MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
+ MAX_BODY = 2048
+-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy'}
++KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect'}
+ MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
+ WAIT_SECONDS = 45
+ REPEAT_SECONDS = 30
+@@ -35,8 +35,9 @@
+ 
+ 
+ class Request:
+-    def __init__(self, market, kind='liquidate', krw=None):
++    def __init__(self, market, kind='liquidate', krw=None, revision=None):
+         self.market, self.kind, self.krw = market, kind, krw
++        self.revision=revision
+         self.event = threading.Event()
+         self.ok = False
+         self.message = '처리 시간 초과: 봇이 응답하지 않았습니다. 주문 기록에서 결과를 확인하세요.'
+@@ -47,7 +48,7 @@
+ 
+ 
+ class ManualOrderServer:
+-    def __init__(self, port=DEFAULT_PORT, token=None, clock=time.time):
++    def __init__(self, port=DEFAULT_PORT, token=None, clock=time.time, allowed_kinds=None):
+         self.port = int(port)
+         self.token = token or secrets.token_urlsafe(24)
+         self.clock = clock
+@@ -56,6 +57,7 @@
+         self.recent = {}
+         self.httpd = None
+         self.thread = None
++        self.allowed_kinds=set(('buy','liquidate') if allowed_kinds is None else allowed_kinds)
+ 
+     # ---------- 검증 (서버 없이 시험할 수 있게 분리) ----------
+     def check(self, host, origin, body, kind='liquidate'):
+@@ -64,6 +66,8 @@
+             return 403, '허용되지 않은 호스트'
+         if origin not in (None, 'null'):
+             return 403, '허용되지 않은 출처'
++        if kind not in self.allowed_kinds:
++            return 403, '이 화면에서 허용되지 않은 기능'
+         if len(body) > MAX_BODY:
+             return 413, '요청이 너무 큼'
+         try:
+@@ -80,9 +84,11 @@
+             krw = doc.get('krw')
+             if type(krw) is not int or not MIN_KRW <= krw <= MAX_KRW:
+                 return 400, '매수 금액이 올바르지 않음'
++        if kind == 'unprotect' and (type(doc.get('revision')) is not int or doc['revision']<0):
++            return 400, '보호 상태를 새로고침한 뒤 다시 확인하세요'
+         return 200, (market, krw)
+ 
+-    def submit(self, market, kind='liquidate', krw=None):
++    def submit(self, market, kind='liquidate', krw=None, revision=None):
+         """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
+         now = self.clock()
+         key = (kind, market)
+@@ -92,7 +98,7 @@
+             return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}
+         try:
+             self.recent[key] = now
+-            req = Request(market, kind, krw)
++            req = Request(market, kind, krw, revision)
+             self.queue.put(req)
+             req.event.wait(WAIT_SECONDS)
+             return 200, {'ok': req.ok, 'message': req.message}
+@@ -149,13 +155,16 @@
+                 code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body, kind)
+                 if code != 200:
+                     return self._send(code, {'ok': False, 'message': value})
+-                code, doc = server.submit(value[0], kind, value[1])
++                revision=json.loads(body.decode('utf-8')).get('revision') if kind=='unprotect' else None
++                code, doc = (server.submit(value[0],kind,value[1],revision) if kind=='unprotect'
++                             else server.submit(value[0],kind,value[1]))
+                 self._send(code, doc)
+ 
+         try:
+             self.httpd = _ExclusiveServer(('127.0.0.1', self.port), Handler)
+         except OSError:
+             return False
++        self.port=int(self.httpd.server_address[1])
+         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+         self.thread.start()
+         return True
+
+
+FILE v5/manual_protection.py SHA256 6f4203495249efd3128ce58631bb08cc27871b16a093f5d9151a38594dbc0c58
+
+--- old/manual_protection.py
++++ new/manual_protection.py
+@@ -0,0 +1,156 @@
++"""Conservative manual-order detection. GET only, never cancels or submits orders."""
++from decimal import Decimal
++import json
++from pathlib import Path
++import time
++import urllib.parse
++import urllib.request
++
++from asset_protection import Policy, ProtectionError, effective, normalize
++
++EPS = Decimal('0.00000001')
++
++
++class HistoryClient:
++    def get(self, path, params):
++        import upbit
++        # Parameters here contain only ASCII market/state/count/page fields.
++        request = urllib.request.Request(upbit.BASE+path+'?'+urllib.parse.urlencode(params),
++            headers=upbit._auth(params))
++        with urllib.request.urlopen(request,timeout=3) as response: return json.load(response)
++
++    def accounts(self):
++        import upbit
++        return upbit.accounts()
++
++    def orders(self, market=None):
++        rows = []
++        for state in ('wait','watch'):
++            page = 1
++            while True:
++                params={'state':state,'limit':100,'page':page}
++                if market: params['market']=market
++                batch=self.get('/v1/orders/open',params)
++                if not isinstance(batch,list): raise ProtectionError('직접 주문 조회 형식 불명')
++                rows += batch
++                if len(batch)<100: break
++                page+=1
++                if page>100: raise ProtectionError('직접 미체결 조회 한도 초과')
++        for state in ('done','cancel'):
++            params={'state':state,'limit':1000,'order_by':'desc'}
++            if market: params['market']=market
++            batch=self.get('/v1/orders/closed',params)
++            if not isinstance(batch,list) or len(batch)>=1000:
++                raise ProtectionError('직접 주문 이력 한도·완전성 확인 필요')
++            rows += batch
++        return rows
++
++
++def user_identifiers(folder):
++    """Bot-screen direct orders retain v5 IDs, so their local reason identifies them."""
++    file=Path(folder)/'orders.jsonl'
++    if not file.exists(): return set()
++    result=set()
++    for line in file.read_text(encoding='utf-8').splitlines():
++        if not line.strip(): continue
++        row=json.loads(line)
++        if str(row.get('reason','')).startswith(('수동','화면')) and row.get('identifier'):
++            result.add(row['identifier'])
++    return result
++
++
++class Detector:
++    def __init__(self, policy, live_folder, client=None, clock=time.time):
++        self.policy,self.folder,self.client,self.clock=policy,Path(live_folder),client or HistoryClient(),clock
++        self.good={}
++        self.error=''
++
++    @staticmethod
++    def _inventory(rows):
++        result={}
++        for row in rows:
++            if row.get('currency')=='KRW': continue
++            market=normalize(str(row.get('currency','')))
++            qty,locked=Decimal(str(row['balance']))+Decimal(str(row['locked'])),Decimal(str(row['locked']))
++            if not qty.is_finite() or not locked.is_finite() or qty<0 or locked<0:
++                raise ProtectionError('보유 수량 확인 불가')
++            result[market]=(qty,locked)
++        return result
++
++    @staticmethod
++    def _owned(state,market):
++        pos=state.get('positions',{}).get(market)
++        if not pos: return Decimal(0),False
++        qty=Decimal(str(pos['qty']))
++        known=not pos.get('inherited') and pos.get('acquisition_source')!='explicitly_authorized_external_exchange_fill'
++        return qty,known
++
++    def _bootstrap(self,state,inventory,markets=None):
++        doc=self.policy.read(); result=[]
++        for market,(qty,locked) in inventory.items():
++            if qty<=EPS or markets is not None and market not in markets: continue
++            pending=state.get('pending_order')
++            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
++                continue  # Its own uncertain fills are settled first, never guessed to be manual.
++            owned,known=self._owned(state,market)
++            if not known or qty>owned+EPS or locked>EPS:
++                if market not in doc.get('bootstrap',{}): result.append(market)
++                elif qty>owned+EPS and market not in effective(doc,self.policy.configured):
++                    previous=doc.get('external_quantities',{}).get(market)
++                    if previous is not None and Decimal(str(previous))==qty: continue
++                    result.append(market)
++        return result
++
++    def _record_balance_evidence(self,inventory):
++        def change(doc):
++            prior=doc.setdefault('external_quantities',{})
++            for market,(qty,_) in inventory.items():
++                # This is evidence for avoiding repeated bootstrap of an explicitly released holding.
++                if market in doc.get('bootstrap',{}): prior[market]=str(qty)
++        self.policy.mutate(change)
++
++    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
++        market=normalize(market) if market else None
++        try:
++            inventory=self._inventory(self.client.accounts())
++        except Exception:
++            self.error='계좌 확인 불가: 직접 보유 보호 확인 대기'
++            raise ProtectionError(self.error) from None
++        bootstrap=self._bootstrap(state,inventory,{market} if market else None)
++        if bootstrap:
++            doc=self.policy.read()
++            fresh=[m for m in bootstrap if m in doc.get('bootstrap',{})]
++            if fresh:
++                import datetime as dt
++                self.policy.observe([{'uuid':'balance:'+m,'identifier':'external-balance','market':m,
++                    'side':'bid','state':'done','executed_volume':str(inventory[m][0]),'paid_fee':'0',
++                    'created_at':dt.datetime.fromtimestamp(self.clock(),dt.timezone.utc).isoformat()} for m in fresh])
++            self.policy.observe(bootstrap=bootstrap)
++        self._record_balance_evidence(inventory)
++        try:
++            orders=self.client.orders(market)
++            changed=self.policy.observe(orders,user_identifiers=user_identifiers(self.folder))
++            doc=self.policy.read()
++            checked={market} if market else set(inventory)|{normalize(o['market']) for o in orders}
++            for m in checked: self.good[m]={'revision':self.policy.revision(m,doc),'at':self.clock()}
++            self.error=''
++        except Exception:
++            self.error='직접 주문 이력 확인 대기: 신규 주문 보류'
++            # Only already-proven BOT inventory may retain protective exits. Equality is
++            # stricter than <=: a manual partial sale must not expose the remaining quantity.
++            doc=self.policy.read()
++            prior=self.good.get(market)
++            qty,locked=inventory.get(market,(Decimal(0),Decimal(0)))
++            owned,known=self._owned(state,market)
++            if (market and risk and prior and known and abs(qty-owned)<=EPS and locked<=EPS
++                    and self.policy.revision(market,doc)==prior['revision']
++                    and market not in effective(doc,self.policy.configured)):
++                return min(float(qty),float(owned),float(amount)) if amount is not None else None
++            raise ProtectionError(self.error) from None
++        if market and not allow_protected and market in effective(doc,self.policy.configured):
++            raise ProtectionError('사용자 직접 주문·보유 기본 보호: 봇 주문 제외')
++        if market and amount is not None and risk:
++            qty,_=inventory.get(market,(Decimal(0),Decimal(0)))
++            owned,_=self._owned(state,market)
++            return min(float(qty),float(owned),float(amount))
++        return changed if not market else amount
+
+
+FILE v5/protection_panel.py SHA256 cf480e148efef3d5c891b9362d5eed379156a0c411b224dcacbedbde427510a7
+
+--- old/protection_panel.py
++++ new/protection_panel.py
+@@ -0,0 +1,61 @@
++"""Protection choices at the top of the local bot dashboard."""
++import html
++import json
++
++
++def render(live, account_markets=(), action=None):
++    if not live.cfg.get('protection_ui'): return ''
++    try:
++        policy=live.protection_policy
++        doc=policy.read(); protected=live.protected_markets()
++    except Exception:
++        return '<section id="asset-protection-board"><h2>사용자 주문 보호</h2><p class="warn">보호 상태 확인 불가 · 새 봇 주문을 보류합니다.</p></section>'
++    markets=sorted(set(account_markets)|set(live.d['positions'])|protected|set(doc.get('manual',{})))
++    e=html.escape
++    rows=[]; data={}
++    pending=[]
++    for market in markets:
++        is_protected=market in protected
++        manual=doc.get('manual',{}).get(market,{})
++        revision=policy.revision(market,doc)
++        data[market]={'protected':is_protected,'revision':revision}
++        name=e(market[4:])
++        button=(f'<button type="button" data-choice="unprotect" data-market="{e(market)}">보호 해제</button>' if is_protected
++                else f'<button type="button" data-choice="protect" data-market="{e(market)}">보호하기</button>')
++        keep=f'<button type="button" data-choice="protect" data-market="{e(market)}">보호 유지</button>'
++        if is_protected and manual.get('pending'):
++            pending.append(f'<div class="ap-pending"><b>{name}</b> 직접 주문/보유 확인 · 보호를 유지할까요? {keep} {button}</div>')
++        rows.append(f'<tr><td><b>{name}</b></td><td>{"보호 중" if is_protected else "봇 관리 허용"}</td><td>{e(str(manual.get("kind") or "사용자 지정")) if is_protected else "다음 봇 판단부터 관리"}</td><td>{button}</td></tr>')
++    inhibited=len(set(live.d['positions'])&protected)
++    warning=f'<p class="warn">봇 장부 보유 {inhibited}개 종목의 매도·손절·익절도 중단됩니다.</p>' if inhibited else ''
++    error=getattr(getattr(live,'_manual_detector',None),'error','')
++    note='<p class="warn">직접 주문 확인 지연 · 새 주문의 출처를 확인 중입니다.</p>' if error else ''
++    payload=json.dumps({'rows':data,'action':action},ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
++    return f'''<section id="asset-protection-board"><h2 class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span></h2>
++<p class="sub">직접 주문 종목은 우선 보호합니다. 해제하면 봇 매수·매도·손절·익절을 허용하며, 새 직접 주문을 감지하면 다시 보호합니다.</p>
++{warning}{note}{''.join(pending)}
++<details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details>
++<div id="ap-confirm" hidden><b id="ap-question"></b><p>해제는 즉시 주문을 넣지 않습니다. 다음 봇 판단부터 관리하며, 보호 중에는 봇 손절도 하지 않습니다.</p><button type="button" id="ap-yes">보호 해제 확인</button> <button type="button" id="ap-no">취소</button></div>
++<p id="ap-result" role="status">{'화면에서 보호 유지·해제를 선택할 수 있습니다.' if action else '보호 제어 연결을 기다리고 있습니다. 보호 상태는 유지됩니다.'}</p>
++<script type="application/json" id="ap-data">{payload}</script>
++<style>#asset-protection-board{{border:2px solid var(--acc,#0f6e5c)}}#asset-protection-board p{{line-height:1.6}}#asset-protection-board button{{padding:7px 12px;margin:3px;border:1px solid var(--line,#ddd);border-radius:7px;background:var(--card,#fff);color:inherit;cursor:pointer}}#asset-protection-board button:disabled{{opacity:.5;cursor:wait}}.ap-chip{{font-size:12px;background:#e0f3dc;color:#17212b;padding:4px 9px;border-radius:14px}}.ap-pending{{padding:8px 0;border-bottom:1px solid var(--line,#ddd)}}#ap-confirm{{padding:12px;background:rgba(220,150,30,.1);margin:10px 0}}#ap-confirm[hidden]{{display:none}}</style>
++<script>{SCRIPT}</script></section>'''
++
++
++SCRIPT=r'''(function(){
++const board=document.getElementById('asset-protection-board'),raw=document.getElementById('ap-data');
++if(!board||!raw)return;let D;try{D=JSON.parse(raw.textContent)}catch(e){return}
++const out=document.getElementById('ap-result'),ask=document.getElementById('ap-confirm');let chosen=null,busy=false;
++function clear(){chosen=null;ask.hidden=true;try{sessionStorage.removeItem('protectionAsk')}catch(e){}}
++function choose(m){const r=D.rows[m];if(!r)return;chosen={market:m,revision:r.revision};ask.hidden=false;document.getElementById('ap-question').textContent=m.substring(4)+' 보호를 해제하고 봇 관리를 허용할까요?';try{sessionStorage.setItem('protectionAsk',JSON.stringify(chosen))}catch(e){}}
++async function send(kind,m,rev){
++if(busy)return;if(!D.action){out.textContent='봇의 보호 제어 연결을 확인한 뒤 새로고침하세요.';return}
++busy=true;board.querySelectorAll('button').forEach(b=>b.disabled=true);out.textContent='보호 선택을 적용하고 있습니다.';
++try{const r=await fetch('http://127.0.0.1:'+D.action.port+'/'+kind,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({market:m,token:D.action.token,confirm:true,revision:rev})});const data=await r.json();out.textContent=data.message||'보호 상태를 확인하세요.';if(data.ok){clear();setTimeout(()=>location.reload(),1500)}}catch(e){out.textContent='연결을 확인하고 화면을 새로고침하세요. 보호 해제가 성공했다고 가정하지 않습니다.'}
++finally{busy=false;board.querySelectorAll('button').forEach(b=>b.disabled=false)}
++}
++board.addEventListener('click',function(e){const b=e.target.closest('button[data-choice]');if(!b)return;const m=b.dataset.market;if(!D.rows[m])return;if(b.dataset.choice==='unprotect')choose(m);else send('protect',m,D.rows[m].revision)});
++document.getElementById('ap-no').onclick=clear;
++document.getElementById('ap-yes').onclick=function(){if(chosen)send('unprotect',chosen.market,chosen.revision)};
++try{const old=JSON.parse(sessionStorage.getItem('protectionAsk')||'null');if(old&&D.rows[old.market]&&D.rows[old.market].protected&&D.rows[old.market].revision===old.revision)choose(old.market);else sessionStorage.removeItem('protectionAsk')}catch(e){}
++})();'''
+
+
+FILE tools/protect_asset.py SHA256 437dbbbd7821aea88a503f81b912ea80e1bb08850368550c5aa4c7dc592eebdd
+
+--- old/protect_asset.py
++++ new/protect_asset.py
+@@ -6,27 +6,20 @@
+ import sys
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'v5'))
+-from live import normalize_protected_market
++from asset_protection import Policy, effective, normalize as normalize_protected_market
+ 
+ 
+ def update(app, action, symbols):
+     file = app / 'data/user_protected_assets.json'
+-    file.parent.mkdir(parents=True, exist_ok=True)
+-    data = json.loads(file.read_text(encoding='utf-8')) if file.exists() else {'markets': []}
+-    if not isinstance(data, dict) or not isinstance(data.get('markets'), list):
+-        raise ValueError('보호 목록 형식 무효: 기존 보호를 덮어쓰지 않습니다')
+-    markets = {normalize_protected_market(x) for x in data['markets']}
+-    selected = {normalize_protected_market(x) for x in symbols}
+-    if action == 'protect': markets |= selected
+-    elif action == 'unprotect': markets -= selected
+-    elif action != 'list': raise ValueError('unknown action')
+-    if action != 'list':
+-        data.update(markets=sorted(markets), updated_at=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds'),
+-                    policy='user_managed_no_bot_orders')
+-        temp = file.with_suffix('.tmp')
+-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+-        temp.replace(file)
+-    return sorted(markets)
++    cfgfile=app/'config.json'
++    cfg=json.loads(cfgfile.read_text(encoding='utf-8-sig')) if cfgfile.exists() else {}
++    store=Policy(file,cfg.get('live',{}).get('protected_markets',[]),required=False)
++    if action not in ('protect','unprotect','list'): raise ValueError('unknown action')
++    if action!='list':
++        for symbol in symbols:
++            market=normalize_protected_market(symbol)
++            store.decide(market,action=='protect',origin='cli',expected=store.revision(market))
++    return sorted(effective(store.read(),store.configured))
+ 
+ 
+ if __name__ == '__main__':
+
+
+FILE tools/secure_handoff.py SHA256 527ccbbfa8ccb0ea77e8ed2d76aa30bc5039bcbc683d722b24871d6911d0b213
+
+--- old/secure_handoff.py
++++ new/secure_handoff.py
+@@ -19,6 +19,10 @@
+ import time
+ import uuid
+ import zipfile
++import sys
++
++sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'v5'))
++import asset_protection
+ 
+ DEFAULT_OPENSSL = Path('C:/Program Files/Git/usr/bin/openssl.exe')
+ AUTH_ENVELOPED_DATA_OID = '1.2.840.113549.1.9.16.1.23'
+@@ -102,8 +106,12 @@
+             raise HandoffError('Mandatory user protection is missing')
+         protection = archive.read(PROTECTION_PATH)
+         protection_data = json.loads(protection)
+-        protected = protected_names(protection_data.get('markets')) | protected_names(config.get('live', {}).get('protected_markets', []))
+-        if 'KRW-DOGE' not in protected:
++        try:
++            protected = asset_protection.effective(protection_data,config.get('live', {}).get('protected_markets', []))
++            released = asset_protection.explicit_release(protection_data,'KRW-DOGE')
++        except (ValueError,TypeError):
++            raise HandoffError('User protection policy malformed') from None
++        if 'KRW-DOGE' not in protected and not released:
+             raise HandoffError('DOGE whole-asset protection must survive handoff')
+         baseline_present = 'runtime/pnl_baseline.json' in names
+         baseline_sha = hashlib.sha256(archive.read('runtime/pnl_baseline.json')).hexdigest() if baseline_present else None
+@@ -235,17 +243,20 @@
+ def protection_union(app, archive):
+     config = json.loads(archive.read('runtime/config.json'))
+     protection = json.loads(archive.read(PROTECTION_PATH))
+-    union = protected_names(config.get('live', {}).get('protected_markets', [])) | protected_names(protection.get('markets'))
++    local={}; saved={'markets':[]}
+     local_config = Path(app) / 'config.json'
+     if local_config.exists():
+         local = json.loads(local_config.read_bytes())
+-        union |= protected_names(local.get('live', {}).get('protected_markets', []))
+     local_protection = Path(app) / 'data/user_protected_assets.json'
+     if local_protection.exists():
+-        union |= protected_names(json.loads(local_protection.read_bytes()).get('markets'))
++        saved=json.loads(local_protection.read_bytes())
++    try:
++        protection=asset_protection.merge(saved,protection,local.get('live',{}).get('protected_markets',[]),
++                                          config.get('live',{}).get('protected_markets',[]))
++    except (ValueError,TypeError): raise HandoffError('User protection merge failed') from None
++    union=asset_protection.effective(protection)
+     config.setdefault('live', {}).update(user_protection_required=True, protected_markets=sorted(union))
+-    protection.update(markets=sorted(union), policy='user_managed_no_bot_orders',
+-                      handoff_merge_policy='preserve_union_source_and_receiver')
++    protection.update(policy='user_managed_no_bot_orders',handoff_merge_policy='latest_explicit_choice_or_protective_union')
+     return config, protection
+ 
+ 
+
+
+FILE v5/test_auto_protection.py SHA256 c3b02b66fcab98111c5474e358d54d2bf09d1ae1982d5711d311b9a46d9560f4
+
+--- old/test_auto_protection.py
++++ new/test_auto_protection.py
+@@ -0,0 +1,193 @@
++import copy
++import json
++from pathlib import Path
++import tempfile
++import threading
++import unittest
++from unittest.mock import patch
++
++from asset_protection import Policy, ProtectionError, effective, merge
++from manual_protection import Detector
++import live
++import manual_orders
++import protection_panel
++
++
++def order(uid='manual-a',volume='1',state='done',market='KRW-A',identifier=None):
++    return {'uuid':uid,'identifier':identifier,'market':market,'side':'bid','state':state,
++            'executed_volume':volume,'paid_fee':'0','created_at':'1970-01-01T00:33:21+00:00'}
++
++
++class PolicyTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
++        self.file=Path(self.tmp.name)/'data/user_protected_assets.json'
++        self.file.parent.mkdir()
++        self.file.write_text('{"markets":["KRW-BTC","KRW-DOGE"]}')
++        self.policy=Policy(self.file,clock=lambda:2000)
++
++    def test_manual_defaults_protected_and_release_survives_same_old_event(self):
++        self.policy.observe([order()])
++        self.assertIn('KRW-A',effective(self.policy.read()))
++        self.policy.decide('A',False,expected=self.policy.revision('A'))
++        self.policy.observe([order()])
++        self.assertNotIn('KRW-A',effective(self.policy.read()))
++        self.assertTrue(self.policy.read()['decisions']['KRW-A']['protected'] is False)
++
++    def test_new_manual_fill_after_release_reprotects_and_invalidates_stale_page(self):
++        self.policy.observe([order(state='wait')]); stale=self.policy.revision('A')
++        self.policy.decide('A',False,expected=stale)
++        self.policy.observe([order(volume='2',state='done')])
++        self.assertIn('KRW-A',effective(self.policy.read()))
++        with self.assertRaises(ProtectionError): self.policy.decide('A',False,expected=stale)
++        self.assertIn('KRW-A',effective(self.policy.read()))
++
++    def test_manual_open_and_zero_fill_cancel_both_protect(self):
++        self.policy.observe([order(volume='0',state='wait'),order('manual-b','0','cancel','KRW-B')])
++        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
++
++    def test_bot_identifier_excluded_except_explicit_user_ui_order(self):
++        row=order(identifier='v5-synthetic')
++        self.policy.observe([row]); self.assertNotIn('KRW-A',effective(self.policy.read()))
++        self.policy.observe([row],user_identifiers={'v5-synthetic'})
++        self.assertIn('KRW-A',effective(self.policy.read()))
++
++    def test_release_overrides_legacy_config_and_keep_resolves_question(self):
++        p=Policy(self.file,configured=['KRW-BTC'],clock=lambda:2000)
++        p.observe([order(market='KRW-BTC')]); p.decide('BTC',True)
++        self.assertFalse(p.read()['manual']['KRW-BTC']['pending'])
++        p.decide('BTC',False,expected=p.revision('BTC'))
++        self.assertNotIn('KRW-BTC',effective(p.read(),p.configured))
++        self.assertIn('KRW-DOGE',effective(p.read()))
++
++    def test_malformed_policy_is_never_interpreted_as_release(self):
++        self.file.write_text('{broken')
++        with self.assertRaises(ProtectionError): self.policy.read()
++        with self.assertRaises(ProtectionError): self.policy.decide('BTC',False,expected=0)
++
++    def test_writer_contention_times_out_and_stale_unheld_file_is_harmless(self):
++        other=Policy(self.file,clock=lambda:2000,lock_timeout=.05)
++        errors=[]
++        with self.policy.locked():
++            worker=threading.Thread(target=lambda:self._attempt(other,errors));worker.start();worker.join(1)
++            self.assertEqual(len(errors),1)
++            self.assertEqual(effective(self.policy.read()),{'KRW-BTC','KRW-DOGE'})
++        other.decide('A',True)
++        self.assertIn('KRW-A',effective(other.read()))
++
++    @staticmethod
++    def _attempt(policy,errors):
++        try: policy.decide('A',True)
++        except ProtectionError as e: errors.append(e)
++
++    def test_concurrent_writers_keep_both_protections(self):
++        threads=[threading.Thread(target=Policy(self.file).decide,args=(market,True)) for market in ('A','B')]
++        for t in threads:t.start()
++        for t in threads:t.join()
++        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
++
++    def test_handoff_honors_newer_release_and_preserves_other_protection(self):
++        old={'markets':['KRW-DOGE','KRW-BTC'],'decisions':{'KRW-BTC':{'protected':True,'at':100,'origin':'cli'}}}
++        new={'markets':['KRW-DOGE'],'decisions':{'KRW-BTC':{'protected':False,'at':200,'origin':'user_ui'}}}
++        self.assertEqual(effective(merge(old,new)),{'KRW-DOGE'})
++        old['decisions']['KRW-BTC']['at']=200
++        self.assertIn('KRW-BTC',effective(merge(old,new)))
++
++
++class FakeClient:
++    def __init__(self):
++        self.rows=[{'currency':'A','balance':'1','locked':'0'}]
++        self.records=[];self.history_failure=False;self.account_failure=False
++    def accounts(self):
++        if self.account_failure:raise OSError('synthetic account failure')
++        return copy.deepcopy(self.rows)
++    def orders(self,market=None):
++        if self.history_failure:raise OSError('synthetic history failure')
++        return copy.deepcopy(self.records)
++
++
++class DetectionTests(unittest.TestCase):
++    def setUp(self):
++        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
++        self.folder=Path(self.tmp.name)/'data/live';self.folder.mkdir(parents=True)
++        self.file=self.folder.parent/'user_protected_assets.json';self.file.write_text('{"markets":[]}')
++        self.policy=Policy(self.file,clock=lambda:2000)
++        self.api=FakeClient();self.detector=Detector(self.policy,self.folder,self.api,clock=lambda:2000)
++        self.state={'positions':{'KRW-A':{'qty':1.,'cost':100.,'stop':90.,'entry':100.}}}
++
++    def test_unknown_external_quantity_and_mixed_holding_protect_whole_market(self):
++        self.api.rows[0]['balance']='2'
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
++        self.assertIn('KRW-A',effective(self.policy.read()))
++
++    def test_direct_sell_even_with_unchanged_balance_is_seen_from_orders(self):
++        self.api.records=[dict(order(),side='ask')]
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
++
++    def test_release_persists_for_same_external_balance_new_deposit_reprotects(self):
++        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
++        self.policy.decide('A',False,expected=self.policy.revision('A'))
++        self.detector.scan(self.state,'KRW-A')
++        self.assertNotIn('KRW-A',effective(self.policy.read()))
++        self.api.rows[0]['balance']='3'
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
++
++    def test_own_pending_fill_does_not_become_unknown_manual_inventory(self):
++        self.api.rows[0]['balance']='2'
++        self.state['pending_order']={'market':'KRW-A','side':'bid'}
++        self.detector.scan(self.state)
++        self.assertNotIn('KRW-A',effective(self.policy.read()))
++
++    def test_history_failure_blocks_buy_and_keeps_proven_unchanged_risk_exit_only(self):
++        self.detector.scan(self.state,'KRW-A')
++        self.api.history_failure=True
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',amount=10000)
++        self.assertEqual(self.detector.scan(self.state,'KRW-A',risk=True,amount=5),1.)
++        self.api.rows[0]['balance']='.5'
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
++
++    def test_accounts_failure_blocks_protective_submission(self):
++        self.detector.scan(self.state,'KRW-A');self.api.account_failure=True
++        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
++
++
++class EndpointAndPanelTests(unittest.TestCase):
++    def test_null_origin_and_action_allowlist_and_revision_validation(self):
++        srv=manual_orders.ManualOrderServer(8765,token='synthetic',allowed_kinds={'protect','unprotect'})
++        body=lambda **kw:json.dumps(dict(token='synthetic',market='KRW-BTC',confirm=True,**kw)).encode()
++        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'protect')[0],200)
++        self.assertEqual(srv.check('127.0.0.1:8765','https://example.com',body(),'protect')[0],403)
++        self.assertEqual(srv.check('127.0.0.1:8765','null',body(krw=5000),'buy')[0],403)
++        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'unprotect')[0],400)
++        self.assertEqual(srv.check('127.0.0.1:8765','null',body(revision=0),'unprotect')[0],200)
++
++    def test_protection_panel_has_default_question_and_explicit_release_confirmation(self):
++        with tempfile.TemporaryDirectory() as folder:
++            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'protection_ui':True},live.st.Params())
++            worker.protection_file.write_text('{"markets":[]}')
++            worker.protection_policy.observe([order(market='KRW-BTC')])
++            worker.d['positions']['KRW-BTC']={'qty':1,'cost':100,'stop':90}
++            page=protection_panel.render(worker,{'KRW-BTC'}, {'port':8765,'token':'</script><bad>'})
++            self.assertIn('기본 자동 보호',page);self.assertIn('보호를 유지할까요?',page)
++            self.assertIn('보호 해제 확인',page);self.assertIn('봇 장부 보유 1개',page)
++            self.assertNotIn('</script><bad>',page)
++            self.assertIn('revision',page)
++
++    def test_stale_release_fails_without_order_submission(self):
++        with tempfile.TemporaryDirectory() as folder:
++            worker=live.Live(Path(folder)/'data/live',{'enabled':True},live.st.Params())
++            worker.protection_file.write_text('{"markets":[]}')
++            worker.protection_policy.observe([order()]);old=worker.protection_policy.revision('A')
++            worker.protection_policy.observe([order('manual-new','2')])
++            with patch.object(live.upbit,'market_sell',side_effect=AssertionError('no order')):
++                with self.assertRaises(ProtectionError):worker.set_user_protection('KRW-A',False,old)
++            self.assertTrue(worker.is_protected('KRW-A'))
++
++    def test_order_boundary_provenance_blocks_before_durable_intent_or_post(self):
++        with tempfile.TemporaryDirectory() as folder:
++            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'auto_manual_protection':True},live.st.Params())
++            worker.protection_file.write_text('{"markets":[]}')
++            with patch.object(worker,'scan_manual_orders',side_effect=live.ProtectedAssetError('manual protected')), \
++                 patch.object(worker,'save') as save, patch.object(live.upbit,'market_sell') as sell:
++                with self.assertRaises(live.ProtectedAssetError):worker._trade('ask','KRW-A',1,'stop',risk=True)
++            save.assert_not_called();sell.assert_not_called();self.assertFalse(worker.d.get('pending_order'))

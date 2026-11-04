@@ -67,7 +67,7 @@ class Reliability(unittest.TestCase):
                 self.lv._trade('ask', 'KRW-A', 100, 'exit')
         self.assertEqual(post.call_count, 1)
         self.assertIsNone(self.lv.d.get('pending_order'))
-        self.assertIsNone(json.loads(self.lv.file.read_text(encoding='utf-8'))['pending_order'])
+        self.assertIsNone(json.loads(self.lv.file.read_text(encoding="utf-8"))['pending_order'])
         self.assertEqual(self.lv.d['positions']['KRW-A']['qty'], 100)
 
     def test_nan_atr_rejects_before_intent_or_order_transmission(self):
@@ -94,7 +94,7 @@ class Reliability(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '미확정'):
                 self.lv._trade('bid', 'KRW-B', 10000, 'buy')
         self.assertEqual(post.call_count, 1)
-        self.assertTrue(json.loads(self.lv.file.read_text(encoding='utf-8'))['pending_order']['identifier'])
+        self.assertTrue(json.loads(self.lv.file.read_text(encoding="utf-8"))['pending_order']['identifier'])
 
     def test_unresolved_primary_does_not_block_other_market_stop(self):
         self.lv.d['pending_order'] = self.pending()
@@ -123,7 +123,7 @@ class Reliability(unittest.TestCase):
             self.lv.stop_check({'KRW-A': 80.})
         self.assertEqual(post.call_count, 1)
         self.assertIn('KRW-A', self.lv.d['risk_pending_orders'])
-        saved = json.loads(self.lv.file.read_text(encoding='utf-8'))
+        saved = json.loads(self.lv.file.read_text(encoding="utf-8"))
         self.assertTrue(saved['risk_pending_orders']['KRW-A']['identifier'])
 
     def test_risk_partial_cancel_preserves_remaining_cost_and_quantity(self):

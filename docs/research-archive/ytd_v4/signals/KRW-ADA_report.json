@@ -1,0 +1,279 @@
+{
+  "market": "KRW-ADA",
+  "status": "evaluated",
+  "requested_start_kst": "2026-01-01T00:00:00+09:00",
+  "requested_end_kst": "2026-10-30T12:11:00+09:00",
+  "coverage": {
+    "1": {
+      "rows": 366699,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:11:00+09:00",
+      "notional_rows": 366699
+    },
+    "5": {
+      "rows": 87247,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:15:00+09:00",
+      "notional_rows": 87247
+    },
+    "15": {
+      "rows": 29309,
+      "first_open_kst": "2025-12-28T09:00:00+09:00",
+      "last_close_kst": "2026-10-30T12:15:00+09:00",
+      "notional_rows": 29309
+    }
+  },
+  "minute_slots": 435612,
+  "valid_candle_minutes": 10946,
+  "data_invalid_minutes": 424666,
+  "cheap_necessary_conditions_survived": 19,
+  "exact_reference_evaluations": 19,
+  "candle_signal_count": 4,
+  "signals_with_approximate_vwap": 0,
+  "monthly_signal_count": {
+    "2026-01": 1,
+    "2026-09": 3
+  },
+  "data_failures": {
+    "primary_1m_gap_duplicate_or_reverse": 157787,
+    "any_1m_gap_duplicate_or_reverse": 346730,
+    "primary_1m_stale_or_unclosed_bar": 19012,
+    "any_1m_stale_or_unclosed_bar": 73772,
+    "primary_5m_stale_or_unclosed_bar": 3330,
+    "any_5m_stale_or_unclosed_bar": 4595,
+    "primary_15m_stale_or_unclosed_bar": 1200,
+    "any_15m_stale_or_unclosed_bar": 1200,
+    "primary_15m_gap_duplicate_or_reverse": 16185,
+    "any_15m_gap_duplicate_or_reverse": 16185,
+    "any_5m_gap_duplicate_or_reverse": 240007,
+    "primary_5m_gap_duplicate_or_reverse": 227152
+  },
+  "cheap_condition_independent_failures_among_valid_minutes": {
+    "1분 거래량 1.3배": 8253,
+    "5분 거래량 돌파 존재(눌림 필요조건)": 10541,
+    "1분 상승 확인 필요조건(직전 고가 돌파)": 9682,
+    "최근 거래대금": 3990,
+    "급등 추격 차단": 18
+  },
+  "cheap_condition_cumulative_survivors_in_listed_order": {
+    "1분 상승 확인 필요조건(직전 고가 돌파)": 1264,
+    "1분 거래량 1.3배": 378,
+    "최근 거래대금": 332,
+    "급등 추격 차단": 329,
+    "5분 거래량 돌파 존재(눌림 필요조건)": 19
+  },
+  "reference_condition_failures_among_cheap_survivors_only": {
+    "5분 돌파 후 첫 눌림": 15,
+    "15분 상승 방향": 6,
+    "5분 추세 강도": 4,
+    "VWAP 위": 2
+  },
+  "sampled_reference_evaluations": [
+    {
+      "closed_at": 1767662400,
+      "ok": false,
+      "reason": "5분 돌파 후 첫 눌림"
+    },
+    {
+      "closed_at": 1767743280,
+      "ok": false,
+      "reason": "15분 상승 방향 / 5분 돌파 후 첫 눌림"
+    },
+    {
+      "closed_at": 1768374300,
+      "ok": true,
+      "reason": "단타 15분/5분/1분 조건 충족"
+    },
+    {
+      "closed_at": 1768464000,
+      "ok": false,
+      "reason": "15분 상승 방향 / 5분 추세 강도 / 5분 돌파 후 첫 눌림 / VWAP 위"
+    },
+    {
+      "closed_at": 1769390280,
+      "ok": false,
+      "reason": "15분 상승 방향 / 5분 추세 강도 / 5분 돌파 후 첫 눌림"
+    }
+  ],
+  "signals": [
+    {
+      "id": "1768374240",
+      "closed_at": 1768374300,
+      "close": 625.0,
+      "atr": 2.4793362722364876,
+      "ema20": 622.5650925936401,
+      "adx": 31.941057188416362,
+      "breakout": 623.0,
+      "low": 622.0,
+      "vwap": 620.3880667206978,
+      "vwap_method": "거래대금/수량",
+      "market": "KRW-ADA",
+      "closed_at_kst": "2026-01-14T16:05:00+09:00",
+      "signal": {
+        "ok": true,
+        "version": "auto-v4.0",
+        "time": 1768374300,
+        "checks": {
+          "15분 상승 방향": true,
+          "5분 추세 강도": true,
+          "5분 돌파 후 첫 눌림": true,
+          "1분 상승 확인": true,
+          "1분 거래량 1.3배": true,
+          "최근 거래대금": true,
+          "급등 추격 차단": true,
+          "VWAP 위": true
+        },
+        "id": "1768374240",
+        "closed_at": 1768374300,
+        "close": 625.0,
+        "atr": 2.4793362722364876,
+        "ema20": 622.5650925936401,
+        "adx": 31.941057188416362,
+        "timeframe": "15m/5m/1m",
+        "breakout": 623.0,
+        "low": 622.0,
+        "volume_ratio": 2.573773730226995,
+        "vwap": 620.3880667206978,
+        "vwap_method": "거래대금/수량",
+        "reason": "단타 15분/5분/1분 조건 충족"
+      }
+    },
+    {
+      "id": "1789993740",
+      "closed_at": 1789993800,
+      "close": 332.0,
+      "atr": 1.6715130677164978,
+      "ema20": 329.6505708484482,
+      "adx": 22.773555203725834,
+      "breakout": 330.0,
+      "low": 330.0,
+      "vwap": 319.7457511776526,
+      "vwap_method": "거래대금/수량",
+      "market": "KRW-ADA",
+      "closed_at_kst": "2026-09-21T21:30:00+09:00",
+      "signal": {
+        "ok": true,
+        "version": "auto-v4.0",
+        "time": 1789993800,
+        "checks": {
+          "15분 상승 방향": true,
+          "5분 추세 강도": true,
+          "5분 돌파 후 첫 눌림": true,
+          "1분 상승 확인": true,
+          "1분 거래량 1.3배": true,
+          "최근 거래대금": true,
+          "급등 추격 차단": true,
+          "VWAP 위": true
+        },
+        "id": "1789993740",
+        "closed_at": 1789993800,
+        "close": 332.0,
+        "atr": 1.6715130677164978,
+        "ema20": 329.6505708484482,
+        "adx": 22.773555203725834,
+        "timeframe": "15m/5m/1m",
+        "breakout": 330.0,
+        "low": 330.0,
+        "volume_ratio": 2.246493672958774,
+        "vwap": 319.7457511776526,
+        "vwap_method": "거래대금/수량",
+        "reason": "단타 15분/5분/1분 조건 충족"
+      }
+    },
+    {
+      "id": "1789993920",
+      "closed_at": 1789993980,
+      "close": 334.0,
+      "atr": 1.6715130677164978,
+      "ema20": 330.37245065133646,
+      "adx": 22.773555203725834,
+      "breakout": 330.0,
+      "low": 330.0,
+      "vwap": 319.7457511776526,
+      "vwap_method": "거래대금/수량",
+      "market": "KRW-ADA",
+      "closed_at_kst": "2026-09-21T21:33:00+09:00",
+      "signal": {
+        "ok": true,
+        "version": "auto-v4.0",
+        "time": 1789993980,
+        "checks": {
+          "15분 상승 방향": true,
+          "5분 추세 강도": true,
+          "5분 돌파 후 첫 눌림": true,
+          "1분 상승 확인": true,
+          "1분 거래량 1.3배": true,
+          "최근 거래대금": true,
+          "급등 추격 차단": true,
+          "VWAP 위": true
+        },
+        "id": "1789993920",
+        "closed_at": 1789993980,
+        "close": 334.0,
+        "atr": 1.6715130677164978,
+        "ema20": 330.37245065133646,
+        "adx": 22.773555203725834,
+        "timeframe": "15m/5m/1m",
+        "breakout": 330.0,
+        "low": 330.0,
+        "volume_ratio": 2.246493672958774,
+        "vwap": 319.7457511776526,
+        "vwap_method": "거래대금/수량",
+        "reason": "단타 15분/5분/1분 조건 충족"
+      }
+    },
+    {
+      "id": "1789994220",
+      "closed_at": 1789994280,
+      "close": 336.0,
+      "atr": 1.7664049914167488,
+      "ema20": 331.8568190841368,
+      "adx": 24.947805691767233,
+      "breakout": 331.0,
+      "low": 331.0,
+      "vwap": 320.106689685272,
+      "vwap_method": "거래대금/수량",
+      "market": "KRW-ADA",
+      "closed_at_kst": "2026-09-21T21:38:00+09:00",
+      "signal": {
+        "ok": true,
+        "version": "auto-v4.0",
+        "time": 1789994280,
+        "checks": {
+          "15분 상승 방향": true,
+          "5분 추세 강도": true,
+          "5분 돌파 후 첫 눌림": true,
+          "1분 상승 확인": true,
+          "1분 거래량 1.3배": true,
+          "최근 거래대금": true,
+          "급등 추격 차단": true,
+          "VWAP 위": true
+        },
+        "id": "1789994220",
+        "closed_at": 1789994280,
+        "close": 336.0,
+        "atr": 1.7664049914167488,
+        "ema20": 331.8568190841368,
+        "adx": 24.947805691767233,
+        "timeframe": "15m/5m/1m",
+        "breakout": 331.0,
+        "low": 331.0,
+        "volume_ratio": 2.2968173451493845,
+        "vwap": 320.106689685272,
+        "vwap_method": "거래대금/수량",
+        "reason": "단타 15분/5분/1분 조건 충족"
+      }
+    }
+  ],
+  "elapsed_seconds": 4.764,
+  "execution_trades": null,
+  "expected_return": null,
+  "limitations": [
+    "Counts current pullback candle conditions; a signal is not an order or fill.",
+    "Historical universe warnings, ranking rotation and scanner delivery latency are not reproduced.",
+    "No historical order books: spread/depth, 30-second passive fill and repricing are unverified.",
+    "Tick-based early breakout route cannot be reconstructed from candles and is excluded.",
+    "A zero count is valid only within the reported evaluable data coverage; missing coverage is not zero trades.",
+    "No expected future return is inferred from this historical signal census."
+  ]
+}

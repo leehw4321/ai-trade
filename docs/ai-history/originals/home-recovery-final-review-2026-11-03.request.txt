@@ -1,0 +1,810 @@
+Actual Claude peer review requested. Tools are disabled. Reply concisely in Korean.
+The user explicitly asked homePC takeover, latest bot restart, future final-state generation/transmission, and correction from actual Upbit trade records. They temporarily authorized ChatGPT sole implementation until15:40KST while Claude was rate-limited. This exact source is now commitd357b03 on the user's public repository, with289V5tests+52tooltests passed. Real OpenSSL fake-data AEAD roundtrip/tamper tests also passed. Runtime started15:23 under the normal leaseCAS and submitted a strategy order15:24; DOGE remains protected. This is a review of preserved-basis exchange recovery, NOT a request to approve profit claims or new strategy thresholds.
+
+Old home source snapshot11:04 differed from normally released company checkpoint14:05. Exact company private ledger was unavailable.41 detailed exchange orders were fetched and freshly reread at apply,11 unaccountedbot orders plus explicitly delegated manualBTC buy corrected. All post-snapshot newbot campaigns had closed, so no missingnewbot stop had to be fabricated. Existing knownstops/peaks were preserved; manualBTC received the existing configured3ATR/max4.5%stop computed from pre-purchase completedpublic4h bars. Unseen company peak/trailing memory and separatePnLbaseline are explicitly unknown. No riskbasis/offset/day/halt/accountadoption reset. ManualBTC is outsidebotbuycounter; DOGE excluded. Currentaccount quantities matched exactly within1e-8, no open/pending orders, remoteowner/request idle.
+
+Implementation: pure replay produces fullaccounting/idempotency candidate. Sidecarpins oldHOMEsource hash+epoch in config and proof, separatelybinds currentCOMPANYremotecheckpoint, hashesactualartifacts, independentlyreplaysfills and comparestargetfinancialprojection+replaymetadata+preservedbasis. Controller rechecksworkerstop,currentaccounts/cash/avgbasis,closedset+sameIDfulldetails,currentremoteidle beforemarker-protectedatomicapply/backups/rollback. SessionGuard only accepts this explicitbridge on mismatch if allfreshchecks pass, then executesexistingnormalCAS. Markerblocks acquire and submissions. It never overwrites remotecheckpoint to pretendoldledgeriscompanyledger. The startup checkpoint now follows normal ownership after reconciliation; proofcannot be reused forchangedledger.
+
+Please inspect attached exactsource and identify BLOCKING defects or accept the reviewed recovery contract/code with explicit remaininglimitations. Do not invent testingyou didnotperform. If a mandatory fix is needed, explain concrete failure/input and propose minimalcodechange for ChatGPTverification. Source filenames/hashes are included; no privatefillIDs, accountrows, keys or environment contents are transmitted.
+
+
+PUBLIC SOURCE reconcile.py SHA256=4d8f889c51379bb4239cf2124823eea339bfa4003709c0562f0366f860db50c6
+"""Pure management-ledger replay. No I/O, API, lease mutation, adoption, or baseline reset."""
+from copy import deepcopy
+from datetime import datetime, timezone, timedelta
+from decimal import Decimal, InvalidOperation
+import hashlib
+import json
+import math
+
+PRESERVED_FIELDS = ('account_adoption', 'risk_baseline_unrealized', 'risk_base_equity',
+                    'risk_loss_offset', 'risk_day', 'halted', 'limits', 'limits_id')
+EPS = Decimal('0.00000001')
+
+
+class ReconciliationError(ValueError):
+    pass
+
+
+def canonical_sha256(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def preserved_basis(state):
+    present = sorted(key for key in PRESERVED_FIELDS if key in state)
+    return {**{key: deepcopy(state[key]) for key in present}, '__present_keys__': present}
+
+
+def number(value):
+    if isinstance(value, bool): raise ReconciliationError('Boolean numeric input')
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ReconciliationError('Invalid decimal input') from None
+    if not result.is_finite() or result < 0:
+        raise ReconciliationError('Negative/nonfinite numeric input')
+    return result
+
+
+def timestamp(value):
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None: raise ValueError
+        return parsed.timestamp()
+    except (TypeError, ValueError, OverflowError):
+        raise ReconciliationError('Missing or ambiguous fill timestamp') from None
+
+
+def totals(value=None):
+    value = value or {}
+    return {key: number(value.get(key, 0)) for key in ('volume', 'funds', 'fee')}
+
+
+def reconcile(base_state, detailed_orders, accounted_by_identifier, snapshot_epoch,
+              current_quantities, protected_markets=(), verified_stop_floors=None,
+              authorized_external_markets=()):
+    """Return provisional candidate/report; caller separately validates ownership and coverage.
+
+    accounted_by_identifier MUST be sums from the SAME source snapshot's local fill journal.
+    Order details are terminal cumulative fills. New inventory is never invented from balances.
+    Unknown transient protection is allowed only if that new position closes in this replay.
+    """
+    if type(snapshot_epoch) not in (int, float) or not math.isfinite(snapshot_epoch):
+        raise ReconciliationError('Invalid source snapshot epoch')
+    if base_state.get('pending_order') or base_state.get('risk_pending_orders'):
+        raise ReconciliationError('Source has unresolved orders; reconcile those explicitly first')
+    state = deepcopy(base_state)
+    basis = preserved_basis(base_state)
+    protected = set(protected_markets)
+    authorized_external = set(authorized_external_markets)
+    if protected & authorized_external:
+        raise ReconciliationError('User-protected market cannot be externally adopted')
+    stop_floors = verified_stop_floors or {}
+    prior = state.get('reconciliation_replay', {})
+    pointers = deepcopy(accounted_by_identifier)
+    pointers.update(deepcopy(prior.get('accounted_totals', {})))
+    digests = deepcopy(prior.get('order_digests', {}))
+    jobs, seen, events = [], {}, []
+    unresolved = []
+
+    for order in detailed_orders:
+        identifier = order.get('identifier') or ''
+        market, side = order.get('market'), order.get('side')
+        trades = order.get('trades')
+        if not isinstance(trades, list): raise ReconciliationError('Missing detailed fills')
+        if order.get('state') not in ('done', 'cancel'):
+            raise ReconciliationError('Nonterminal order in recovery evidence')
+        if order.get('complete') is False:
+            raise ReconciliationError('Incomplete detailed order evidence')
+        fills = []
+        for trade in trades:
+            if trade.get('market', market) != market or trade.get('side', side) != side:
+                raise ReconciliationError('Fill identity mismatch')
+            volume, funds = number(trade.get('volume')), number(trade.get('funds'))
+            if volume <= 0 or funds <= 0: raise ReconciliationError('Nonpositive fill')
+            fills.append((timestamp(trade.get('created_at')), volume, funds))
+        fills.sort(key=lambda row: row[0])
+        total = {'volume': sum((v for _, v, _ in fills), Decimal(0)),
+                 'funds': sum((f for _, _, f in fills), Decimal(0)), 'fee': number(order.get('paid_fee', 0))}
+        if abs(number(order.get('executed_volume', 0)) - total['volume']) > EPS:
+            raise ReconciliationError('Cumulative and detailed fill quantities differ')
+        if not fills:
+            if total['fee'] > 0: raise ReconciliationError('Fee without fills')
+            continue
+        external = not identifier.startswith('v5-')
+        if external and market not in authorized_external:
+            if fills[-1][0] > snapshot_epoch and market not in protected:
+                unresolved.append({'market': market, 'reason': 'unattributed post-snapshot fills'})
+            continue
+        if external:
+            if not isinstance(order.get('uuid'), str) or not order['uuid']:
+                raise ReconciliationError('Authorized external fill has no stable exchange identity')
+            identifier = 'external:' + hashlib.sha256(order['uuid'].encode()).hexdigest()
+        if not isinstance(market, str) or not market.startswith('KRW-') or side not in ('bid', 'ask'):
+            raise ReconciliationError('Invalid bot order identity')
+        payload = {'market': market, 'side': side, 'state': order['state'],
+                   'fills': [(t, str(v), str(f)) for t, v, f in fills], 'fee': str(total['fee'])}
+        digest = canonical_sha256(payload)
+        if identifier in seen:
+            if seen[identifier] != digest: raise ReconciliationError('Conflicting duplicate order evidence')
+            continue
+        seen[identifier] = digest
+        if identifier in digests and digests[identifier] != digest:
+            raise ReconciliationError('Previously replayed order revised; rebuild from original snapshot')
+        applied = totals(pointers.get(identifier))
+        delta = {key: total[key] - applied[key] for key in total}
+        if any(value < -EPS for value in delta.values()):
+            raise ReconciliationError('Evidence regresses source accounted totals')
+        if all(abs(value) <= EPS for value in delta.values()):
+            continue
+        if delta['volume'] <= 0 or delta['funds'] <= 0:
+            raise ReconciliationError('Fee-only or inconsistent adjustment needs explicit original-path replay')
+        # Validate that the source accounted exactly a prefix, not an arbitrary proportional guess.
+        cut, q, f = 0, Decimal(0), Decimal(0)
+        if applied['volume'] > EPS or applied['funds'] > EPS:
+            for i, (_, volume, funds) in enumerate(fills, 1):
+                q += volume; f += funds
+                if abs(q - applied['volume']) <= EPS and abs(f - applied['funds']) <= EPS:
+                    cut = i; break
+            if not cut: raise ReconciliationError('Source accounted fills are not a proven order prefix')
+        remaining = fills[cut:]
+        if not remaining or remaining[0][0] <= snapshot_epoch:
+            raise ReconciliationError('Unaccounted fills do not follow source snapshot')
+        if market in protected:
+            unresolved.append({'market': market, 'reason': 'bot fills on user-protected market require separate review'})
+            continue
+        jobs.append({'identifier': identifier, 'market': market, 'side': side, 'delta': delta,
+                     'start': remaining[0][0], 'end': remaining[-1][0], 'total': total,
+                     'digest': digest, 'external': external})
+
+    # Aggregating each order is valid only where same-market order intervals do not overlap.
+    # The broker's serial order policy normally ensures this; recovery must prove, not assume it.
+    by_market = {}
+    for job in sorted(jobs, key=lambda j: (j['start'], j['end'])):
+        previous = by_market.get(job['market'])
+        if previous and job['start'] <= previous['end']:
+            raise ReconciliationError('Overlapping same-market orders need fill-event replay')
+        by_market[job['market']] = job
+
+    realized = Decimal(str(state.get('realized', 0)))
+    bought = number(state.get('bought_krw', 0))
+    if not realized.is_finite(): raise ReconciliationError('Invalid source realized PnL')
+    realized_before, bought_before = realized, bought
+    external_cost = number(state.get('external_acquisition_cost', 0))
+    external_before = external_cost
+    for job in sorted(jobs, key=lambda j: (j['start'], j['end'])):
+        market, side = job['market'], job['side']
+        volume, funds, fee = (job['delta'][key] for key in ('volume', 'funds', 'fee'))
+        position = state['positions'].get(market)
+        if side == 'bid':
+            if position:
+                position['qty'] = float(number(position['qty']) + volume)
+                position['cost'] = float(number(position['cost']) + funds + fee)
+                # Keep all known stronger protective fields; do not invent unseen company peaks.
+                position['protection_exact_after_replay'] = False
+            else:
+                position = {'qty': float(volume), 'cost': float(funds + fee),
+                            'time': datetime.fromtimestamp(job['start'], timezone(timedelta(hours=9))).isoformat(),
+                            'entry': float(funds / volume), 'protection_exact_after_replay': False}
+                if market in stop_floors:
+                    floor = number(stop_floors[market])
+                    if floor <= 0: raise ReconciliationError('Invalid verified stop floor')
+                    position['stop'] = float(floor)
+                    position['stop_source'] = 'explicit_verified_recovery_floor'
+                if job['external']:
+                    position['acquisition_source'] = 'explicitly_authorized_external_exchange_fill'
+                state['positions'][market] = position
+            if job['external']:
+                external_cost += funds + fee
+            else:
+                bought += funds + fee
+        else:
+            if not position: raise ReconciliationError('Sale lacks source/replayed inventory')
+            owned, cost = number(position['qty']), number(position['cost'])
+            if volume > owned + EPS: raise ReconciliationError('Sale exceeds owned quantity')
+            fraction = min(Decimal(1), volume / owned)
+            basis_cost = cost * fraction
+            pnl = funds - fee - basis_cost
+            realized += pnl
+            remaining = max(Decimal(0), owned - volume)
+            if remaining <= EPS:
+                last = state.setdefault('last_sell', {}).get(market)
+                if not last or job['end'] > last.get('time', 0):
+                    state['last_sell'][market] = {'time': job['end'], 'price': float(funds / volume),
+                        'profit': pnl > 0, 'reason': 'verified_exchange_reconciliation',
+                        'time_source': 'actual_last_fill_not_recovery_wall_clock'}
+                del state['positions'][market]
+            else:
+                position['qty'], position['cost'] = float(remaining), float(cost - basis_cost)
+        pointers[job['identifier']] = {key: str(value) for key, value in job['total'].items()}
+        digests[job['identifier']] = job['digest']
+        events.append({'market': market, 'side': side, 'volume': str(volume),
+                       'funds': str(funds), 'fee': str(fee), 'actual_fill_epoch': job['end'],
+                       'source': 'authorized_external' if job['external'] else 'bot-v5'})
+    if jobs:
+        state['realized'], state['bought_krw'] = float(realized), float(bought)
+        if external_cost != external_before:
+            state['external_acquisition_cost'] = float(external_cost)
+        state['reconciliation_replay'] = {'source_snapshot_sha256': prior.get('source_snapshot_sha256', canonical_sha256(base_state)),
+            'snapshot_epoch': prior.get('snapshot_epoch', snapshot_epoch),
+            'accounted_totals': pointers, 'order_digests': digests,
+            'authorized_external_markets': sorted(authorized_external),
+            'company_internal_protection_history_restored': False}
+    for market, position in state['positions'].items():
+        if market in protected: continue
+        floor = stop_floors.get(market)
+        if floor is not None:
+            floor = number(floor)
+            if floor <= 0: raise ReconciliationError('Invalid verified stop floor')
+            old = number(position.get('stop', 0))
+            position['stop'] = float(max(old, floor))
+        stop = position.get('stop')
+        if type(stop) not in (int, float) or not math.isfinite(stop) or stop <= 0:
+            unresolved.append({'market': market, 'reason': 'open position has no verified positive stop floor'})
+    mismatches = []
+    for market, position in state['positions'].items():
+        if market in protected: continue
+        observed = number(current_quantities.get(market, 0))
+        if abs(number(position['qty']) - observed) > EPS:
+            mismatches.append({'market': market, 'reason': 'managed quantity differs from current account'})
+    unmanaged = {'KRW-' + row['currency'] for row in state.get('unmanaged_assets', [])}
+    for market, quantity in current_quantities.items():
+        if number(quantity) > EPS and market not in protected | unmanaged | set(state['positions']):
+            mismatches.append({'market': market, 'reason': 'current unprotected inventory absent from replay'})
+    if preserved_basis(state) != basis:
+        raise ReconciliationError('Historical risk/baseline fields changed')
+    report = {'accounting_replay_complete': not unresolved and not mismatches,
+              'new_order_count': len(jobs), 'new_fill_management_events': events,
+              'new_bot_order_count': sum(not j['external'] for j in jobs),
+              'new_external_order_count': sum(j['external'] for j in jobs),
+              'realized_delta': float(realized - realized_before), 'bought_delta': float(bought - bought_before),
+              'external_acquisition_cost': float(external_cost - external_before),
+              'managed_market_count': len(state['positions']), 'quantity_mismatches': mismatches,
+              'unresolved': unresolved, 'preserved_basis_sha256': canonical_sha256(basis),
+              'target_ledger_sha256': canonical_sha256(state),
+              'company_internal_peak_trailing_history_restored': False,
+              'orders_submitted': 0, 'lease_modified': False}
+    return state, report
+
+
+PUBLIC SOURCE reconciliation_guard.py SHA256=bb49de3337e0d86f6de10c13f01e0562e230f427862b2d91759390e6c615537e
+"""Fail-closed, file-bound recovery proof gate. No network, writes or lease changes."""
+import hashlib
+import importlib.util
+import json
+import math
+from pathlib import Path
+import re
+import sys
+import time
+
+
+BASIS_KEYS = ('account_adoption', 'risk_baseline_unrealized', 'risk_base_equity',
+              'risk_loss_offset', 'risk_day', 'halted', 'limits', 'limits_id')
+FINANCIAL_KEYS = ('positions', 'realized', 'bought_krw', 'last_sell',
+                  'external_acquisition_cost', 'reconciliation_replay')
+ARTIFACTS = {'source_snapshot': 'source-live.json', 'orders': 'orders.json',
+             'account': 'accounts.json', 'applied_local': 'applied-local.json',
+             'preserved_basis': 'preserved-basis.json',
+             'authorized_external': 'authorized-external.json',
+             'verified_stop_floors': 'verified-stop-floors.json'}
+
+
+class ProofInvalid(ValueError):
+    pass
+
+
+def canonical_bytes(value):
+    """Same sorted compact default-ASCII JSON as SessionGuard.checkpoint_hash."""
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+
+
+def canonical_sha256(value):
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def preserved_basis(state):
+    present = sorted(key for key in BASIS_KEYS if key in state)
+    return {**{key: state[key] for key in present}, '__present_keys__': present}
+
+
+def financial_projection(state):
+    present = sorted(key for key in FINANCIAL_KEYS if key in state)
+    return {**{key: state[key] for key in present}, '__present_keys__': present}
+
+
+def require(condition, code):
+    if not condition:
+        raise ProofInvalid(code)
+
+
+def load_json(raw):
+    def reject_nonfinite(_):
+        raise ProofInvalid('nonfinite_json')
+    return json.loads(raw.decode('utf-8-sig'), parse_constant=reject_nonfinite)
+
+
+def safe_file(data_root, relative):
+    require(isinstance(relative, str) and relative and '\\' not in relative, 'invalid_relative_path')
+    path = Path(relative)
+    require(not path.is_absolute() and '..' not in path.parts and ':' not in relative, 'unsafe_relative_path')
+    resolved = (data_root / path).resolve(strict=True)
+    require(resolved.is_relative_to(data_root), 'artifact_outside_data')
+    require(resolved.is_file(), 'artifact_not_file')
+    return resolved
+
+
+def _independent_replay(source, orders, applied_local, accounts, floors, authorized):
+    """Bound to the peer-reviewed sibling replay module; no caller-supplied calculator."""
+    require(isinstance(orders, list) and isinstance(applied_local, dict), 'invalid_replay_inputs')
+    require(isinstance(accounts, dict) and isinstance(accounts.get('accounts'), list), 'invalid_account_snapshot')
+    quantities = {}
+    for row in accounts['accounts']:
+        require(isinstance(row, dict), 'invalid_account_row')
+        currency = row.get('currency')
+        require(isinstance(currency, str) and re.fullmatch(r'[A-Z0-9]+', currency), 'invalid_account_currency')
+        if currency == 'KRW': continue
+        market = 'KRW-' + currency
+        require(market not in quantities, 'duplicate_account_currency')
+        values = []
+        for key in ('balance', 'locked'):
+            require(type(row.get(key)) in (str, int, float), 'invalid_account_quantity')
+            value = float(row[key])
+            require(math.isfinite(value) and value >= 0, 'invalid_account_quantity')
+            values.append(value)
+        quantities[market] = sum(values)
+    spec = importlib.util.spec_from_file_location('_validated_reconciliation_peer', Path(__file__).with_name('reconcile.py'))
+    require(spec is not None and spec.loader is not None, 'replay_module_unavailable')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    candidate, report = module.reconcile(source, orders, applied_local, accounts['source_snapshot_epoch'],
+        quantities, {'KRW-DOGE'}, floors, authorized_external_markets=authorized)
+    return {'candidate': candidate, 'report': report}
+
+
+def validate_or_raise(root, cfg, lease, now=None):
+    """Validate a preserved-basis reconciliation bridge while the remote lease is idle.
+
+    Source snapshot hash is raw-file SHA256. Orders/account/applied-local artifacts
+    must be canonical JSON bytes and are hashed as stored. Preserved-basis hash is
+    normalized canonical JSON and must match source, separate artifact and target.
+    All input paths are derived from the safe proof id; optional files mapping may
+    only repeat those exact relative paths, never redirect them.
+    """
+    require(isinstance(cfg, dict) and isinstance(lease, dict), 'invalid_config_or_lease')
+    current = time.time() if now is None else now
+    require(type(current) in (int, float) and math.isfinite(current), 'invalid_clock')
+    data_root = (Path(root) / 'data').resolve(strict=True)
+    sidecar = safe_file(data_root, 'account_reconciliation.json')
+    proof_raw = sidecar.read_bytes()
+    proof = load_json(proof_raw)
+    require(isinstance(proof, dict), 'invalid_proof')
+    proof_id = proof.get('id')
+    require(isinstance(proof_id, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', proof_id), 'unsafe_proof_id')
+    require(cfg.get('session', {}).get('account_reconciliation_id') == proof_id, 'authorization_id_mismatch')
+    require(lease.get('owner') in (None, '') and lease.get('request') in (None, ''), 'remote_lease_not_idle')
+    require(isinstance(lease.get('checkpoint'), str) and bool(lease['checkpoint']), 'previous_checkpoint_missing')
+    require(proof.get('previous_checkpoint') == lease['checkpoint'], 'previous_checkpoint_mismatch')
+    checked = proof.get('checked_epoch')
+    require(type(checked) in (int, float) and math.isfinite(checked)
+            and 0 <= current - checked <= 600, 'expired_or_future_proof')
+    for key in ('no_open_orders', 'stable_account', 'replay_complete', 'protected_DOGE'):
+        require(proof.get(key) is True, 'required_fact_not_true_' + key)
+    require(proof.get('unresolved') == [] and isinstance(proof.get('unresolved'), list), 'unresolved_items')
+    require(cfg.get('live', {}).get('user_protection_required') is True, 'protection_not_required')
+    protection_path = safe_file(data_root, 'user_protected_assets.json')
+    protection_raw = protection_path.read_bytes()
+    protection = load_json(protection_raw)
+    require(isinstance(protection, dict) and isinstance(protection.get('markets'), list)
+            and all(isinstance(market, str) for market in protection['markets'])
+            and 'KRW-DOGE' in protection['markets'], 'DOGE_not_currently_protected')
+    relative_paths = {name: 'reconciliation/' + proof_id + '/' + filename for name, filename in ARTIFACTS.items()}
+    if 'files' in proof:
+        require(proof['files'] == relative_paths, 'artifact_paths_mismatch')
+    raw, objects = {}, {}
+    for name, relative in relative_paths.items():
+        path = safe_file(data_root, relative)
+        expected_dir = (data_root / 'reconciliation' / proof_id).resolve(strict=True)
+        require(path.parent == expected_dir, 'artifact_outside_id_directory')
+        raw[name] = path.read_bytes()
+        objects[name] = load_json(raw[name])
+    for name in ('source_snapshot', 'orders', 'account', 'applied_local',
+                 'authorized_external', 'verified_stop_floors'):
+        wanted = proof.get(name + '_sha256')
+        require(isinstance(wanted, str) and re.fullmatch(r'[0-9a-f]{64}', wanted), 'invalid_hash_' + name)
+        require(hashlib.sha256(raw[name]).hexdigest() == wanted, 'artifact_hash_mismatch_' + name)
+        if name != 'source_snapshot':
+            require(raw[name] == canonical_bytes(objects[name]), 'artifact_not_canonical_' + name)
+    source = objects['source_snapshot']
+    require(isinstance(source, dict), 'source_ledger_not_object')
+    # Recovery bridges the explicitly pinned OLD home snapshot to the CURRENT idle
+    # remote checkpoint. They can differ; neither may be silently substituted.
+    source_checkpoint = canonical_sha256(source)
+    require(proof.get('source_checkpoint_sha256') == source_checkpoint, 'source_checkpoint_mismatch')
+    require(cfg.get('session', {}).get('account_reconciliation_source_checkpoint') == source_checkpoint,
+            'source_checkpoint_not_explicitly_authorized')
+    target_path = safe_file(data_root, 'live/live.json')
+    target_raw = target_path.read_bytes()
+    target = load_json(target_raw)
+    require(isinstance(target, dict), 'target_ledger_not_object')
+    require(target.get('pending_order') is None, 'target_primary_pending')
+    risk_pending = target.get('risk_pending_orders', {})
+    require(isinstance(risk_pending, dict) and not risk_pending, 'target_risk_pending')
+    target_hash = canonical_sha256(target)
+    require(proof.get('target_ledger_sha256') == target_hash, 'target_hash_mismatch')
+    reference = preserved_basis(source)
+    basis_hash = canonical_sha256(reference)
+    require(proof.get('preserved_basis_sha256') == basis_hash, 'basis_hash_mismatch')
+    require(canonical_sha256(objects['preserved_basis']) == basis_hash, 'basis_artifact_mismatch')
+    require(canonical_sha256(preserved_basis(target)) == basis_hash, 'target_basis_changed')
+    old_executed, new_executed = source.get('executed', {}), target.get('executed', {})
+    require(isinstance(old_executed, dict) and isinstance(new_executed, dict), 'invalid_executed_map')
+    require(all(key in new_executed and canonical_sha256(new_executed[key]) == canonical_sha256(value)
+                for key, value in old_executed.items()), 'old_execution_history_changed')
+    accounts = objects['account']
+    require(isinstance(accounts, dict), 'invalid_account_snapshot')
+    collected, source_epoch = accounts.get('collected_epoch'), accounts.get('source_snapshot_epoch')
+    require(all(type(epoch) in (int, float) and math.isfinite(epoch) for epoch in (collected, source_epoch)), 'invalid_account_epochs')
+    proof_epoch = proof.get('source_snapshot_epoch')
+    authorized_epoch = cfg.get('session', {}).get('account_reconciliation_source_epoch')
+    require(all(type(epoch) in (int, float) and math.isfinite(epoch)
+                for epoch in (proof_epoch, authorized_epoch)), 'missing_or_invalid_source_epoch_pin')
+    require(source_epoch == proof_epoch == authorized_epoch, 'source_epoch_not_explicitly_authorized')
+    require(0 <= current - collected <= 600 and source_epoch <= collected <= checked <= current, 'stale_or_future_account_snapshot')
+    authorized = objects['authorized_external']
+    require(isinstance(authorized, list) and authorized in ([], ['KRW-BTC']), 'external_authorization_not_pinned')
+    require(proof.get('authorized_external_markets') == authorized, 'external_authorization_proof_mismatch')
+    floor_doc = objects['verified_stop_floors']
+    require(isinstance(floor_doc, dict), 'invalid_stop_floor_artifact')
+    floors = floor_doc.get('stop_floors', floor_doc)
+    require(isinstance(floors, dict) and set(floors) <= set(authorized), 'unrelated_stop_floor_override')
+    if 'authorized_external_markets' in floor_doc:
+        require(floor_doc['authorized_external_markets'] == authorized, 'stop_floor_authorization_mismatch')
+    for value in floors.values():
+        require(type(value) in (int, float, str), 'invalid_verified_stop_floor')
+        require(math.isfinite(float(value)) and float(value) > 0, 'invalid_verified_stop_floor')
+    replay = _independent_replay(source, objects['orders'], objects['applied_local'], accounts, floors, authorized)
+    require(isinstance(replay, dict), 'independent_replay_invalid')
+    report = replay.get('report')
+    require(isinstance(report, dict) and report.get('accounting_replay_complete') is True
+            and report.get('unresolved') == [] and report.get('quantity_mismatches') == [], 'independent_replay_unresolved')
+    expected = replay.get('candidate')
+    require(isinstance(expected, dict), 'independent_replay_missing_candidate')
+    require(canonical_sha256(financial_projection(target)) == canonical_sha256(financial_projection(expected)),
+            'target_financials_not_replay_result')
+    # Fail closed if another writer changed any source after the checks above.
+    require(sidecar.read_bytes() == proof_raw and target_path.read_bytes() == target_raw, 'state_changed_during_validation')
+    require(protection_path.read_bytes() == protection_raw, 'protection_changed_during_validation')
+    for name, relative in relative_paths.items():
+        require(safe_file(data_root, relative).read_bytes() == raw[name], 'artifact_changed_during_validation')
+    return True
+
+
+def validate(root, cfg, lease, now=None):
+    """Return False on any malformed/missing proof, independent replay or file error."""
+    try:
+        return validate_or_raise(root, cfg, lease, now)
+    except Exception:
+        return False
+
+
+PUBLIC EXCERPT v5/session_guard.py FULLFILESHA256=7e059e53e1a87c6ba091179bfb3179062b48c25e0070ccf28c4fb0e3819321a2
+    def assert_transition_clear(self):
+        for relative in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
+                         'data/reconciliation/APPLYING'):
+            if (self.root / relative).exists():
+                raise SessionLost('인계·장부 대사 적용 중이거나 복구 확인이 필요합니다. 주문을 시작하지 않습니다.')
+
+    def record(self, **values):
+        state = {'owner': self.token, 'updated': self.clock(), 'expires': self.clock() + 180,
+                 'request': '', 'checkpoint': self.required_checkpoint or self.checkpoint_hash()}
+        state.update(values)
+        return state
+
+    def acquire(self, confirm=confirm_takeover, wait_seconds=240):
+        self.assert_transition_clear()
+        oid, state = self.store.read()
+        if state.get('owner') and not confirm():
+            return False
+        if state.get('owner'):
+            wanted = dict(state, request=self.token)
+            if not self.store.cas(oid, wanted):
+                raise SessionLost('다른 PC가 연결 상태를 바꿨습니다. 다시 실행해 주세요.')
+            deadline = self.clock() + wait_seconds
+            while self.clock() < deadline:
+                oid, state = self.store.read()
+                if state.get('request') not in {'', self.token}:
+                    raise SessionLost('다른 연결 요청이 우선 처리 중입니다.')
+                if not state.get('owner'):
+                    break
+                if self.clock() > state.get('expires', 0) + 30:
+                    if self.cfg.get('live_enabled'):
+                        raise SessionLost('기존 PC의 종료 확인이 없습니다. 실거래 연결은 넘기지 않습니다. 기존 봇을 정상 종료한 뒤 다시 실행해 주세요.')
+                    break
+                time.sleep(2)
+            else:
+                raise SessionLost('기존 봇의 종료 확인을 기다리다 중단했습니다. 기존 PC 상태를 확인해 주세요.')
+        elif state.get('request') not in {'', None, self.token}:
+            raise SessionLost('다른 PC로 연결을 넘기는 중입니다. 잠시 뒤 다시 실행해 주세요.')
+        # Moving control is not moving the live ledger. Require its exact checkpoint before live trading.
+        expected = state.get('checkpoint', '')
+        self.required_checkpoint = expected if expected and self.checkpoint_hash() != expected else ''
+        if self.cfg.get('live_enabled') and self.required_checkpoint:
+            # Explicit account adoption creates a NEW baseline; it never claims to restore old history.
+            file = self.root / 'data' / 'live' / 'live.json'
+            adoption = json.loads(file.read_text(encoding='utf-8')).get('account_adoption', {}) if file.exists() else {}
+            valid = (self.cfg.get('account_adoption_id')
+                     and adoption.get('id') == self.cfg['account_adoption_id']
+                     and adoption.get('previous_checkpoint') == expected
+                     and adoption.get('scope') == 'all_current_holdings'
+                     and adoption.get('no_open_orders') is True
+                     and 0 <= self.clock() - adoption.get('epoch', 0) <= 600)
+            if not valid and self.cfg.get('account_reconciliation_id'):
+                # Explicit exchange reconciliation is a separate, preserved-basis
+                # recovery bridge. It never fabricates the previous PC's checkpoint.
+                try:
+                    import reconciliation_guard
+                    full_cfg = json.loads((self.root / 'config.json').read_text(encoding='utf-8-sig'))
+                    pins = ('account_reconciliation_id', 'account_reconciliation_source_checkpoint',
+                            'account_reconciliation_source_epoch')
+                    same_pins = all(full_cfg.get('session', {}).get(k) == self.cfg.get(k) for k in pins)
+                    valid = same_pins and reconciliation_guard.validate(self.root, full_cfg, state, self.clock())
+                except (OSError, ValueError, TypeError, ImportError):
+                    valid = False
+            if not valid:
+                raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮기거나 명시적으로 위임된 계좌 인수 절차가 필요합니다.')
+            self.required_checkpoint = ''
+        self.assert_transition_clear()
+        if not self.store.cas(oid, self.record()):
+            raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
+        self.acquired = True
+        self.assert_transition_clear()
+        return True
+
+    def assert_owner(self):
+        with self.mutex:
+            self.assert_transition_clear()
+            if not self.acquired or self.lost.is_set():
+                raise SessionLost(self.reason or '이 PC에 주문 실행 권한이 없습니다.')
+            try:
+                _, state = self.store.read()
+                if (state.get('owner') != self.token or state.get('request')
+                        or self.clock() >= state.get('expires', 0)):
+                    raise SessionLost('다른 PC로 연결이 변경되어 이 PC의 주문을 중단합니다.')
+            except Exception as ex:
+                self.reason = str(ex); self.lost.set()
+                raise SessionLost(self.reason) from ex
+
+
+
+PUBLIC EXCERPT tools/reconcile_runtime.py FULLFILESHA256=e33ee74fce41d9827bc8d968349287b746fc8a99dfd9943cfd4fce1d490187c6
+def fresh_check(client, evidence, now):
+    lease = client.lease()
+    idle(lease)
+    require(lease['checkpoint'] == evidence['remote_lease']['checkpoint'], 'remote_checkpoint_changed')
+    expected = account_signature(evidence['account_rows'])
+    rows = client.accounts()
+    require(account_signature(rows) == expected, 'account_changed_since_evidence')
+    require(client.open_orders() == [], 'open_orders_exist')
+    start = epoch(evidence['source_ledger']['account_adoption']['epoch'])
+    latest = client.closed_orders(start, now)
+    stored = list(evidence['exchange']['orders'].values())
+    require(filled_ids(latest) == filled_ids(stored), 'closed_fills_changed_since_evidence')
+    latest_by_id = {row['uuid']: row for row in latest if row['uuid'] in filled_ids(stored)}
+    for old in stored:
+        require(order_signature(latest_by_id[old['uuid']]) == order_signature(old),
+                'closed_accounting_revised_since_evidence')
+        current = client.order_detail(old['uuid'])
+        require(current.get('uuid') == old['uuid']
+                and order_signature(current, True) == order_signature(old, True),
+                'detailed_fills_revised_since_evidence')
+    # A second observation brackets closed-order collection and checks cash too.
+    require(client.open_orders() == [], 'open_orders_appeared')
+    again = client.accounts()
+    require(account_signature(again) == expected, 'account_changed_during_collection')
+    final = client.lease()
+    idle(final)
+    require(final['checkpoint'] == lease['checkpoint'], 'remote_checkpoint_changed')
+    return again, final
+
+
+def build_plan(app, evidence_dir, company_profit_guard, checked, account_rows=None, lease=None,
+               proof_id=None):
+    app, evidence_dir = Path(app).resolve(), Path(evidence_dir).resolve()
+    cfg = read_json(app / 'config.json')
+    source_raw = (evidence_dir / 'source-live.json').read_bytes()
+    source = read_json(evidence_dir / 'source-live.json')
+    evidence = read_json(evidence_dir / 'evidence.json')
+    require(canonical(source) == canonical(evidence['source_ledger']), 'source_evidence_disagrees')
+    source_epoch = epoch(evidence['source_snapshot_epoch'])
+    require(digest(source_raw) == evidence['source_ledger_sha256'], 'source_raw_hash_disagrees')
+    # The bridge is permitted only over the exact old home ledger that was reviewed.
+    require(canonical(read_json(app / 'data/live/live.json')) == canonical(source),
+            'local_source_changed')
+    require(source.get('pending_order') is None and not source.get('risk_pending_orders'),
+            'source_has_pending_order')
+    require(read_json(company_profit_guard) == PATCH, 'unreviewed_company_profit_guard_patch')
+    protection = read_json(app / 'data/user_protected_assets.json')
+    require(isinstance(protection, dict) and 'KRW-DOGE' in protection.get('markets', []),
+            'DOGE_protection_missing')
+    floor_doc = read_json(evidence_dir / 'verified-stops.json')
+    require(floor_doc.get('authorized_external_markets') == ['KRW-BTC']
+            and set(floor_doc.get('stop_floors', {})) == {'KRW-BTC'}, 'external_scope_not_explicit_BTC')
+    maximum = cfg.get('strategy', {}).get('stop_max_pct')
+    require(type(maximum) in (int, float) and math.isfinite(maximum) and 0 < maximum < 1,
+            'invalid_configured_stop_cap')
+    floor = float(floor_doc['stop_floors']['KRW-BTC'])
+    entry = float(floor_doc['entry'])
+    require(math.isfinite(floor) and math.isfinite(entry) and entry > 0
+            and entry * (1 - maximum) <= floor <= entry, 'BTC_stop_violates_existing_cap')
+    require(floor_doc.get('original_company_stop_restored') is False,
+            'cannot_claim_company_stop_restored')
+    orders = list(evidence['exchange']['orders'].values())
+    require(evidence['exchange'].get('open_status') == 'ok', 'evidence_open_status_not_ok')
+    filled_ids(orders)
+    applied = read_json(evidence_dir / 'applied-local.json')
+    rows = evidence['account_rows'] if account_rows is None else account_rows
+    lease = evidence['remote_lease'] if lease is None else lease
+    idle(lease)
+    replay = peer('reconcile', app)
+    guard = peer('reconciliation_guard', app)
+    target, report = replay.reconcile(source, orders, applied, source_epoch, quantities(rows),
+        {'KRW-DOGE'}, floor_doc['stop_floors'], authorized_external_markets={'KRW-BTC'})
+    require(report.get('accounting_replay_complete') is True and report.get('unresolved') == []
+            and report.get('quantity_mismatches') == [], 'replay_incomplete')
+    btc = target.get('positions', {}).get('KRW-BTC')
+    require(isinstance(btc, dict) and math.isfinite(float(btc.get('entry', 0)))
+            and float(btc['entry']) > 0
+            and math.isclose(entry, float(btc['entry']), rel_tol=1e-9, abs_tol=1e-6)
+            and floor >= float(btc['entry']) * (1 - maximum), 'BTC_stop_entry_not_verified_fill')
+    proof_id = proof_id or ('exchange-' + dt.datetime.fromtimestamp(checked, dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                            + '-' + digest(canonical(source))[:12])
+    require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', proof_id) is not None, 'unsafe_proof_id')
+    updated = deepcopy(cfg)
+    updated.setdefault('live', {}).update(PATCH['live'])
+    updated['live']['user_protection_required'] = True
+    updated.setdefault('session', {}).update(account_reconciliation_id=proof_id,
+        account_reconciliation_source_checkpoint=digest(canonical(source)),
+        account_reconciliation_source_epoch=source_epoch)
+    account = {'source_snapshot_epoch': source_epoch, 'collected_epoch': checked, 'accounts': rows}
+    values = {'source_snapshot': source, 'orders': orders, 'account': account, 'applied_local': applied,
+              'preserved_basis': guard.preserved_basis(source), 'authorized_external': ['KRW-BTC'],
+              'verified_stop_floors': floor_doc}
+    artifacts = {name: source_raw if name == 'source_snapshot' else canonical(value)
+                 for name, value in values.items()}
+    proof = {'id': proof_id, 'previous_checkpoint': lease['checkpoint'],
+        'source_checkpoint_sha256': digest(canonical(source)), 'source_snapshot_epoch': source_epoch,
+        'target_ledger_sha256': digest(canonical(target)), 'checked_epoch': checked,
+        'no_open_orders': True, 'stable_account': True, 'replay_complete': True,
+        'protected_DOGE': True, 'unresolved': [], 'authorized_external_markets': ['KRW-BTC'],
+        'preserved_basis_sha256': digest(canonical(values['preserved_basis'])),
+        'files': {name: 'reconciliation/' + proof_id + '/' + filename
+                  for name, filename in guard.ARTIFACTS.items()}}
+    for name, raw in artifacts.items():
+        if name != 'preserved_basis': proof[name + '_sha256'] = digest(raw)
+    return {'config': updated, 'target': target, 'proof': proof, 'artifacts': artifacts,
+            'report': report, 'guard': guard, 'lease': lease, 'evidence': evidence,
+            'source_config_bytes': (app / 'config.json').read_bytes(),
+            'source_ledger_bytes': (app / 'data/live/live.json').read_bytes(),
+            'protection_bytes': (app / 'data/user_protected_assets.json').read_bytes()}
+
+
+def atomic_write(path, raw):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.reconcile-' + uuid.uuid4().hex + '.tmp')
+    try:
+        with temporary.open('xb') as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists(): temporary.unlink()
+
+
+def install_artifacts(app, plan, write=atomic_write):
+    data = Path(app) / 'data'
+    folder = data / 'reconciliation' / plan['proof']['id']
+    for name, filename in plan['guard'].ARTIFACTS.items():
+        write(folder / filename, plan['artifacts'][name])
+    write(data / 'account_reconciliation.json', canonical(plan['proof']))
+
+
+def verify_in_temp(plan):
+    with tempfile.TemporaryDirectory(prefix='reconcile-offline-') as temporary:
+        app = Path(temporary)
+        atomic_write(app / 'data/live/live.json', canonical(plan['target']))
+        atomic_write(app / 'data/user_protected_assets.json', plan['protection_bytes'])
+        install_artifacts(app, plan)
+        require(plan['guard'].validate(app, plan['config'], plan['lease'],
+                                      plan['proof']['checked_epoch']), 'offline_proof_validation_failed')
+
+
+def apply_plan(app, plan, client, now=time.time, write=atomic_write, stopped=require_stopped):
+    """Write a reversible, marker-protected transaction; never acquire a lease."""
+    app = Path(app).resolve()
+    marker = app / 'data/reconciliation/APPLYING'
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    # Exclusive marker blocks concurrent controller invocations and cooperating launches.
+    fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(fd, canonical({'id': plan['proof']['id']}))
+    os.close(fd)
+    paths = (app / 'config.json', app / 'data/live/live.json',
+             app / 'data/live/orders.jsonl', app / 'data/account_reconciliation.json')
+    old = {}
+    success = False
+    try:
+        require((app / 'config.json').read_bytes() == plan['source_config_bytes']
+                and (app / 'data/live/live.json').read_bytes() == plan['source_ledger_bytes']
+                and (app / 'data/user_protected_assets.json').read_bytes() == plan['protection_bytes'],
+                'local_state_changed_before_transaction')
+        stopped(app)  # Recheck after acquiring APPLYING, immediately before any state/backup writes.
+        folder = marker.parent / plan['proof']['id']
+        require(not folder.exists(), 'reconciliation_id_already_exists')
+        for path in paths:
+            old[path] = path.read_bytes() if path.exists() else None
+        # Durable backups precede all modified active state; journals are never appended.
+        for index, (path, raw) in enumerate(old.items()):
+            if raw is not None: write(folder / 'backup' / (str(index) + '-' + path.name), raw)
+        install_artifacts(app, plan, write)
+        write(app / 'config.json', canonical(plan['config']))
+        write(app / 'data/live/live.json', canonical(plan['target']))
+        lease = client.lease()
+        idle(lease)
+        require(lease['checkpoint'] == plan['lease']['checkpoint'], 'remote_changed_during_transaction')
+        require(plan['guard'].validate(app, read_json(app / 'config.json'), lease, now()),
+                'installed_proof_validation_failed')
+        require((app / 'data/live/orders.jsonl').read_bytes() == old[app / 'data/live/orders.jsonl']
+                if old[app / 'data/live/orders.jsonl'] is not None
+                else not (app / 'data/live/orders.jsonl').exists(), 'journal_changed_during_transaction')
+        success = True
+    except Exception:
+        rollback_ok = True
+        for path, raw in old.items():
+            try:
+                if raw is None:
+                    if path.exists(): path.unlink()
+                else: write(path, raw)
+            except Exception:
+                rollback_ok = False
+        rollback_ok = rollback_ok and all((path.read_bytes() == raw if raw is not None else not path.exists())
+                                          for path, raw in old.items())
+        if rollback_ok: marker.unlink()
+        # Failure to restore leaves APPLYING in place: the launcher must stay blocked.
+        raise
+    finally:
+        if success: marker.unlink()
+
+
+
+
+PUBLIC EXCERPT tools/reconcile_runtime.py FULLFILESHA256=e33ee74fce41d9827bc8d968349287b746fc8a99dfd9943cfd4fce1d490187c6
+def execute(app, env, evidence_dir, company_profit_guard, apply=False, authorized=False,
+            client_factory=ReadOnlyClient, now=time.time, stopped=require_stopped):
+    require(not apply or authorized, 'explicit_exchange_reconciliation_authorization_required')
+    app = Path(app).resolve()
+    require(app.is_dir() and Path(env).is_file(), 'explicit_app_or_env_missing')
+    evidence = read_json(Path(evidence_dir) / 'evidence.json')
+    clock = now() if apply else epoch(evidence['collected_at'])
+    rows, lease = None, None
+    client = None
+    if apply:
+        stopped(app)  # Must precede even private read-only network collection.
+        client = client_factory(app, Path(env).resolve(), read_json(app / 'config.json'))
+        rows, lease = fresh_check(client, evidence, clock)
+        clock = now()
+    plan = build_plan(app, evidence_dir, company_profit_guard, clock, rows, lease)
+    verify_in_temp(plan)
+    if apply: apply_plan(app, plan, client, now, stopped=stopped)
+    report = plan['report']
+    return {'applied': apply, 'dry_run': not apply, 'orders_submitted': 0, 'remote_lease_modified': False,
+            'accounting_replay_complete': report['accounting_replay_complete'],
+            'new_bot_order_count': report.get('new_bot_order_count'),
+            'new_external_order_count': report.get('new_external_order_count'),
+            'realized_delta': report.get('realized_delta'), 'bought_delta': report.get('bought_delta'),
+            'managed_market_count': report.get('managed_market_count'),
+            'company_internal_peak_trailing_history_restored': False}
+
+

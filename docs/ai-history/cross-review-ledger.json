@@ -1,0 +1,226 @@
+{
+  "updated_kst": "2026-11-04T08:46:44+09:00",
+  "workflow": "one_author_then_other_ai_review_then_hash_checked_execution",
+  "previous_author": "ChatGPT",
+  "next_author": "Claude",
+  "next_reviewer": "ChatGPT",
+  "items": [
+    {
+      "issue": "A-sync-process-guard",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved",
+      "approved_hashes": {
+        "tools/sync_v5.py": "507ff64c87bd418dd9954780b306de8e06432e17fc863b4b4e1bce3da746a173",
+        "tools/test_sync_v5.py": "382ad05d5a171fe5d1972e31dc0abfed372ad3ed45be98d0816757bb1315beb7"
+      },
+      "execution": "9_unit_tests_and_actual_pythonw_block_probe_passed",
+      "time": "2026-11-03T11:39:28+09:00",
+      "copied_files": 0,
+      "live_restart": false,
+      "limitations": [
+        "global conservative process matching",
+        "TOCTOU remains; not a full concurrent-start lock"
+      ]
+    },
+    {
+      "issue": "B-session-diagnostics",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "approved_hashes": {
+        "v5/session_guard.py": "e24c45aa56c6f7ed8ee599fc5aea9eb7c04f89219a5f7d09808e5ba1580b5e01",
+        "v5/test_session_diagnostics.py": "35da7f2d3222a81eca5343364b65eb29437012c2d339aea9c975b1aa57b29aa6"
+      },
+      "execution": "read_only_git_probe_passed",
+      "time": "2026-11-03T11:37:09+09:00",
+      "remote_session_changed": false,
+      "live_deployment": "hold"
+    },
+    {
+      "issue": "W1-warning-metadata",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "execution": "211 V5 tests and 299 public market compatibility passed",
+      "live_deployment": "not_deployed; original trading policy unchanged"
+    },
+    {
+      "issue": "W2-read-only-warning-report",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "execution": "approved hashes verified; read-only once and watch started",
+      "live_deployment": "independent report only",
+      "review_source": "2026-11-03-warning-policy.md"
+    },
+    {
+      "issue": "WAVES-profit-guard",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "execution": "224 V5 tests passed; source deployed and hashes matched",
+      "review": "2026-11-03-waves-profit-guard.md",
+      "live_deployment": "complete 2026-11-03T12:23:29+09:00"
+    },
+    {
+      "issue": "WAVES-targeted-deploy",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "execution": "reviewed script hashes; first rollback then successful retry after Claude sync normalization fix",
+      "live_deployment": "complete",
+      "ledger_restore": false
+    },
+    {
+      "issue": "TEMP-public-tactical-observer",
+      "author": "ChatGPT",
+      "reviewer": "not reviewed by Claude; user explicit temporary sole-lead authorization",
+      "execution": "six checks and public collection passed; observer running",
+      "live_deployment": "none; public read-only observer only",
+      "handoff_after_kst": "2026-11-03T15:40:00+09:00"
+    },
+    {
+      "issue": "HOME-recovery-and-cli-review",
+      "author": "ChatGPT (temporary sole implementation)",
+      "reviewer": "Claude (actual post-deployment static responses)",
+      "status": "accepted_for_actual_recovery_with_recorded_historical_state_limits",
+      "reviewed_commit": "d357b03",
+      "review_type": "post_deployment_static_not_retroactive_preapproval",
+      "approved_hashes": {
+        "v5/reconcile.py": "4d8f889c51379bb4239cf2124823eea339bfa4003709c0562f0366f860db50c6",
+        "v5/reconciliation_guard.py": "bb49de3337e0d86f6de10c13f01e0562e230f427862b2d91759390e6c615537e",
+        "v5/session_guard.py": "7e059e53e1a87c6ba091179bfb3179062b48c25e0070ccf28c4fb0e3819321a2",
+        "tools/reconcile_runtime.py": "e33ee74fce41d9827bc8d968349287b746fc8a99dfd9943cfd4fce1d490187c6"
+      },
+      "host_tests": "289 V5 passed; 57 related tool tests passed after CLI patch",
+      "limitations": [
+        "unseen transient company halt latch not exactly restorable",
+        "unseen company peak/trailing and separate PnL baseline missing",
+        "same algorithm replay is not an independent algorithm"
+      ]
+    },
+    {
+      "issue": "HOME-nonmutating-handoff-preflight",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved_applied_tools_only",
+      "approved_hashes": {
+        "tools/handoff_cli.py": "61a0de236c21e693039fca9eba0854c7937b4ab644e5b0a5af26c4bf3346f5c8",
+        "tools/test_handoff_cli.py": "a430c332deb5ff62fda06ab11d797bd101b8513f0a18ead4d7a9fa29a25f4119"
+      },
+      "execution": "14 focused CLI tests, 57 related tool tests passed; no trader restart/config/order changes",
+      "patch_adaptation": "format only; 5 exact-once old-context hunks; original and regenerated diff preserved locally"
+    },
+    {
+      "issue": "MANUAL-PROTECT-v1",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "approved_hash_verified_deployed",
+      "approved_hashes": {
+        "live.py": "d6e8014fa00dbabbda3fecb6f5ada829fb893418c884f9df9e38484b85ca8640",
+        "test_auto_protection.py": "2b483991848ca77b4d50dac7bdba65f2a226d1b550f9917620ec33b002ad7fa5",
+        "asset_protection.py": "876181c00083a8fc5f9db700d15f1a1af4b46b0b52e3e419e7b40dca47e94459",
+        "protection_panel.py": "19228db72c2ee7b2310b9d159dff70d2931b277318457c509fa410993255bd27",
+        "manual_orders.py": "d4bcbdeca299932d788b4221c3a1310e7e7436ff89d5f45c926766dd16d40af3",
+        "manual_protection.py": "277e93276d2c88a928170c05a1cb676e68709ece2c448a732c7af89b39b9718e",
+        "bot.py": "73bf798df313ba379844a654dafae3cebe652e33fe870cedcaa37da21bbd16cb"
+      },
+      "execution": "316V5/118tools/4broker tests; normal stop/backup/sync/start; livepanel scan+ping+BTC/DOGE+riskbasis verified",
+      "review_original": "manual-protection-f4-full-2026-11-03.response.txt"
+    },
+    {
+      "issue": "executed-fill-review-v1",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "approved_hash_verified_read_only_activated",
+      "approved_hashes": {
+        "tools/trade_review.py": "7cce2e74382bdda1a1d7738abc653696a9ec6bbe6a0041948ef874a98924a301",
+        "tools/test_trade_review.py": "4499f852f79cb1cc058233e82166b160f52216202de46d29e46fe4926885a30c",
+        "debate_tools/토론진행기.py": "692b62203820c27660ba41633e768cbffa052408e0e7dd643dc0d7ba0b5c6071",
+        "debate_tools/test_trade_broker.py": "981c73a25624f5c40ccc37c59fb2402ef83463539f865d8fe737bca4170d7e55"
+      },
+      "execution": "122tools/8broker passed; watcher beforebroker; exactsentversion receipt afterdocumentcommit",
+      "review_original": "trade-review-followup-2026-11-03.response.txt",
+      "limitations": [
+        "descriptive only, notaccountPnL",
+        "mixed inheritedcost/order/logtimeuncertain",
+        "E1unfrozen nottested",
+        "noautomatedlivecodedeployment"
+      ]
+    },
+    {
+      "issue": "manual-always-protect-before-release-question",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "approved_hash_verified_deployed",
+      "approved_hashes": {
+        "v5/asset_protection.py": "d9daefb275e1381a72c553de1050ec4d43a2953dc9e98950cfff2c2dac1e5222",
+        "v5/protection_panel.py": "bce6be4b8926dbd295af573bad69921a53fa7f66836a251ae6eb57f38ee8db26",
+        "v5/test_auto_protection.py": "546d889cbb598dffd36748ab0e3383e4d32ed0dc16662b4566496f9109483f23"
+      },
+      "execution": "317V5 tests passed; exact author replacements; normalstop/backup/sync/start/health; no unprotect/test orders",
+      "review_original": "manual-always-protect-author-2026-11-03.response.txt"
+    },
+    {
+      "issue": "reviewed-hourly-rotation-v1",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "approved_hash_verified_deployed_profitability_unproven",
+      "approved_hashes": {
+        "v5/strategy.py": "7d0621d8dd0f9dee28d8e30101de21dcbbc6478485bce3de395f8ec4e1bdb117",
+        "v5/shadow.py": "f608a87f2722d63f9cb7dd3b83d17cc93c062d7659b176e51418a9a8704170ee",
+        "v5/live.py": "6655ea5457e3a1929c4daa36c1a64e70b5e010b2345c3d2665b3d2fd877a1d36",
+        "v5/bot.py": "febd669037464a07c44f9e23215ba153025e7420ae706e67fd238a953be56994",
+        "v5/rotation_policy.py": "c1ab5ee881a84dd0bbe2427140b5b96052f9aa21d364f8f0beffba15e40022e4",
+        "v5/test_rotation_rollout.py": "7da511a9c90d3b1232690b3fcc174fbef3bb8c00f3812e3b5a633c2c88abe493",
+        "v5/test_plan_slot.py": "5babc2557c6f15fff7be25776b1ad38ef88a7026c3703df0521eb7e8a5142f3c",
+        "config-patch.json": "fb6dd133401f88543218194bf251244b9f958a2c5ade0cfe1d8eb97fe83d9ea6",
+        "apply_reviewed.py": "c7b0044825dfb1d79adc73181fc68e446a584c629840160f1fe60504c4e85693",
+        "test_host_gate.py": "3de7182614cceca86029b674116c79e7c376f3c44103ce4b33421e08ec78fb47",
+        "dependencies/deploy_v5.py": "eb1dcfc8645b7e4eb550e857fe03841dc5311633a23e86a78ca7b248be53a383",
+        "dependencies/sync_v5.py": "9251ef8078b9ac38e5c8360dabb36bfca1c91e8b77223049a9a6caed30aa9b5f"
+      },
+      "execution": "378 V5, 8 host, 125 tools tests; stop/checkpoint/backup/apply/start/health; risk/protection preserved; existing user resumed buys preserved",
+      "review_original": "rotation-rollout-2026-11-04-review-02.response.txt"
+    }
+  ],
+  "pending": [
+    {
+      "id": "C-launcher-and-deploy-preflight",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "queued_not_started",
+      "scope": "fix missing launcher/target preflight; no bot stop before restart path is verified"
+    },
+    {
+      "id": "D-protection-observation",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "design_only",
+      "scope": "continue read-only protection observation during lease failure; never bypass order ownership"
+    },
+    {
+      "id": "E-scan5-vs-scan8",
+      "author": "Claude",
+      "reviewer": "ChatGPT",
+      "status": "research_only",
+      "scope": "independent shadow comparison; no live parameter change"
+    },
+    {
+      "id": "current-manual-over-5000",
+      "author": "ChatGPT",
+      "reviewer": "Claude",
+      "status": "design_accepted_code_review_blocked_provider_limit_scheduled",
+      "candidate_hashes": {
+        "tools/apply_manual_protection.py": "ff63b0b500b8817d9ac86aeb9bc6ff0ce35a2efe918df3dac354651d07104078",
+        "v5/asset_protection.py": "d6622e2e0d3eb781cd3676fe4ff28d8e843137f7efe554e8e75f9c7a3dbed112",
+        "v5/current_manual.py": "779ac7f15abb1a9a2b917a4eb41a6d654cbd09ff0a7bd81de51e9aa48f877bed",
+        "v5/live.py": "30702ef9c0a19065b4ce58d5b2440131e14d751ca55236b74d4ffc0b87c574c1",
+        "v5/manual_protection.py": "f3bb74b5ebaba2ef0728a857178673ed86f959b26a50eea1749da69211bd5354",
+        "v5/protection_panel.py": "e224484825ce1920be28b8736f3363106d8a6addcd36bd8f83fb9ed9b46c6d58",
+        "tools/secure_handoff.py": "20d60a98648075b37ac5adf7f5465264d2bbb5b8e4a843a44c3d10063c110211",
+        "tools/test_apply_manual_protection.py": "316abfc79d56514637dfed849f07b40a92953999b807eb915fa214ad508af79b",
+        "v5/test_current_manual.py": "b491de774478ace6f07a70439b30867aad02cdbcfd5c546d1058ff8a70118bf0",
+        "tools/test_current_scope_handoff.py": "71c17edcc30bfc3cbbdabf21c95b1cced7c0339d2e7c3da32631ccfb7ffa4b95"
+      },
+      "not_before": "2026-11-04T04:11:00+09:00",
+      "live_new_mode_deployed": false
+    }
+  ]
+}

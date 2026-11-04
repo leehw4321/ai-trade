@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 STAGED = Path(__file__).resolve().parent
-CANONICAL = Path('C:/Users/User/Desktop/ai-trade/v5')
+CANONICAL = STAGED
 sys.path.insert(0, str(CANONICAL))
 spec = importlib.util.spec_from_file_location('staged_shadow_entry_review', STAGED / 'shadow.py')
 shadow = importlib.util.module_from_spec(spec)

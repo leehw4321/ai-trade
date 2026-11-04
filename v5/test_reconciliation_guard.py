@@ -1,0 +1,213 @@
+"""Synthetic file-bound recovery proof tests. No API/process/runtime access."""
+from copy import deepcopy
+import datetime as dt
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+HERE = Path(__file__).resolve().parent
+
+
+def module(name, filename):
+    spec = importlib.util.spec_from_file_location(name, HERE / filename)
+    value = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(value)
+    return value
+
+
+guard = module('staged_proof_guard', 'reconciliation_guard.py')
+replay = module('staged_proof_replay', 'reconcile.py')
+
+
+class ProofGate(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.data = self.root / 'data'
+        self.id = 'synthetic-authorized-reconciliation'
+        self.folder = self.data / 'reconciliation' / self.id
+        self.folder.mkdir(parents=True)
+        (self.data / 'live').mkdir()
+        self.source = {'positions': {'KRW-A': {'qty': 10., 'cost': 1000., 'stop': 80., 'time': '1970-01-01T00:00:00+00:00'}},
+            'realized': 5., 'bought_krw': 200., 'halted': 'preserved daily halt',
+            'risk_baseline_unrealized': -20., 'risk_loss_offset': 30., 'risk_day': '2026-11-03',
+            'risk_base_equity': 10000., 'account_adoption': {'history_restored': False},
+            'executed': {'old-plan': {'result': 'already processed'}}, 'last_sell': {},
+            'pending_order': None, 'risk_pending_orders': {}, 'unmanaged_assets': []}
+        self.lease = {'owner': '', 'request': '', 'checkpoint': 'f' * 64}
+        self.cfg = {'live': {'user_protection_required': True}, 'session': {
+            'account_reconciliation_id': self.id,
+            'account_reconciliation_source_checkpoint': guard.canonical_sha256(self.source),
+            'account_reconciliation_source_epoch': 1000.}}
+        self.orders = [{'uuid': 'synthetic-order-a', 'identifier': 'v5-synthetic-a', 'market': 'KRW-A',
+            'side': 'ask', 'state': 'cancel', 'executed_volume': '5', 'paid_fee': '.6',
+            'created_at': '1970-01-01T00:18:00+00:00', 'trades': [{'uuid': 'synthetic-fill-a',
+                'created_at': '1970-01-01T00:18:20+00:00', 'volume': '5', 'funds': '600'}]}]
+        self.applied = {}
+        self.accounts = {'source_snapshot_epoch': 1000., 'collected_epoch': 1990., 'accounts': [
+            {'currency': 'KRW', 'balance': '5000', 'locked': '0'},
+            {'currency': 'A', 'balance': '5', 'locked': '0'},
+            {'currency': 'DOGE', 'balance': '9', 'locked': '0'}]}
+        self.authorized = []
+        self.floors = {'stop_floors': {}, 'authorized_external_markets': []}
+        self.target, report = replay.reconcile(self.source, self.orders, self.applied, 1000.,
+            {'KRW-A': 5., 'KRW-DOGE': 9.}, {'KRW-DOGE'})
+        self.assertTrue(report['accounting_replay_complete'])
+        self.write_json(self.data / 'user_protected_assets.json', {'markets': ['KRW-DOGE']})
+        self.proof = {'id': self.id, 'previous_checkpoint': self.lease['checkpoint'],
+            'source_checkpoint_sha256': guard.canonical_sha256(self.source),
+            'source_snapshot_epoch': 1000.,
+            'target_ledger_sha256': guard.canonical_sha256(self.target),
+            'checked_epoch': 1995., 'no_open_orders': True, 'stable_account': True,
+            'replay_complete': True, 'protected_DOGE': True, 'unresolved': [],
+            'authorized_external_markets': [],
+            'files': {name: 'reconciliation/' + self.id + '/' + filename for name, filename in guard.ARTIFACTS.items()}}
+        self.publish()
+
+    @staticmethod
+    def write_json(path, value):
+        path.write_bytes(guard.canonical_bytes(value))
+
+    def publish(self):
+        values = {'source_snapshot': self.source, 'orders': self.orders, 'account': self.accounts,
+                  'applied_local': self.applied, 'preserved_basis': guard.preserved_basis(self.source),
+                  'authorized_external': self.authorized, 'verified_stop_floors': self.floors}
+        for name, filename in guard.ARTIFACTS.items():
+            raw = guard.canonical_bytes(values[name])
+            (self.folder / filename).write_bytes(raw)
+            if name != 'preserved_basis': self.proof[name + '_sha256'] = hashlib.sha256(raw).hexdigest()
+        self.proof['preserved_basis_sha256'] = guard.canonical_sha256(values['preserved_basis'])
+        self.proof['target_ledger_sha256'] = guard.canonical_sha256(self.target)
+        self.write_json(self.data / 'live/live.json', self.target)
+        self.write_json(self.data / 'account_reconciliation.json', self.proof)
+
+    def valid(self, now=2000.):
+        return guard.validate(self.root, self.cfg, self.lease, now)
+
+    def test_distinct_home_source_and_company_remote_require_explicit_source_pin(self):
+        self.assertNotEqual(self.lease['checkpoint'], guard.canonical_sha256(self.source))
+        self.assertTrue(self.valid())
+        self.cfg['session']['account_reconciliation_source_checkpoint'] = '0' * 64
+        self.assertFalse(self.valid())
+
+    def test_replay_source_epoch_must_match_proof_artifact_and_config_pin(self):
+        self.accounts['source_snapshot_epoch'] = 1200.
+        self.proof['source_snapshot_epoch'] = 1200.
+        self.publish()  # Hashes can be valid while authorization still pins the original snapshot.
+        self.assertFalse(self.valid())
+        self.accounts['source_snapshot_epoch'] = 1000.
+        self.proof['source_snapshot_epoch'] = 1000.
+        self.publish()
+        for bad in (None, True, float('nan')):
+            with self.subTest(epoch=bad):
+                self.cfg['session']['account_reconciliation_source_epoch'] = bad
+                self.assertFalse(self.valid())
+
+    def test_forged_correct_target_hash_cannot_change_replayed_realized(self):
+        self.target['realized'] += 100.
+        self.publish()  # Even a matching fresh proof hash cannot substitute another financial result.
+        self.assertFalse(self.valid())
+
+    def test_forged_idempotency_pointer_is_rejected_even_with_matching_hash(self):
+        self.target['reconciliation_replay']['accounted_totals']['v5-synthetic-a']['funds'] = '0'
+        self.publish()
+        self.assertFalse(self.valid())
+
+    def test_previous_checkpoint_and_authorization_id_are_both_bound(self):
+        self.lease['checkpoint'] = 'a' * 64
+        self.assertFalse(self.valid())
+        self.lease['checkpoint'] = self.proof['previous_checkpoint']
+        self.cfg['session']['account_reconciliation_id'] = 'other'
+        self.assertFalse(self.valid())
+
+    def test_nonidle_lease_is_never_forcibly_taken(self):
+        for field in ('owner', 'request'):
+            with self.subTest(field=field):
+                self.lease[field] = 'other-session'
+                self.assertFalse(self.valid())
+                self.lease[field] = ''
+
+    def test_proof_and_account_observation_both_must_be_fresh(self):
+        for epoch in (1399., 2001., True):
+            with self.subTest(epoch=epoch):
+                self.proof['checked_epoch'] = epoch
+                self.publish()
+                self.assertFalse(self.valid())
+        self.proof['checked_epoch'] = 1995.
+        self.accounts['collected_epoch'] = 1399.
+        self.publish()
+        self.assertFalse(self.valid())
+
+    def test_false_or_integer_fact_does_not_count_as_true(self):
+        for key in ('no_open_orders', 'stable_account', 'replay_complete', 'protected_DOGE'):
+            for value in (False, 1):
+                with self.subTest(key=key, value=value):
+                    self.proof[key] = value
+                    self.publish()
+                    self.assertFalse(self.valid())
+            self.proof[key] = True
+
+    def test_current_DOGE_protection_and_required_flag_are_enforced(self):
+        self.write_json(self.data / 'user_protected_assets.json', {'markets': []})
+        self.assertFalse(self.valid())
+        self.write_json(self.data / 'user_protected_assets.json', {'markets': ['KRW-DOGE']})
+        self.cfg['live']['user_protection_required'] = False
+        self.assertFalse(self.valid())
+
+    def test_artifact_tamper_and_traversal_are_rejected(self):
+        (self.folder / 'orders.json').write_text('[]')
+        self.assertFalse(self.valid())
+        self.publish()
+        self.proof['files']['orders'] = '../orders.json'
+        self.write_json(self.data / 'account_reconciliation.json', self.proof)
+        self.assertFalse(self.valid())
+
+    def test_pending_target_or_changed_historical_basis_is_rejected(self):
+        for key, value in (('pending_order', {'identifier': 'synthetic-pending'}),
+                           ('risk_pending_orders', {'KRW-A': {'identifier': 'synthetic'}}),
+                           ('halted', ''), ('risk_loss_offset', 0.)):
+            with self.subTest(key=key):
+                old = deepcopy(self.target.get(key))
+                self.target[key] = value
+                self.publish()
+                self.assertFalse(self.valid())
+                self.target[key] = old
+
+    def test_old_processed_plan_cannot_be_deleted(self):
+        self.target['executed'] = {}
+        self.publish()
+        self.assertFalse(self.valid())
+
+    def test_quantity_disagreement_is_not_hidden_by_proof_booleans(self):
+        self.accounts['accounts'][1]['balance'] = '6'
+        self.publish()
+        self.assertFalse(self.valid())
+
+    def test_explicit_manual_BTC_import_requires_verified_floor_and_preserves_bot_buy_counter(self):
+        manual = {'uuid': 'synthetic-manual-btc', 'market': 'KRW-BTC', 'side': 'bid',
+            'state': 'done', 'executed_volume': '1', 'paid_fee': '.05',
+            'created_at': '1970-01-01T00:24:00+00:00', 'trades': [{'uuid': 'synthetic-manual-fill',
+                'created_at': '1970-01-01T00:25:00+00:00', 'volume': '1', 'funds': '100'}]}
+        self.orders.append(manual)
+        self.accounts['accounts'].append({'currency': 'BTC', 'balance': '1', 'locked': '0'})
+        self.authorized = ['KRW-BTC']
+        self.proof['authorized_external_markets'] = self.authorized
+        self.floors = {'stop_floors': {'KRW-BTC': 95.}, 'authorized_external_markets': self.authorized}
+        self.target, report = replay.reconcile(self.source, self.orders, self.applied, 1000.,
+            {'KRW-A': 5., 'KRW-BTC': 1., 'KRW-DOGE': 9.}, {'KRW-DOGE'},
+            {'KRW-BTC': 95.}, authorized_external_markets=self.authorized)
+        self.assertTrue(report['accounting_replay_complete'])
+        self.assertEqual(self.target['bought_krw'], self.source['bought_krw'])
+        self.publish()
+        self.assertTrue(self.valid())
+        self.floors['stop_floors'] = {}
+        self.publish()
+        self.assertFalse(self.valid())
+
+
+if __name__ == '__main__':
+    unittest.main()

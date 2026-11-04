@@ -1,0 +1,283 @@
+import copy
+import json
+from pathlib import Path
+import tempfile
+import threading
+import subprocess
+import sys
+import unittest
+from unittest.mock import patch
+
+from asset_protection import Policy, ProtectionError, effective, merge
+from manual_protection import Detector
+import live
+import manual_orders
+import protection_panel
+
+
+def order(uid='manual-a',volume='1',state='done',market='KRW-A',identifier=None):
+    return {'uuid':uid,'identifier':identifier,'market':market,'side':'bid','state':state,
+            'executed_volume':volume,'paid_fee':'0','created_at':'1970-01-01T00:33:21+00:00'}
+
+
+class PolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.file=Path(self.tmp.name)/'data/user_protected_assets.json'
+        self.file.parent.mkdir()
+        self.file.write_text('{"markets":["KRW-BTC","KRW-DOGE"]}')
+        self.policy=Policy(self.file,clock=lambda:2000)
+
+    def test_manual_defaults_protected_and_release_survives_same_old_event(self):
+        self.policy.observe([order()])
+        self.assertIn('KRW-A',effective(self.policy.read()))
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.policy.observe([order()])
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.assertTrue(self.policy.read()['decisions']['KRW-A']['protected'] is False)
+
+    def test_new_manual_fill_after_release_reprotects_and_invalidates_stale_page(self):
+        self.policy.observe([order(state='wait')]); stale=self.policy.revision('A')
+        self.policy.decide('A',False,expected=stale)
+        self.policy.observe([order(volume='2',state='done')])
+        self.assertIn('KRW-A',effective(self.policy.read()))
+        with self.assertRaises(ProtectionError): self.policy.decide('A',False,expected=stale)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_unseen_order_created_before_release_protects_and_asks(self):
+        for side,market,state,volume in (('bid','KRW-A','done','1'),('ask','KRW-B','cancel','0')):
+            with self.subTest(side=side):
+                self.policy.decide(market,False,expected=self.policy.revision(market))
+                released=self.policy.revision(market)
+                row=dict(order('old-'+side,volume,state,market),side=side,created_at='1970-01-01T00:16:40+00:00')
+                self.assertEqual(self.policy.observe([row]),[market])
+                doc=self.policy.read()
+                self.assertIn(market,effective(doc));self.assertTrue(doc['manual'][market]['pending'])
+                self.assertGreater(self.policy.revision(market,doc),released)
+                with self.assertRaises(ProtectionError):self.policy.decide(market,False,expected=released)
+                self.policy.observe([row])
+                doc=self.policy.read()
+                self.assertIn(market,effective(doc));self.assertTrue(doc['manual'][market]['pending'])
+
+    def test_manual_open_and_zero_fill_cancel_both_protect(self):
+        self.policy.observe([order(volume='0',state='wait'),order('manual-b','0','cancel','KRW-B')])
+        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
+
+    def test_bot_identifier_excluded_except_explicit_user_ui_order(self):
+        row=order(identifier='v5-synthetic')
+        self.policy.observe([row]); self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.policy.observe([row],user_identifiers={'v5-synthetic'})
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_release_overrides_legacy_config_and_keep_resolves_question(self):
+        p=Policy(self.file,configured=['KRW-BTC'],clock=lambda:2000)
+        p.observe([order(market='KRW-BTC')]); p.decide('BTC',True)
+        self.assertFalse(p.read()['manual']['KRW-BTC']['pending'])
+        p.decide('BTC',False,expected=p.revision('BTC'))
+        self.assertNotIn('KRW-BTC',effective(p.read(),p.configured))
+        self.assertIn('KRW-DOGE',effective(p.read()))
+
+    def test_malformed_policy_is_never_interpreted_as_release(self):
+        self.file.write_text('{broken')
+        with self.assertRaises(ProtectionError): self.policy.read()
+        with self.assertRaises(ProtectionError): self.policy.decide('BTC',False,expected=0)
+
+    def test_writer_contention_times_out_and_stale_unheld_file_is_harmless(self):
+        other=Policy(self.file,clock=lambda:2000,lock_timeout=.05)
+        errors=[]
+        with self.policy.locked():
+            worker=threading.Thread(target=lambda:self._attempt(other,errors));worker.start();worker.join(1)
+            self.assertEqual(len(errors),1)
+            self.assertEqual(effective(self.policy.read()),{'KRW-BTC','KRW-DOGE'})
+        other.decide('A',True)
+        self.assertIn('KRW-A',effective(other.read()))
+
+    @staticmethod
+    def _attempt(policy,errors):
+        try: policy.decide('A',True)
+        except ProtectionError as e: errors.append(e)
+
+    def test_concurrent_writers_keep_both_protections(self):
+        threads=[threading.Thread(target=Policy(self.file).decide,args=(market,True)) for market in ('A','B')]
+        for t in threads:t.start()
+        for t in threads:t.join()
+        self.assertTrue({'KRW-A','KRW-B'}<=effective(self.policy.read()))
+
+    def test_handoff_honors_newer_release_and_preserves_other_protection(self):
+        old={'markets':['KRW-DOGE','KRW-BTC'],'decisions':{'KRW-BTC':{'protected':True,'at':100,'origin':'cli'}}}
+        new={'markets':['KRW-DOGE'],'decisions':{'KRW-BTC':{'protected':False,'at':200,'origin':'user_ui'}}}
+        self.assertEqual(effective(merge(old,new)),{'KRW-DOGE'})
+        old['decisions']['KRW-BTC']['at']=200
+        self.assertIn('KRW-BTC',effective(merge(old,new)))
+
+    def test_os_lock_contends_across_processes_and_recovers_after_crash(self):
+        before=self.file.read_bytes()
+        source=str(Path(__file__).resolve().parent)
+        holder_code="import sys,time;sys.path.insert(0,sys.argv[1]);from asset_protection import Policy;p=Policy(sys.argv[2]);\nwith p.locked():\n print('locked',flush=True);time.sleep(30)"
+        child=subprocess.Popen([sys.executable,'-B','-u','-c',holder_code,source,str(self.file)],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(),'locked')
+            contender="import sys;sys.path.insert(0,sys.argv[1]);from asset_protection import Policy,ProtectionError;\ntry: Policy(sys.argv[2],lock_timeout=.1).decide('A',True)\nexcept ProtectionError: print('blocked')"
+            result=subprocess.run([sys.executable,'-B','-c',contender,source,str(self.file)],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout.strip(),'blocked')
+            self.assertEqual(self.file.read_bytes(),before)
+        finally:
+            child.kill();child.wait(timeout=5);child.stdout.close();child.stderr.close()
+        self.policy.decide('A',True)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+
+class FakeClient:
+    def __init__(self):
+        self.rows=[{'currency':'A','balance':'1','locked':'0'}]
+        self.records=[];self.history_failure=False;self.account_failure=False
+    def accounts(self):
+        if self.account_failure:raise OSError('synthetic account failure')
+        return copy.deepcopy(self.rows)
+    def orders(self,market=None):
+        if self.history_failure:raise OSError('synthetic history failure')
+        return copy.deepcopy(self.records)
+
+
+class DetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.folder=Path(self.tmp.name)/'data/live';self.folder.mkdir(parents=True)
+        self.file=self.folder.parent/'user_protected_assets.json';self.file.write_text('{"markets":[]}')
+        self.policy=Policy(self.file,clock=lambda:2000)
+        self.api=FakeClient();self.detector=Detector(self.policy,self.folder,self.api,clock=lambda:2000)
+        self.state={'positions':{'KRW-A':{'qty':1.,'cost':100.,'stop':90.,'entry':100.}}}
+
+    def test_unknown_external_quantity_and_mixed_holding_protect_whole_market(self):
+        self.api.rows[0]['balance']='2'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_direct_sell_even_with_unchanged_balance_is_seen_from_orders(self):
+        self.api.records=[dict(order(),side='ask')]
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+
+    def test_release_persists_for_same_external_balance_new_deposit_reprotects(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.detector.scan(self.state,'KRW-A')
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.api.rows[0]['balance']='3'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A')
+
+    def test_own_pending_fill_does_not_become_unknown_manual_inventory(self):
+        self.api.rows[0]['balance']='2'
+        self.state['pending_order']={'market':'KRW-A','side':'bid'}
+        self.detector.scan(self.state)
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+
+    def test_history_failure_blocks_buy_and_keeps_proven_unchanged_risk_exit_only(self):
+        self.detector.scan(self.state,'KRW-A')
+        self.api.history_failure=True
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',amount=10000)
+        self.assertEqual(self.detector.scan(self.state,'KRW-A',risk=True,amount=5),1.)
+        self.api.rows[0]['balance']='.5'
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
+
+    def test_accounts_failure_blocks_protective_submission(self):
+        self.detector.scan(self.state,'KRW-A');self.api.account_failure=True
+        with self.assertRaises(ProtectionError):self.detector.scan(self.state,'KRW-A',risk=True,amount=1)
+
+    def test_deposit_while_already_protected_invalidates_old_release_revision(self):
+        self.api.rows[0]['balance']='2'; self.detector.scan(self.state)
+        old=self.policy.revision('A')
+        self.api.rows[0]['balance']='3'; self.detector.scan(self.state)
+        self.assertGreater(self.policy.revision('A'),old)
+        with self.assertRaises(ProtectionError):self.policy.decide('A',False,expected=old)
+
+    def test_other_market_scan_cannot_consume_unseen_deposit_baseline(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.api.rows[0]['balance']='3';self.detector.scan(self.state,'KRW-X')
+        self.detector.scan(self.state)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_own_buy_does_not_reprotect_but_new_deposit_does(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.state['positions']['KRW-A']['qty']=2;self.api.rows[0]['balance']='3'
+        self.detector.scan(self.state)
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+        self.api.rows[0]['balance']='4';self.detector.scan(self.state)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+    def test_withdrawal_deficit_reprotects_and_signed_baseline_validates(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.api.rows[0]['balance']='.5';self.detector.scan(self.state)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+        self.assertEqual(self.policy.read()['external_quantities']['KRW-A'],'-0.5')
+
+    def test_released_inherited_lot_becoming_known_does_not_false_reprotect(self):
+        self.state['positions']['KRW-A']['inherited']=True;self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.state['positions']['KRW-A']={'qty':2};self.api.rows[0]['balance']='2'
+        self.detector.scan(self.state)
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+
+    def test_pending_own_fill_does_not_consume_external_residual_baseline(self):
+        self.api.rows[0]['balance']='2';self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.state['pending_order']={'market':'KRW-A','side':'bid'}
+        self.api.rows[0]['balance']='3';self.detector.scan(self.state)
+        self.assertEqual(float(self.policy.read()['external_quantities']['KRW-A']),1.)
+        self.state['pending_order']=None;self.state['positions']['KRW-A']['qty']=2
+        self.detector.scan(self.state)
+        self.assertNotIn('KRW-A',effective(self.policy.read()))
+
+    def test_full_withdrawal_with_missing_account_row_resets_residual(self):
+        self.state['positions']={};self.detector.scan(self.state)
+        self.policy.decide('A',False,expected=self.policy.revision('A'))
+        self.api.rows=[];self.detector.scan(self.state)
+        self.assertEqual(self.policy.read()['external_quantities']['KRW-A'],'0')
+        self.api.rows=[{'currency':'A','balance':'1','locked':'0'}];self.detector.scan(self.state)
+        self.assertIn('KRW-A',effective(self.policy.read()))
+
+
+class EndpointAndPanelTests(unittest.TestCase):
+    def test_null_origin_and_action_allowlist_and_revision_validation(self):
+        srv=manual_orders.ManualOrderServer(8765,token='synthetic',allowed_kinds={'protect','unprotect'})
+        body=lambda **kw:json.dumps(dict(token='synthetic',market='KRW-BTC',confirm=True,**kw)).encode()
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'protect')[0],200)
+        self.assertEqual(srv.check('127.0.0.1:8765','https://example.com',body(),'protect')[0],403)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(krw=5000),'buy')[0],403)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(),'unprotect')[0],400)
+        self.assertEqual(srv.check('127.0.0.1:8765','null',body(revision=0),'unprotect')[0],200)
+
+    def test_protection_panel_has_default_question_and_explicit_release_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'protection_ui':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            worker.protection_policy.observe([order(market='KRW-BTC')])
+            worker.d['positions']['KRW-BTC']={'qty':1,'cost':100,'stop':90}
+            page=protection_panel.render(worker,{'KRW-BTC'}, {'port':8765,'token':'</script><bad>'})
+            self.assertIn('기본 자동 보호',page);self.assertIn('보호 중입니다. 보호를 해제할까요?',page)
+            self.assertNotIn('보호를 유지할까요?',page);self.assertIn('자동 해제는 없',page)
+            self.assertIn('보호 해제 확인',page);self.assertIn('봇 장부 보유 1개',page)
+            self.assertNotIn('</script><bad>',page)
+            self.assertIn('revision',page)
+
+    def test_stale_release_fails_without_order_submission(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            worker.protection_policy.observe([order()]);old=worker.protection_policy.revision('A')
+            worker.protection_policy.observe([order('manual-new','2')])
+            with patch.object(live.upbit,'market_sell',side_effect=AssertionError('no order')):
+                with self.assertRaises(ProtectionError):worker.set_user_protection('KRW-A',False,old)
+            self.assertTrue(worker.is_protected('KRW-A'))
+
+    def test_order_boundary_provenance_blocks_before_durable_intent_or_post(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'auto_manual_protection':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            with patch.object(worker,'scan_manual_orders',side_effect=live.ProtectedAssetError('manual protected')), \
+                 patch.object(worker,'save') as save, patch.object(live.upbit,'market_sell') as sell:
+                with self.assertRaises(live.ProtectedAssetError):worker._trade('ask','KRW-A',1,'stop',risk=True)
+            save.assert_not_called();sell.assert_not_called();self.assertFalse(worker.d.get('pending_order'))

@@ -90,6 +90,23 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(second.acquire(confirm=lambda: self.fail('같은 PC 재시작은 확인창을 띄우지 않는다')))
         self.assertEqual(self.store.state['owner'], second.token)
 
+    def test_claim_that_looks_failed_but_landed_is_still_ours(self):
+        g = self.guard(pc='home')
+        original = self.store.cas
+        def lands_then_times_out(version, state):
+            original(version, state)
+            raise sg.SessionUnverified('timeout after the push landed')
+        with patch.object(self.store, 'cas', side_effect=lands_then_times_out):
+            self.assertTrue(g.acquire())
+        self.assertTrue(g.acquired)
+
+    def test_passive_guard_adopts_a_record_that_is_already_its_own(self):
+        g = self.guard(pc='home')
+        self.store.state = {'owner': g.token, 'pc': 'HOME', 'request': '', 'expires': 5000, 'checkpoint': ''}
+        g.check_now()
+        self.assertTrue(g.acquired)
+        self.assertEqual(g.status, 'owner')
+
     def test_other_pc_request_makes_owner_yield_without_exiting(self):
         old = self.guard(); old.acquire()
         self.store.state = dict(self.store.state, request='pcZ:new', pc='home')

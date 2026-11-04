@@ -276,13 +276,24 @@ class SessionGuard:
             self.required_checkpoint = ''
         self.assert_transition_clear()
         claim = self.record()
-        if not self.store.cas(oid, claim):
+        try:
+            won = self.store.cas(oid, claim)
+        except SessionUnverified:
+            won = self._landed(claim)  # 푸시가 '시간 초과'로 보여도 GitHub에는 반영됐을 수 있다: 다시 읽어 확인
+        if not won:
             raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
         self.lease_until = claim['expires']
         self.acquired = True
         self.status, self.last_ok, self.blind_since, self.other_pc = 'owner', self.clock(), 0.0, ''
         self.assert_transition_clear()
         return True
+
+    def _landed(self, claim):
+        try:
+            _, state = self.store.read()
+        except Exception:
+            return False
+        return state.get('owner') == claim['owner'] and state.get('updated') == claim['updated']
 
     def _same_pc(self, owner):
         return isinstance(owner, str) and owner.startswith(self.pc + ':')
@@ -369,7 +380,11 @@ class SessionGuard:
                     self._give_up(state, '다른 PC가 실행권을 요청하거나 가져가 이 PC는 주문을 멈춥니다.')
                 else:
                     self._note_state(state)
-                    self._renew(oid)
+                    if self.clock() >= self.lease_until - 120:  # 마지막 갱신 뒤 60초가 지났을 때만(쓰기 횟수를 늘리지 않는다)
+                        self._renew(oid)
+            elif state.get('owner') == self.token and not state.get('request'):
+                self.acquired = True   # 시작 때 '실패'로 보였지만 실제로는 기록이 내 것으로 반영된 경우: 이어받는다
+                self._note_state(state)
             else:
                 self._note_state(state)
             return self.status

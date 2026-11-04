@@ -36,3 +36,4 @@
 - 권한: docs/ai-history/permissions.md · 전체 인계(길다): HANDOFF.md · 이전 판: docs/ai-history/latest-archive/
 
 - 사용자 요청에 따른 오후 리포트 전달: [거래 평가](2026-11-04-afternoon-exchange-review.md) · [Claude 실제 수신 답변/미확정 검토점](2026-11-04-afternoon-report-delivery.md). 별도 단발 Claude가 전문 수신 확인; 기존 IDE 세션 열람·전략 배포 합의는 아님.
+- 사용자 요청 BMT 통제 진단(16:59): [실제 잔고·제어·손절 근거](2026-11-04-bmt-control-diagnosis.md). 봇 실행/제어 ping 확인, 인수 후 적용선40.2055는 평단43.1 대비 -6.72%. 16:47~48 선 이하49체결(최장0.642초)과 봇 관측저가40.3의 차이 확인. 원래 위험 기준 승계와 순간 이탈 감지가 검토 우선. 주문/설정 미변경.

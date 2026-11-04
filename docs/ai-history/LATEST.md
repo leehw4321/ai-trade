@@ -33,3 +33,5 @@
 ## 5. 더 읽을 곳 (필요할 때만)
 - 결정 근거·ChatGPT 원문: docs/ai-history/originals/, 2026-11-04-*.md, 코인 폴더 docs/ai-history/2026-11-03-claude-verification.md
 - 권한: docs/ai-history/permissions.md · 전체 인계(길다): HANDOFF.md · 이전 판: docs/ai-history/latest-archive/
+
+- 사용자 요청에 따른 오후 리포트 전달: [거래 평가](2026-11-04-afternoon-exchange-review.md) · [Claude 실제 수신 답변/미확정 검토점](2026-11-04-afternoon-report-delivery.md). 별도 단발 Claude가 전문 수신 확인; 기존 IDE 세션 열람·전략 배포 합의는 아님.

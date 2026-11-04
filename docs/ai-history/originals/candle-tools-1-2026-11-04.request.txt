@@ -1,0 +1,284 @@
+﻿당신은 업비트 자동거래 봇 V5의 동등한 검토자(ChatGPT)입니다. 도구 없음, 아래 자료만 있습니다. 한국어, 단발 코드 검증(사용자 지시 작업의 다음 단계)입니다. 담당: 작성 Claude / 검증 ChatGPT. 동의·수정요구·반대를 구분하고, 미래정보 누출·결측·순위 재현성 세 가지를 중점 검증하세요. 이 도구는 실거래와 무관한 연구용입니다.
+
+[수집 결과(실행 후 점검)] 299개 KRW 종목 180일(실제 범위 2026-05-03 21:30 ~ 11-04 09:30 KST 눈금), 429MB, 실패 0. 종목당 봉 수 최소 736/중앙 15,000/최대 17,400, 자체 구간 대비 존재 비율 중앙 0.898(거래가 없던 봉은 업비트가 안 줌: 결측으로 둠). 시점별 유니버스(상위30, 직전 96봉 거래대금 합, 90봉 이상 존재 조건): 시작+30일 적격 159종목, 중간 83, 끝 75. 최근 봉 기준 재구성 상위30과 거래소 24h 거래대금 상위30(스테이블 5종 제외)의 겹침 29/30. 같은 T 두 번 계산 동일(결정성). T 이후 봉의 거래대금을 1000배 바꿔도 T 시점 순위 불변(누출 점검 통과).
+[알려진 아티팩트(내가 인지)] ① 종목을 순차 수집해서 종목별 '마지막 봉' 시각이 08:17~09:30으로 다름(86개 종목의 마지막 봉이 전체 끝보다 1시간 이상 이르다) → 최근 구간 분석은 공통 컷오프(예: 수집 시작 시각 이전)로 잘라야 한다. ② 시작 쪽은 200봉 페이지 단위라 일부 종목이 180일보다 조금 더 과거까지 있다. ③ 마켓 목록은 현재 상장 종목만이라 상장폐지 종목이 빠진 생존 편향이 남는다(복원 불가). ④ 'end' 시점 적격 75개는 ①의 영향이 섞여 있을 수 있다.
+
+[질문]
+1. pit_universe.universe_at가 '마감 ≤ T' 봉만 쓰는지, 경계(마지막 봉 시작 = T−BAR) 해석, 시간대/에포크 변환(KST 벽시계를 UTC 에포크처럼 사용)이 안전한지.
+2. 결측 처리(min_bars=90/96, 결측을 0으로 채우지 않음)와 상장 직후·정지 종목·스테이블 처리의 허점.
+3. collect_candles.py의 정확성: 업비트 candles `to` 파라미터(배타적/UTC)와 페이지네이션 종료 조건, 이어받기·과거 확장 로직, 중복·누락 가능성, 종목별 수집 시각 편차 처리.
+4. 추가로 필요한 검증/시험(실제 데이터 기반 점검 포함)과, 프로토콜 동결 전에 반드시 해결할 것을 우선순위로.
+5. 이 도구가 '검증 완료'로 불러도 되는 조건과 현재 판정. 마지막 줄 '판정: 동의|수정 후 동의|반대'. 22줄 이내.
+
+[collect_candles.py]"""업비트 공개 API 15분봉 장기 수집기 (읽기 전용·이어받기 가능).
+
+개인 키·계좌·주문을 전혀 쓰지 않는다. 시점별 거래대금 순위를 재구성하는 검증(pit_universe.py)의 원자료를 만든다.
+종목마다 한 파일(JSON Lines)이며 한 줄이 한 봉이다: {"t": 봉 시작 KST, "o","h","l","c","v","val"}.
+거래가 없던 봉은 업비트가 돌려주지 않으므로 결측으로 남는다(채우지 않는다).
+상장폐지 종목은 마켓 목록에 없어 수집할 수 없다 → 생존 편향이 남는다. 결과 해석에 반드시 밝힌다.
+
+사용: python collect_candles.py --out <폴더> [--days 180] [--markets KRW-BTC,KRW-ETH]
+"""
+import argparse
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+API = 'https://api.upbit.com/v1'
+KST = timezone(timedelta(hours=9))
+PAUSE = 0.12  # 공개 시세 호출 간격(초). 업비트 한도(초당 10회)보다 넉넉하게
+
+
+def get(url, retries=6):
+    delay = 1.0
+    for _ in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=15) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429 or e.code >= 500:
+                time.sleep(delay); delay = min(delay * 2, 30); continue
+            if e.code == 404:
+                return None
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            time.sleep(delay); delay = min(delay * 2, 30)
+    raise RuntimeError('조회 실패: ' + url.split('?')[0])
+
+
+def list_markets():
+    rows = get(f'{API}/market/all?is_details=false') or []
+    return sorted(r['market'] for r in rows if r['market'].startswith('KRW-'))
+
+
+def load_existing(path):
+    if not path.exists():
+        return {}
+    out = {}
+    for line in path.read_text(encoding='utf-8').splitlines():
+        try:
+            row = json.loads(line)
+            out[row['t']] = row
+        except (ValueError, KeyError):
+            continue  # 쓰는 도중 끊긴 마지막 줄은 버리고 다시 받는다
+    return out
+
+
+def save(path, rows):
+    tmp = path.with_name(path.name + '.tmp')
+    with tmp.open('w', encoding='utf-8') as f:
+        for t in sorted(rows):
+            f.write(json.dumps(rows[t], ensure_ascii=False, separators=(',', ':')) + '\n')
+    tmp.replace(path)
+
+
+FMT = '%Y-%m-%dT%H:%M:%S'
+
+
+def collect_market(market, out_dir, since):
+    path = out_dir / f'{market}.jsonl'
+    rows = load_existing(path)
+    since_kst = since.astimezone(KST).strftime(FMT)
+
+    def sweep(upper, stop_at=None):
+        """upper(UTC)부터 과거로 200개씩. 이미 가진 봉(stop_at)이나 since에 닿으면 멈춘다."""
+        to = upper
+        while True:
+            batch = get(f"{API}/candles/minutes/15?market={market}&count=200&to={to.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+            time.sleep(PAUSE)
+            if not batch:
+                return
+            for c in batch:
+                t = c['candle_date_time_kst']
+                rows[t] = {'t': t, 'o': c['opening_price'], 'h': c['high_price'], 'l': c['low_price'], 'c': c['trade_price'],
+                           'v': c['candle_acc_trade_volume'], 'val': c['candle_acc_trade_price']}
+            earliest = batch[-1]['candle_date_time_kst']
+            to = datetime.fromisoformat(batch[-1]['candle_date_time_utc']).replace(tzinfo=timezone.utc)
+            if len(batch) < 200 or earliest <= since_kst or (stop_at is not None and earliest <= stop_at):
+                return
+
+    newest = max(rows) if rows else None
+    oldest = min(rows) if rows else None
+    sweep(datetime.now(timezone.utc), stop_at=newest)  # 최신 쪽 이어받기(처음이면 since까지)
+    if oldest is not None and oldest > since_kst:  # 과거 쪽 확장
+        sweep(datetime.fromisoformat(oldest).replace(tzinfo=KST).astimezone(timezone.utc))
+    save(path, rows)
+    return len(rows)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--out', required=True)
+    ap.add_argument('--days', type=int, default=180)
+    ap.add_argument('--markets', default='')
+    a = ap.parse_args()
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    since = datetime.now(timezone.utc) - timedelta(days=a.days)
+    markets = [m for m in a.markets.split(',') if m] or list_markets()
+    print(f'{len(markets)}개 종목, {a.days}일, 출력 {out}', flush=True)
+    done = 0
+    for m in markets:
+        try:
+            n = collect_market(m, out, since)
+        except Exception as e:  # 한 종목의 실패가 전체를 멈추지 않게 한다
+            print(f'{m} 실패: {type(e).__name__}: {str(e)[:80]}', flush=True)
+            continue
+        done += 1
+        print(f'[{done}/{len(markets)}] {m} {n}봉', flush=True)
+    print('완료', flush=True)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+
+[pit_universe.py]
+"""시점별(point-in-time) 거래대금 상위 N 유니버스 재구성. 미래 봉을 절대 쓰지 않는다.
+
+판단 시각 T(분 단위 에포크, '봉 마감 시각')에 대해, 그 시각까지 완전히 마감된 봉만 사용한다.
+봉의 시작 시각 s에 대해 마감 = s + 15분이므로 마감 ≤ T 인 봉만 대상이다.
+순위 = 직전 `window`(기본 96)개 시각 슬롯의 거래대금(val) 합. 슬롯 중 `min_bars` 이상 봉이 있는 종목만 후보(상장 직후·결측 종목 제외).
+스테이블 코인 등 제외 목록은 V5 전략과 같은 값을 쓴다.
+"""
+import json
+from calendar import timegm
+from datetime import datetime
+from pathlib import Path
+
+BAR = 15 * 60
+EXCLUDE = {'KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'}
+
+
+def to_epoch(kst_text):
+    """'YYYY-MM-DDTHH:MM:SS'(KST 벽시계)를 같은 눈금의 정수 초로. 시간대 변환 없이 일관된 눈금만 필요하다."""
+    return timegm(datetime.fromisoformat(kst_text).timetuple())
+
+
+def load_dir(folder):
+    """{종목: {봉 시작 에포크: (o, h, l, c, val)}}"""
+    data = {}
+    for path in sorted(Path(folder).glob('KRW-*.jsonl')):
+        bars = {}
+        for line in path.read_text(encoding='utf-8').splitlines():
+            try:
+                r = json.loads(line)
+                bars[to_epoch(r['t'])] = (r['o'], r['h'], r['l'], r['c'], r['val'])
+            except (ValueError, KeyError, TypeError):
+                continue
+        if bars:
+            data[path.stem] = bars
+    return data
+
+
+def universe_at(data, T, top_n=30, window=96, min_bars=90, exclude=EXCLUDE):
+    """T(봉 마감 시각, 에포크 초) 시점의 상위 top_n 종목 [(종목, 거래대금합)] 내림차순.
+
+    미래 정보 금지: 시작 시각 s가 T - BAR 이하인(=마감이 T 이하인) 봉만 읽는다."""
+    last_start = T - BAR
+    first_start = last_start - (window - 1) * BAR
+    rows = []
+    for market, bars in data.items():
+        if market in exclude:
+            continue
+        total, count = 0.0, 0
+        for s in range(first_start, last_start + 1, BAR):
+            b = bars.get(s)
+            if b is not None:
+                total += b[4]
+                count += 1
+        if count >= min_bars:
+            rows.append((market, total))
+    rows.sort(key=lambda x: (-x[1], x[0]))
+    return rows[:top_n]
+
+
+def completeness(data, start, end):
+    """각 종목의 [start, end) 봉 개수 비율. 결측 점검용."""
+    slots = (end - start) // BAR
+    return {m: sum(1 for s in range(start, end, BAR) if s in bars) / slots for m, bars in data.items()}
+
+[test_pit_universe.py (7개 통과)]
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pit_universe as pit
+
+B = pit.BAR
+T0 = 1_700_000_100 // B * B  # 임의의 봉 경계
+
+
+def series(start, n, val, price=100.0):
+    return {start + i * B: (price, price, price, price, val) for i in range(n)}
+
+
+class NoLookahead(unittest.TestCase):
+    def test_future_volume_never_enters_the_ranking(self):
+        T = T0 + 200 * B  # 판단 시각(봉 마감)
+        quiet_then_spike = series(T - 96 * B, 96, 1.0)  # 마감 ≤ T 인 96개는 조용함
+        quiet_then_spike.update(series(T, 50, 1e12))  # T 이후 봉에서 폭증: 보여서는 안 된다
+        steady = series(T - 96 * B, 96, 5.0)
+        data = {'KRW-SPIKE': quiet_then_spike, 'KRW-STEADY': steady}
+        ranked = pit.universe_at(data, T, top_n=2)
+        self.assertEqual([m for m, _ in ranked], ['KRW-STEADY', 'KRW-SPIKE'])
+        self.assertAlmostEqual(dict(ranked)['KRW-SPIKE'], 96.0)
+
+    def test_the_bar_closing_exactly_at_T_is_included_and_the_next_is_not(self):
+        T = T0 + 300 * B
+        bars = series(T - 96 * B, 96, 1.0)  # 마지막 봉 시작 = T - BAR → 마감 = T
+        data = {'KRW-A': dict(bars)}
+        self.assertAlmostEqual(dict(pit.universe_at(data, T, top_n=1))['KRW-A'], 96.0)
+        data['KRW-A'][T] = (1, 1, 1, 1, 1000.0)  # 마감이 T + BAR: 미래
+        self.assertAlmostEqual(dict(pit.universe_at(data, T, top_n=1))['KRW-A'], 96.0)
+        self.assertAlmostEqual(dict(pit.universe_at(data, T + B, top_n=1))['KRW-A'], 96.0 - 1.0 + 1000.0)
+
+    def test_recent_listings_and_gappy_markets_are_excluded(self):
+        T = T0 + 300 * B
+        data = {'KRW-OLD': series(T - 96 * B, 96, 1.0),
+                'KRW-NEW': series(T - 10 * B, 10, 1e9),  # 상장 직후: 90봉 미만
+                'KRW-GAPPY': {s: v for i, (s, v) in enumerate(series(T - 96 * B, 96, 1.0).items()) if i % 3}}
+        self.assertEqual([m for m, _ in pit.universe_at(data, T)], ['KRW-OLD'])
+
+    def test_stablecoins_excluded_and_ties_are_deterministic(self):
+        T = T0 + 300 * B
+        data = {'KRW-USDT': series(T - 96 * B, 96, 1e9), 'KRW-B': series(T - 96 * B, 96, 2.0), 'KRW-A': series(T - 96 * B, 96, 2.0)}
+        self.assertEqual([m for m, _ in pit.universe_at(data, T)], ['KRW-A', 'KRW-B'])
+
+    def test_top_n_limits_and_orders(self):
+        T = T0 + 300 * B
+        data = {f'KRW-C{i}': series(T - 96 * B, 96, float(i + 1)) for i in range(40)}
+        ranked = pit.universe_at(data, T, top_n=30)
+        self.assertEqual(len(ranked), 30)
+        self.assertEqual(ranked[0][0], 'KRW-C39')
+        self.assertEqual(ranked[-1][0], 'KRW-C10')
+
+
+class Loader(unittest.TestCase):
+    def test_roundtrip_and_bad_lines_are_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            lines = [json.dumps({'t': '2026-11-03T00:00:00', 'o': 1, 'h': 2, 'l': 0.5, 'c': 1.5, 'v': 3, 'val': 4.5}),
+                     '{"t": "2026-11-03T00:15:00", "o": 1', 'garbage', json.dumps({'x': 1})]
+            (Path(d) / 'KRW-X.jsonl').write_text('\n'.join(lines), encoding='utf-8')
+            data = pit.load_dir(d)
+            self.assertEqual(list(data), ['KRW-X'])
+            bars = data['KRW-X']
+            self.assertEqual(len(bars), 1)
+            (b,) = bars.values()
+            self.assertEqual(b, (1, 2, 0.5, 1.5, 4.5))
+
+    def test_epoch_grid_is_consistent_for_15_minute_steps(self):
+        a = pit.to_epoch('2026-11-03T00:00:00')
+        self.assertEqual(pit.to_epoch('2026-11-03T00:15:00') - a, B)
+        self.assertEqual(pit.to_epoch('2026-11-04T00:00:00') - a, 86400)
+
+
+if __name__ == '__main__':
+    unittest.main()
+

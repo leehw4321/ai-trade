@@ -56,6 +56,15 @@ def replay(rows, since):
     return closed, open_pos
 
 
+def ledger_positions(path):
+    """현재 보유의 권위 있는 출처는 봇 장부(live.json)다. 주문 기록은 낮에 복구된 체결이 빠져 유령 보유를 만들 수 있다."""
+    try:
+        positions = json.loads(Path(path).read_text(encoding='utf-8')).get('positions', {})
+        return {m: (float(p['qty']), float(p['cost'])) for m, p in positions.items() if float(p.get('qty', 0)) > 0}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def prices(markets):
     if not markets:
         return {}
@@ -96,7 +105,11 @@ def main(argv=None):
     since = datetime.fromisoformat(a.since)
     since = since if since.tzinfo else since.replace(tzinfo=KST)
     rows = load(Path(a.app) / 'data' / 'live' / 'orders.jsonl')
-    closed, open_pos = replay(rows, since)
+    closed, replayed_open = replay(rows, since)
+    open_pos = ledger_positions(Path(a.app) / 'data' / 'live' / 'live.json')
+    if open_pos is None:
+        open_pos = replayed_open
+        print('경고: live.json을 읽지 못해 주문 기록 재생으로 보유를 추정했다. 복구 체결 누락으로 실제와 다를 수 있다.')
     try:
         px = prices([m for m in open_pos])
     except Exception:

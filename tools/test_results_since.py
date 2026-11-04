@@ -54,5 +54,18 @@ class Replay(unittest.TestCase):
         self.assertIn('이익 1 / 손실 0', text)
 
 
+class LedgerHoldings(unittest.TestCase):
+    def test_holdings_come_from_the_ledger_not_from_replaying_orders(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'live.json'
+            p.write_text(json.dumps({'positions': {'KRW-A': {'qty': 3.0, 'cost': 900.0}, 'KRW-GONE': {'qty': 0, 'cost': 0}}}), encoding='utf-8')
+            self.assertEqual(rs.ledger_positions(p), {'KRW-A': (3.0, 900.0)})
+            self.assertIsNone(rs.ledger_positions(Path(d) / 'missing.json'))
+            p.write_text('{', encoding='utf-8')
+            self.assertIsNone(rs.ledger_positions(p))
+
+
 if __name__ == '__main__':
     unittest.main()

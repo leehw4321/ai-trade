@@ -49,13 +49,19 @@ def utc(ts):
 
 
 def ranking_rows(ranking, held, warned, p, esc=html.escape):
-    """순위표 행. 바탕색: 보유=하늘색, 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
-    매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목."""
+    """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
+    매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
+    warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
+    경보 이유를, 불가하면 '매수 불가(경보 이유)'를 적는다."""
     out, want, scan, picked = [], p.entry_want or p.entry_top, p.entry_scan or p.entry_top, 0
+    info = warned if isinstance(warned, dict) else {m: {'trade_blocked': True, 'warning_reasons': []} for m in warned}
     for r in ranking:
         m, rs, rank = r['market'], r['rs'], r['rank']
-        if m in warned:
-            cls, tag = 'rk-alert', '보유·경보' if m in held else '경보'
+        w = info.get(m)
+        reasons = '·'.join((w or {}).get('warning_reasons') or []) or '경보'
+        note = f" · 경보: {reasons}(매수 가능)" if w and not w.get('trade_blocked', True) else ''
+        if w and w.get('trade_blocked', True):
+            cls, tag = 'rk-alert', ('보유 · ' if m in held else '') + f'매수 불가({reasons})'
         elif m in held:
             cls, tag = 'rk-held', '보유'
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
@@ -66,8 +72,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape):
             cls, tag = 'rk-watch', '관찰'
         else:
             cls, tag = '', ''
+        tag = (tag + note) if tag else note.lstrip(' ·')
         out.append(f"<tr class='{cls}'><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
-                   f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{tag}</td></tr>")
+                   f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}</td></tr>")
     return ''.join(out)
 
 
@@ -414,7 +421,7 @@ class Bot:
                 self.markets = upbit.krw_markets()
             except Exception:
                 pass
-        warned = {m for m, info in (self.markets or {}).items() if info.get('warning')}
+        warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],
                         key=lambda x: x['time'])[-14:][::-1]
@@ -453,7 +460,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</div>
 {blocks}
 <div class=grid>
-<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>경보 종목(진입 불가)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류)</span> · 매수 후보: 상승률 0~{p.chase_rs_cap:.0%}·보유/경보/재진입 대기 아님, {p.entry_scan or p.entry_top}위 안에서 {p.entry_want or p.entry_top}종목</div></section>
+<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>매수 불가 경보(이유 표시)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류)</span> · 매수 후보: 상승률 0~{p.chase_rs_cap:.0%}·보유/매수 불가 경보/재진입 대기 아님(거래량·입금량 급증, 가격 급등락 경보는 매수 가능), {p.entry_scan or p.entry_top}위 안에서 {p.entry_want or p.entry_top}종목</div></section>
 <section><h2>운영 기록</h2><ul>{ev}</ul></section>
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>

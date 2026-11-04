@@ -124,6 +124,17 @@ def adopt():
     say('계좌 인수 완료: ' + out.splitlines()[0][:200])
 
 
+def apply_protection_principle():
+    """사용자 보호 원칙(보유 중·직접 거래·5,000원 초과만)대로 보호 목록을 맞춘다. 실패하면 봇을 시작하지 않는다."""
+    code, out = run([str(PY), 'pnl.py'], APP)  # 체결 기록 최신화(읽기 전용)
+    if code:
+        raise RuntimeError('체결 기록 갱신 실패: ' + out[-300:])
+    code, out = run([str(PY), str(REPO / 'tools' / 'protection_principle.py'), '--app', str(APP), '--apply'], REPO)
+    if code:
+        raise RuntimeError('보호 원칙 적용 실패: ' + out[-300:])
+    say('보호 목록: ' + out.strip().splitlines()[-1])
+
+
 def start_bot():
     for name in ('stop.txt', 'stop_shadow.txt', '중지.txt'):
         (APP / name).unlink(missing_ok=True)
@@ -162,7 +173,8 @@ def main():
     same = bool(st.get('checkpoint')) and st.get('checkpoint') == local_hash()
     plan = ['최신 코드 받기·실행본 갱신', '운용 설정 맞추기',
             '다른 PC 봇에 양도 요청' if other else '다른 PC 실행 없음',
-            '이 PC 장부 그대로 이어감' if same else '현재 계좌 전체를 새 기준으로 인수', '봇·그림자·계좌 조회 시작']
+            '이 PC 장부 그대로 이어감' if same else '현재 계좌 전체를 새 기준으로 인수',
+            '보호 목록을 사용자 원칙대로 맞춤(보유 중·직접 거래·5,000원 초과만)', '봇·그림자·계좌 조회 시작']
     if a.check:
         print('\n'.join(f'{i}. {x}' for i, x in enumerate(plan, 1)))
         return
@@ -186,6 +198,7 @@ def main():
             align_config(enabled=True)
         else:
             adopt()
+        apply_protection_principle()
         ok = start_bot()
         say('봇 시작' if ok else '봇 시작 확인 실패')
         os.startfile(APP / 'data' / 'status.html')

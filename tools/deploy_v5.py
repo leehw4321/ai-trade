@@ -11,6 +11,9 @@
 - 재시작 후 상태 화면이 새로 만들어지지 않거나 오류가 보이면 백업으로 되돌리고 다시 시작한다.
 - 감시 모드(--watch)는 사용자가 승인한 커밋만 배포한다. 승인은 `tools/APPROVED_COMMIT` 파일에 커밋 해시를 적는 것이다.
   배포를 잠시 막으려면 `tools/deploy_pause.txt` 파일을 만든다.
+- 봇 고정 PC 운영(2026-11-04): 감시 모드는 1분마다 GitHub에서 새 커밋을 받는다(git pull --ff-only, 저장소가 깨끗할 때만).
+  다른 PC에서 승인할 수 있도록, 승인 파일의 커밋과 지금 HEAD의 v5 폴더 내용이 같으면 승인으로 본다(승인 파일을 커밋하면 HEAD가 바뀌기 때문).
+  승인 파일 둘째 줄부터 `tools/patches/xxx.json`을 적으면 그 설정 조각도 함께 적용한다. 같은 승인은 한 번만 적용한다(data/deploy_applied.txt).
 """
 import argparse
 import datetime as dt
@@ -225,16 +228,63 @@ def v5_clean():
     return not r.stdout.strip()
 
 
+def approval():
+    """승인 파일: 첫 단어 = 커밋, 둘째 줄부터 = 함께 적용할 설정 조각 경로."""
+    if not APPROVAL.exists():
+        return None, []
+    lines = [x.strip() for x in APPROVAL.read_text(encoding='utf-8').strip().splitlines() if x.strip()]
+    return (lines[0].split()[0] if lines else None), lines[1:]
+
+
+def v5_tree(rev):
+    r = subprocess.run(['git', 'rev-parse', rev + ':v5'], cwd=ROOT, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def approved(head_hash):
-    return APPROVAL.exists() and APPROVAL.read_text(encoding='utf-8').strip().split()[:1] == [head_hash]
+    commit, _ = approval()
+    if not commit:
+        return False
+    if commit == head_hash:
+        return True
+    tree = v5_tree(commit)
+    return bool(tree) and tree == v5_tree(head_hash)
+
+
+def pull():
+    """저장소가 깨끗할 때만 GitHub의 새 커밋을 받는다(빨리 감기만)."""
+    dirty = subprocess.run(['git', 'status', '--porcelain'], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    if dirty:
+        return False
+    r = subprocess.run(['git', 'pull', '--ff-only', '--quiet'], cwd=ROOT, capture_output=True, text=True, timeout=60,
+                       env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+    return r.returncode == 0
+
+
+def pending_patches(app=None):
+    """아직 적용하지 않은 승인의 설정 조각을 합친다."""
+    app = app or APP
+    commit, paths = approval()
+    marker = app / 'data' / 'deploy_applied.txt'
+    if not commit or not paths or (marker.exists() and marker.read_text(encoding='utf-8').strip() == commit):
+        return commit, None
+    merged = {}
+    for p in paths:
+        for section, values in json.loads((ROOT / p).read_text(encoding='utf-8-sig')).items():
+            merged.setdefault(section, {}).update(values)
+    return commit, merged
 
 
 def watch():
     log('감시 시작: 승인된 커밋만 자동 배포 (tools/APPROVED_COMMIT). 중지: Ctrl+C, 일시 정지: tools/deploy_pause.txt')
     while True:
         try:
-            if not PAUSE.exists() and sy.differences() and v5_clean() and approved(head()):
-                deploy('감시: 승인 커밋 ' + head()[:7])
+            pull()
+            commit, patch = pending_patches()
+            if not PAUSE.exists() and (sy.differences() or patch) and v5_clean() and approved(head()):
+                code = deploy('감시: 승인 커밋 ' + (commit or head())[:7], config_patch=patch)
+                if code == 0 and commit:
+                    (APP / 'data' / 'deploy_applied.txt').write_text(commit, encoding='utf-8')
         except Exception as e:  # 감시기는 죽지 않는다
             log(f'감시 오류: {type(e).__name__}: {e}')
         time.sleep(WATCH_SECONDS)

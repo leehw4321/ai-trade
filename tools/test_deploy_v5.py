@@ -100,3 +100,26 @@ class Deploy(Fixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RemoteApproval(unittest.TestCase):
+    """봇 고정 PC 운영: 다른 PC에서 승인 파일을 커밋해도 v5 내용이 같으면 승인."""
+
+    def test_same_v5_tree_counts_as_approved_and_patches_once(self):
+        import json
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            (root / 'tools' / 'patches').mkdir(parents=True)
+            (root / 'tools' / 'patches' / 'p.json').write_text(json.dumps({'live': {'x': 1}}), encoding='utf-8')
+            app = root / 'app'
+            (app / 'data').mkdir(parents=True)
+            (root / 'A').write_text('c1\ntools/patches/p.json\n', encoding='utf-8')
+            trees = {'c1': 'T', 'c2': 'T', 'c3': 'U'}
+            with mock.patch.object(dp, 'APPROVAL', root / 'A'), mock.patch.object(dp, 'ROOT', root), \
+                    mock.patch.object(dp, 'v5_tree', side_effect=lambda r: trees.get(r)):
+                self.assertTrue(dp.approved('c2'))        # 승인 파일만 바뀐 커밋
+                self.assertFalse(dp.approved('c3'))       # v5 코드가 더 바뀐 커밋
+                commit, patch = dp.pending_patches(app)
+                self.assertEqual((commit, patch), ('c1', {'live': {'x': 1}}))
+                (app / 'data' / 'deploy_applied.txt').write_text('c1', encoding='utf-8')
+                self.assertEqual(dp.pending_patches(app), ('c1', None))

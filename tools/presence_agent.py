@@ -144,13 +144,27 @@ def once(streak=ACTIVE_STREAK):
                   st.get('fails', 0), st.get('owner_change_at', 0), PAUSE.exists(), st.get('bot_change_at', 0))
 
 
+def hide_child_windows():
+    """감시기가 띄우는 tasklist·git 같은 하위 프로그램의 검은 창이 번쩍이지 않게 한다(이 프로세스 안에서만)."""
+    orig = subprocess.Popen.__init__
+    def init(self, *a, **kw):
+        kw['creationflags'] = kw.get('creationflags', 0) | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        orig(self, *a, **kw)
+    subprocess.Popen.__init__ = init
+
+
+LEASE_EVERY = 60  # 사용 중이어도 GitHub 실행권 확인은 이 간격으로만(조용하고 가볍게)
+
+
 def watch():
+    hide_child_windows()
     if not single_instance():
         print('이미 실행 중')
         return
     log('실행권 자동 이동 감시 시작')
     streak = 0
     prev_up = T.bot_running()
+    last_check = 0
     while True:
         try:
             streak = streak + 1 if idle_seconds() < ACTIVE_IDLE else 0
@@ -158,7 +172,8 @@ def watch():
             if up != prev_up:
                 st0 = load_state(); st0['bot_change_at'] = time.time(); save_state(st0)
                 prev_up = up
-            if streak >= ACTIVE_STREAK and not PAUSE.exists():
+            if streak >= ACTIVE_STREAK and not PAUSE.exists() and time.time() - last_check >= LEASE_EVERY:
+                last_check = time.time()
                 st = load_state(); now = time.time()
                 lease = T.lease(); pc = my_pc()
                 owner = lease.get('owner') or ''

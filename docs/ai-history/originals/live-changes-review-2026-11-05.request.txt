@@ -1,0 +1,530 @@
+[ChatGPT 검산 요청 · 2026-11-05 · 작성 Claude(회사 PC)]
+범위: 11-05 사용자 지시로 검증 전 실거래 적용한 변경(S1 순위 매도 끄기, S2 본전 잠금 +1.5%, S3 묶임(손실 중) 부분 교체, 최대 4종목, 과열 15~20% 직접 지정·이익 청산 뒤 재진입 1회, 보호 종목 투입액 제외 수정) + 놓친 이유 장부(기록 전용).
+요청: 아래 diff에서 (1) 주문이 의도와 다르게 나갈 수 있는 경로 (2) 보호 종목·손실 중단·미확정 주문 안전장치 우회 (3) 미래 정보·시각 오류 를 지적해 주세요. 화면(bot.py 표시) 변경은 제외했습니다.
+
+== 커밋 ==
+4a3b205 Add missed-reason ledger (record only) and apply ChatGPT review 3 to the protocol
+a2e5496 Holdings table follows the live account (5s) instead of the 5-minute PnL sync
+d3e643b Tidy the bot status page: one holdings table, summary tiles, folded details
+740f5ef Swap part of the weakest stuck loser for new buys and lock breakeven at +1.5%
+9a899a4 Cap bot holdings at 4 and show stuck holdings separately
+7d686f0 Exclude user-protected coins from the bot's investment room
+62e9086 Let bought coins run: no rank exit, manual 15-20% buy promotion on hover, one profit re-entry up to 20%
+
+== 실행 사본 파일 SHA256 (배포본 = 정본) ==
+97932d8f890d01eb3be27ca92d26b03e9650a2f6ade98ef644f9c0c769418c29 *chase_override.py
+b8e41fbfeaf599f03952536d7ba62e8ac9a0549ea0703e4328a0b8f1e5271314 *live.py
+47ec2cfbc88ea2ff568bb8406d54653fba59a3fe040faf235ac2a0fdb7f08320 *shadow.py
+19f60538381f56fa18bd1c487f1faebe2d5d3b25c93e60d0e45d266229752d4a *strategy.py
+6664b92169c0fddb01d3d05667faf9df21cbad593c9a4a340a596c77d0bb739d *missed_ledger.py
+86748ae3ff1342a8e677e7fd4b9aefab1bccc6dd11fbc14819971a58803c38ca *manual_orders.py
+
+== 실거래 설정 패치 ==
+rank_exit_off.json: {"strategy": {"rank_exit": false}}
+slots_4.json: {"strategy": {"slots": 4, "entry_want": 4}}
+swap_stuck_lock.json: {"strategy": {"swap_stuck_loss": true}, "live": {"breakeven_lock_pct": 0.015}}
+profit_guard_arm_3.json: {"live": {"profit_guard_arm_pct": 0.03}}
+regime_keep_no_expiry.json: {"strategy": {"regime_filter": true, "regime_expires": 0}}
+
+== 테스트 ==
+Ran 462 tests in 15.696s
+
+OK
+
+== 핵심 diff (2377662..HEAD) ==
+diff --git a/v5/chase_override.py b/v5/chase_override.py
+new file mode 100644
+index 0000000..9bfb223
+--- /dev/null
++++ b/v5/chase_override.py
+@@ -0,0 +1,124 @@
++"""과열 상한 예외 (사용자 지시 2026-11-05: 오른 종목을 끝까지 들고 가기).
++
++1. 사용자 직접 지정: 18시간 상승률이 과열 상한(15%) 이상 EXT_CAP(20%) 미만인 종목을 화면에서 '매수 대상'으로 올리면
++   PROMOTE_HOURS 동안 그 종목의 상한을 EXT_CAP으로 본다.
++2. 이익 청산 뒤 재진입: 이익으로 전량 매도한 종목은 REENTRY_HOURS 안에 한 번, 상한 EXT_CAP으로 다시 살 수 있다.
++   재진입 대기·눌림 조건(reentry_profit_hours, reentry_dip_atr)은 이 한 번에는 적용하지 않는다. 재진입으로 산 물량을 판 뒤에는 다시 주지 않는다.
++3. 과열 보유: 보유 중 18시간 상승률이 과열 상한 이상이 된 종목은 순위 매도(유지 순위 밖·상대강도 음수·거래대금 상위 밖)를 하지 않고
++   손절·이익보호로만 판다. 매도 뒤에는 표시를 지운다.
++
++파일: data/chase_promoted.json(봇 화면이 쓴다), data/hot_held.json(주문안 생성기가 쓴다). 쓰는 쪽이 하나씩이라 서로 덮지 않는다.
++읽기 실패·형식 오류는 '예외 없음'으로 본다(기존 15% 규칙으로 돌아간다).
++"""
++import json
++import math
++import time
++from pathlib import Path
++
++EXT_CAP = 0.20
++PROMOTE_HOURS = 24
++REENTRY_HOURS = 24
++PROMOTED = 'chase_promoted.json'
++HOT_HELD = 'hot_held.json'
++STUCK = 'stuck_held.json'
++
++
++def _read(path):
++    try:
++        doc = json.loads(Path(path).read_text(encoding='utf-8'))
++        return doc if isinstance(doc, dict) else {}
++    except (OSError, ValueError):
++        return {}
++
++
++def _write(path, doc):
++    path = Path(path)
++    tmp = path.with_name(path.name + '.tmp')
++    tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding='utf-8')
++    tmp.replace(path)
++
++
++def _finite(x):
++    return type(x) in (int, float) and math.isfinite(x)
++
++
++def ext_cap(p):
++    """예외 종목에 쓰는 상한. 과열 상한이 꺼져 있으면(0) 예외도 없다."""
++    cap = p.chase_rs_cap
++    return max(cap, EXT_CAP) if _finite(cap) and cap > 0 else cap
++
++
++def promoted(data_dir, now=None):
++    """지금 유효한 직접 지정 종목 {종목: 만료 시각}."""
++    rows = _read(Path(data_dir) / PROMOTED).get('markets', {})
++    if not rows:
++        return {}
++    now = time.time() if now is None else now
++    return {m: v['until'] for m, v in rows.items() if isinstance(v, dict) and _finite(v.get('until')) and v['until'] > now}
++
++
++def promote(data_dir, market, rs, p, now=None):
++    """(성공 여부, 안내문). 상승률이 과열 상한 이상·EXT_CAP 미만일 때만 올린다."""
++    now = time.time() if now is None else now
++    cap = p.chase_rs_cap
++    if not (_finite(rs) and _finite(cap) and cap > 0 and cap <= rs < ext_cap(p)):
++        return False, f'상승률 {rs:+.1%}: 직접 지정은 {cap:.0%} 이상 {EXT_CAP:.0%} 미만일 때만 가능합니다.'
++    path = Path(data_dir) / PROMOTED
++    doc = _read(path)
++    rows = {m: v for m, v in doc.get('markets', {}).items() if isinstance(v, dict) and _finite(v.get('until')) and v['until'] > now}
++    rows[market] = {'at': now, 'until': now + PROMOTE_HOURS * 3600, 'rs': rs}
++    _write(path, {'markets': rows})
++    return True, f'{market[4:]}: {PROMOTE_HOURS}시간 동안 매수 대상(상한 {EXT_CAP:.0%}). 다음 정시 판단부터 적용됩니다.'
++
++
++def unpromote(data_dir, market):
++    path = Path(data_dir) / PROMOTED
++    doc = _read(path)
++    rows = doc.get('markets', {})
++    if market not in rows:
++        return False, f'{market[4:]}: 직접 지정 상태가 아닙니다.'
++    rows.pop(market)
++    _write(path, {'markets': rows})
++    return True, f'{market[4:]}: 직접 지정을 취소했습니다.'
++
++
++def reentry_ok(last, now=None):
++    """이익 청산 뒤 한 번 허용되는 재진입인가."""
++    if not (isinstance(last, dict) and last.get('profit') is True and not last.get('from_reentry') and _finite(last.get('time'))):
++        return False
++    now = time.time() if now is None else now
++    return 0 <= now - last['time'] < REENTRY_HOURS * 3600
++
++
++def cap_for(market, p, promoted_markets, last, now=None):
++    """이 종목에 적용할 과열 상한."""
++    if market in promoted_markets or reentry_ok(last, now):
++        return ext_cap(p)
++    return p.chase_rs_cap
++
++
++def hot_held(data_dir):
++    rows = _read(Path(data_dir) / HOT_HELD).get('markets', [])
++    return {m for m in rows if isinstance(m, str)} if isinstance(rows, list) else set()
++
++
++def write_stuck(data_dir, stuck):
++    """묶인 보유(예전 규칙이면 순위로 팔았을 종목) 표시용. 주문 판단에는 쓰지 않는다."""
++    _write(Path(data_dir) / STUCK, {'markets': stuck})  # 시각은 파일 수정 시각으로 본다
++
++
++def read_stuck(data_dir):
++    rows = _read(Path(data_dir) / STUCK).get('markets', {})
++    return rows if isinstance(rows, dict) else {}
++
++
++def update_hot_held(data_dir, held, rs_of, p):
++    """보유 중 과열 상한 이상이 된 종목을 표시하고, 더 이상 보유하지 않는 종목은 지운다. 반환: 표시된 종목 집합."""
++    cap = p.chase_rs_cap
++    old = hot_held(data_dir)
++    new = {m for m in old if m in held}
++    if _finite(cap) and cap > 0:
++        new |= {m for m in held if _finite(rs_of.get(m)) and rs_of[m] >= cap}
++    if new != old:
++        _write(Path(data_dir) / HOT_HELD, {'markets': sorted(new)})
++    return new
+diff --git a/v5/live.py b/v5/live.py
+index e719fe2..83b987a 100644
+--- a/v5/live.py
++++ b/v5/live.py
+@@ -22,6 +22,7 @@ import math
+ 
+ import strategy as st
+ import rotation_policy as rotation
++import chase_override as co
+ import upbit
+ import asset_protection
+ import continuity
+@@ -431,9 +432,10 @@ class Live:
+                     new.update(entry=px, atr=pending['atr'], stop0=stop,
+                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
+                     if pending.get('atr_r'): new['atr_r'] = pending['atr_r']
++                    if co.reentry_ok(self.d.get('last_sell', {}).get(m)): new['reentry'] = True  # 이익 청산 뒤 재진입 1회를 쓴 물량
+                 else:
+                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
+-                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis'):
++                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis', 'reentry'):
+                         if k in old: new[k] = old[k]
+                     new['trail'] = False
+                 if rotation.enabled(self.p) and old is None:
+@@ -456,7 +458,8 @@ class Live:
+                     if pos['qty'] <= 1e-8:
+                         # 재진입 규칙(D-38)을 위해 전량 청산 기록을 남긴다
+                         self.d.setdefault('last_sell', {})[m] = {'time': time.time(), 'price': df / dv, 'profit': (df - dfee - basis) > 0,
+-                                                                  'reason': str(pending.get('reason', ''))[:40]}
++                                                                  'reason': str(pending.get('reason', ''))[:40],
++                                                                  'from_reentry': bool(pos.get('reentry'))}
+                         del self.d['positions'][m]
+         elif dfee > 0:
+             if pending['side'] == 'bid':
+@@ -786,8 +789,8 @@ class Live:
+                     or not 1 <= context['rank'] <= self.p.M
+                     or context.get('policy_hash') != rotation.policy_hash(self.p)):
+                 return '신규 매수 순위·유지 범위·정책 불일치: 매수 보류'
+-            why = rotation.fresh_reentry(self.d.get('last_sell', {}).get(market),
+-                                         self.p, context.get('signal_closed_at'))
++            last = self.d.get('last_sell', {}).get(market)
++            why = None if co.reentry_ok(last) else rotation.fresh_reentry(last, self.p, context.get('signal_closed_at'))
+             if why: return why
+         if not isinstance(context, dict) or context.get('market') != market:
+             return '매수 신호 출처 누락·종목 불일치: 매수 보류'
+@@ -808,6 +811,8 @@ class Live:
+         cap = self.p.chase_rs_cap
+         if type(cap) not in (int, float) or not math.isfinite(cap):
+             return '과열 상한 설정 무효: 매수 보류'
++        # 사용자 직접 지정·이익 청산 뒤 재진입은 상한 20%(chase_override). 생성기 표시를 믿지 않고 이 장부·파일로 다시 판단한다.
++        cap = co.cap_for(market, self.p, co.promoted(self.folder.parent), self.d.get('last_sell', {}).get(market))
+         if cap > 0 and rs >= cap:
+             return '신호 시점부터 기존 과열 상한 이상: 매수 보류'
+         if ask is not _NO_ASK:
+@@ -824,7 +829,8 @@ class Live:
+         if self.d['halted']:
+             return '손실 중단선 도달로 신규 매수 중단 상태'
+         last = self.d.get('last_sell', {}).get(m)
+-        if last:
++        again = co.reentry_ok(last)  # 이익 청산 뒤 재진입 1회: 대기·눌림 조건 없이 허용(사용자 지시 2026-11-05)
++        if last and not again:
+             # Re-read the current durable state, not the producer's pre-sale snapshot.
+             if type(last.get('time')) not in (int, float) or not math.isfinite(last['time']):
+                 return '현재 매도 기록 시각 무효: 재진입 보류'
+@@ -860,7 +866,7 @@ class Live:
+         if validate_entry:
+             why = self.entry_chase_block(m, entry_context, ob.get('ask'))
+             if why: return why
+-        if (last and last.get('profit') and self.p.reentry_dip_atr > 0
++        if (last and not again and last.get('profit') and self.p.reentry_dip_atr > 0
+                 and time.time() - last['time'] < self.p.reentry_window_hours * 3600):
+             reentry_bars = upbit.completed_candles(m, self.p.tf, 100)
+             atr = st.wilder_atr(reentry_bars)
+@@ -975,7 +981,17 @@ class Live:
+             if peak != old_peak:
+                 pos['profit_guard_peak'] = peak
+                 changed = True
+-            if peak < entry * (1 + arm): continue
++            if peak < entry * (1 + arm):
++                # 본전 잠금(사용자 지시 2026-11-05 '라'): 고점이 +lock 이상이면 보호선을 본전(수수료·비용 포함)으로 올린다.
++                lock = self.cfg.get('breakeven_lock_pct')
++                if type(lock) in (int, float) and math.isfinite(lock) and 0 < lock < arm and peak >= entry * (1 + lock):
++                    old = pos.get('profit_guard_stop')
++                    old = old if ok(old) else 0
++                    if entry * floor > old:
++                        self.record({'event': '본전 잠금', 'market': m, 'entry': entry, 'peak': peak, 'guard_stop': entry * floor})
++                        pos['profit_guard_stop'] = entry * floor
++                        changed = True
++                continue
+             old = pos.get('profit_guard_stop')
+             old = old if ok(old) else 0
+             new = max(old, entry * floor, entry + (peak - entry) * (1 - give))
+diff --git a/v5/missed_ledger.py b/v5/missed_ledger.py
+new file mode 100644
+index 0000000..a780373
+--- /dev/null
++++ b/v5/missed_ledger.py
+@@ -0,0 +1,65 @@
++"""놓친 이유 장부(2026-11-05, ChatGPT 제안 · Claude 구현). 주문 판단에는 쓰지 않는 기록 전용.
++
++매시 주문안을 만들 때 순위 상위 종목마다 '매수 신호가 있었는지'와 '걸린 차단 사유 전부'를 data/missed_ledger.jsonl에 한 줄씩 남긴다.
++주문안 사유에는 처음 걸린 사유 하나만 남아서, BEAM처럼 놓친 사례를 나중에 추측으로 설명하게 되는 문제를 막는다.
++이후 가격 변화(1·4·24시간)는 tools/missed_report.py가 공개 시세로 채워 사유별로 '놓친 수익'과 '피한 손실'을 함께 집계한다.
++기록 실패는 주문안 생성을 막지 않는다(호출하는 쪽에서 예외를 삼킨다).
++"""
++import json
++import re
++import time
++from pathlib import Path
++
++import chase_override as co
++import strategy as st
++
++TOP = 15
++FILE = 'missed_ledger.jsonl'
++
++
++def blocks_for(r, base, held, protected, promoted, last, entry_ok, regime_closed, scan, now):
++    """이 종목에 걸린 차단 사유 전부(순서 무관). 빈 목록이면 규칙상 매수 후보."""
++    m, out = r['market'], []
++    if m in protected:
++        out.append('사용자 보호')
++    if m in held:
++        out.append('이미 보유')
++    if r['rank'] > scan:
++        out.append(f'순위 {scan}위 밖')
++    if r['rs'] <= 0:
++        out.append('상승률 0 이하')
++    if m not in entry_ok:
++        out.append('매수 불가 경보')
++    if regime_closed:
++        out.append('장세 필터·매수 중단')
++    cap = co.cap_for(m, base, promoted, last, now)
++    if cap > 0 and r['rs'] >= cap:
++        out.append(f'과열(상한 {cap:.0%})')
++    if last and not co.reentry_ok(last, now) and st.reentry_block(r, last, now, base):
++        out.append('재진입 대기')
++    return out
++
++
++def record(data_dir, signal_closed_at, ranked, base, holdings, protected, promoted, last_sells, entry_ok, reasons, text, now=None):
++    now = time.time() if now is None else now
++    held = {m for m, v in holdings.items() if v >= 5000}
++    scan = base.entry_scan or base.entry_top
++    regime_closed = any(('장세 필터' in x and '통과' not in x) or '신규 매수 임시 중단' in x for x in reasons)
++    bought = set('KRW-' + x for x in re.findall(r'매수 ([A-Z0-9]+) \d+원', text))
++    rows = []
++    for r in ranked[:TOP]:
++        m = r['market']
++        b = blocks_for(r, base, held, protected, promoted or {}, (last_sells or {}).get(m), entry_ok, regime_closed, scan, now)
++        if m in bought:
++            outcome = '매수'
++        elif not b:
++            outcome = '후보였으나 미매수(자리·현금·후보 수)'
++        else:
++            outcome = '차단'
++        rows.append({'slot': signal_closed_at, 'time': now, 'market': m, 'rank': r['rank'], 'rs': r['rs'],
++                     'close': r.get('close'), 'signal': r['rank'] <= scan and r['rs'] > 0,
++                     'blocks': b, 'outcome': outcome, 'promoted': m in (promoted or {})})
++    with (Path(data_dir) / FILE).open('a', encoding='utf-8') as f:
++        for row in rows:
++            f.write(json.dumps(row, ensure_ascii=False) + '\n')
++    return rows
+diff --git a/v5/shadow.py b/v5/shadow.py
+index 9c95410..8a37209 100644
+--- a/v5/shadow.py
++++ b/v5/shadow.py
+@@ -22,6 +22,8 @@ import traceback
+ 
+ import strategy as st
+ import rotation_policy as rotation
++import chase_override as co
++import missed_ledger
+ import upbit
+ from bot import boundary, load_params, SETTLE, KST, utc
+ from paper import Ledger, now_iso
+@@ -94,17 +96,37 @@ def claim_slot(slot, path=None):
+     tmp.replace(path)
+ 
+ 
+-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None):
++def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
++             promoted=None, hot=None, protected=None, costs=None, stuck_out=None):
+     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
+ 
+     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
++    promoted: 사용자 직접 지정 종목, hot: 과열 보유 종목(순위 매도 제외). chase_override 참고.
+     """
+     pos = {r['market']: r for r in ranked}
+     reasons, sells, sold = [], [], 0.0
+     cands = []
++    promoted, hot, protected = promoted or {}, hot or set(), protected or set()
+     for m, v in holdings.items():
+         if v < 5000:
+             continue
++        if m in protected:
++            reasons.append(f'{m[4:]} 사용자 보호: 봇 매매 대상 아님 (투입 한도 계산에서도 제외)')
++            continue
++        if m in hot or not getattr(base, 'rank_exit', True):
++            kind = '과열 보유' if m in hot else '보유'
++            r = pos.get(m)
++            rs = r['rs'] if r else rs_out.get(m)
++            if r is None or r['rank'] > base.M or (rs is not None and rs < 0):
++                # 묶임: 예전 규칙이면 순위로 팔았을 보유. 손익은 봇 장부 원가 기준(없으면 미확인).
++                cost = (costs or {}).get(m)
++                state = '손익 미확인' if not cost else ('이익 중' if v > cost else '손실 중')
++                kind = (kind + ' · ' if m in hot else '') + f'묶임({state})'
++                if stuck_out is not None:
++                    stuck_out[m] = {'state': state, 'rank': r['rank'] if r else None, 'rs': rs,
++                                    'pnl_pct': (v / cost - 1) if cost else None, 'value': v}
++            reasons.append(f'{m[4:]} 유지: {kind} — 순위 매도 안 함, 손절·이익보호로만 매도 (사용자 지시)')
++            continue
+         r = pos.get(m)
+         rs = r['rs'] if r else rs_out.get(m)
+         if r is None:
+@@ -141,6 +163,14 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
+     sell_queued = set(sells)
+     picks = []
+     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
++    if not getattr(base, 'rank_exit', True):
++        # 순위 매도를 끈 뒤에는 봇 보유 종목 수 상한(slots)을 지킨다(사용자 지시 2026-11-05: 최대 4종목). 보호 종목·5,000원 미만 자투리는 세지 않는다.
++        bot_held = {m: v for m, v in holdings.items() if v >= 5000 and m not in protected and m not in sell_queued}
++        count = len(bot_held)
++        if not getattr(base, 'swap_stuck_loss', False):   # 부분 교체가 켜져 있으면 자리는 아래에서 금액 기준으로 센다
++            want = max(0, min(want, base.slots - count))
++        stuck_n = sum(1 for _ in (stuck_out or {}))
++        reasons.append(f'봇 보유 {count}/{base.slots}종목' + (f' (묶임 {stuck_n})' if stuck_n else '') + f' → 신규 매수 최대 {want}종목')
+     if rotation.enabled(base): scan = min(scan, base.M)
+     regime_closed = False
+     if getattr(base, 'halt_new_buys', False):
+@@ -170,15 +200,48 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
+             continue
+         if r['market'] in entry_ok and r['rs'] > 0:
+             last = (last_sells or {}).get(r['market'])
+-            why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)
++            again = co.reentry_ok(last)
++            why = (st.chase_block(r, base, co.cap_for(r['market'], base, promoted, last))
++                   or (st.reentry_block(r, last, time.time(), base) if last and not again else None))
+             if why:
+                 reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
+             else:
++                if r['rs'] >= base.chase_rs_cap > 0:
++                    reasons.append(f'{r["market"][4:]} 과열 예외 매수 후보: ' + ('사용자 직접 지정' if r['market'] in promoted else '이익 청산 뒤 재진입 1회'))
+                 picks.append(r)
++    equity = sum(holdings.values()) + krw
++    partial = {}
++    if not getattr(base, 'rank_exit', True) and getattr(base, 'swap_stuck_loss', False) and picks:
++        # 부분 매도 교체(사용자 지시 2026-11-05 '다'): 자리는 금액(1칸 = 1회 매수 금액)으로 센다. 매수 후보가 있는데 자리·현금이 모자라면
++        # 묶임(손실 중) 중 상승률이 가장 약한 한 종목을 모자란 만큼만 판다(남는 양이 1만 원 미만이면 전량). 묶임(이익 중)·보호 종목은 팔지 않는다.
++        unit = ((base.entry_risk or base.risk) * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0
++                else caps['max_order_krw'])
++        used = sum(min(1.0, v / unit) for v in bot_held.values())
++        short = max(max(0.0, 1 - (base.slots - used)) * unit, unit - cash)
++        losers = sorted(((s['rs'] if isinstance(s.get('rs'), (int, float)) else -1.0), m) for m, s in (stuck_out or {}).items()
++                        if s.get('state') == '손실 중' and m in bot_held)
++        if short > 0 and losers:
++            k = losers[0][1]
++            v = bot_held[k]
++            need = short * 1.03
++            pct = 100 if v - need < 10000 else min(100, math.ceil(need / v * 100))
++            partial[k] = pct
++            cash += v * pct / 100 * 0.997 * 0.98
++            used -= min(1.0, v / unit) - min(1.0, v * (1 - pct / 100) / unit)
++            reasons.append(f'{k[4:]} 부분 교체 매도 {pct}% (약 {v * pct / 100:,.0f}원): 묶임(손실 중) 중 가장 약함, 새 매수 자리·현금 확보')
++        n = max(0, int(base.slots - used + 1e-9))
++        if len(picks) > n:
++            reasons.append(f'봇 자리(금액 기준) {used:.2f}/{base.slots}칸 → 매수 후보 {len(picks)}개 중 {n}개만')
++            picks = picks[:n]
++        if not picks and partial:
++            reasons.append('교체 매도 취소: 자리가 나지 않아 살 수 없음')
++            cash -= sum(bot_held[k] * p / 100 * 0.997 * 0.98 for k, p in partial.items())
++            partial = {}
+     buys = []
+     # 전략 설계의 비율 한도: 종목당 coin_cap, 총투입 total_cap (계좌 평가액 기준). 고정 금액 한도를 풀어도 이 한도는 유지한다(D-29).
+-    equity = sum(holdings.values()) + krw
+-    invested = sum(v for m, v in holdings.items() if m not in sells)
++    # 사용자 보호 종목은 봇이 투입한 돈이 아니다. 예전에는 보호 종목이 순위 매도 목록에 올라 우연히 빠졌으나 순위 매도를 끈 뒤(2026-11-05) 명시적으로 뺀다.
++    invested = (sum(v for m, v in holdings.items() if m not in sells and m not in protected)
++                - sum(holdings[k] * p / 100 for k, p in partial.items()))
+     total_room = max(0.0, base.total_cap * equity - invested)
+     for i, r in enumerate(picks):
+         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
+@@ -192,7 +255,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
+         room -= amt
+         total_room -= amt
+         reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}')
+-    parts = [f'매도 {m[4:]} 100%' for m in sells] or ['매도 없음']
++    parts = ([f'매도 {m[4:]} 100%' for m in sells] + [f'매도 {m[4:]} {p}%' for m, p in partial.items()]) or ['매도 없음']
+     parts += [f'매수 {m[4:]} {a}원' for m, a in buys] or ['매수 없음']
+     return '실행 주문안: ' + '; '.join(parts), reasons
+ 
+@@ -346,6 +409,16 @@ class Shadow:
+                 raise ValueError('주문안 순위와 신호 마감 시각 불일치')
+         return {'signal_closed_at': closed, 'signal_tf_minutes': tf, 'evaluated_at': evaluated}
+ 
++    def protected_markets(self):
++        """사용자 보호 종목(봇 매매 대상 아님). 읽기 실패면 빈 집합: 보호 종목이 투입액에 남아 매수 여력이 줄어드는 보수적인 쪽이다.
++        실제 주문의 보호 강제는 live가 따로 한다."""
++        import asset_protection
++        try:
++            policy = asset_protection.Policy(DATA / 'user_protected_assets.json', self.cfg.get('live', {}).get('protected_markets', []), required=False)
++            return asset_protection.effective(policy.read(), policy.configured)
++        except Exception:
++            return set()
++
+     def make_proposal(self):
+         self.proposal_signal()  # Refuse stale cached ranks before any private account lookup.
+         if rotation.enabled(self.base):
+@@ -363,12 +436,24 @@ class Shadow:
+         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
+         bought = state.get('bought_krw', 0)
+         caps.update(state.get('limits', {}))
++        rs_of = {**self.rs_out, **{r['market']: r['rs'] for r in self.base_ranked}}
++        hot = co.update_hot_held(DATA, {m for m, v in holdings.items() if v >= 5000}, rs_of, self.base)
++        promoted, protected = co.promoted(DATA), self.protected_markets()
+         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
+                                  market_index=getattr(self, 'market_index', None),
+                                  rotation_state=getattr(self, 'rotation_counts', None),
+-                                 rotation_slot=self.signal_closed_at)
++                                 rotation_slot=self.signal_closed_at,
++                                 promoted=promoted, hot=hot, protected=protected,
++                                 costs={m: p.get('cost') for m, p in state.get('positions', {}).items() if isinstance(p, dict)},
++                                 stuck_out=(stuck := {}))
++        co.write_stuck(DATA, stuck)
+         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
+         provenance = self.proposal_signal()
++        try:  # 놓친 이유 장부: 기록 전용, 실패해도 주문안은 그대로 만든다
++            missed_ledger.record(DATA, self.signal_closed_at, self.base_ranked, self.base, holdings, protected, promoted,
++                                 state.get('last_sell'), self.entry_ok, reasons, text, now=self.evaluated_at)
++        except Exception as ex:
++            print(f'[{now_iso()}] 놓친 이유 장부 기록 실패: {type(ex).__name__}: {ex}', flush=True)
+         # Public signal prices, not account inventory: the receiver can enforce the SAME
+         # chase cap against a later executable ask instead of trusting a frozen return.
+         entry_context = {}
+diff --git a/v5/strategy.py b/v5/strategy.py
+index 5938355..431b30e 100644
+--- a/v5/strategy.py
++++ b/v5/strategy.py
+@@ -55,6 +55,10 @@ class Params:
+     regime_expires: float = 0.0   # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
+     rotation_enabled: bool = False  # reviewed hourly rotation; opt-in
+     rotation_confirmations: int = 1  # 2 is research-only, not the rollout value
++    # 사용자 지시(2026-11-05): False면 이미 산 종목을 순위(유지 순위 밖·상대강도 음수·거래대금 상위 밖)로 팔지 않고 손절·이익보호로만 판다.
++    rank_exit: bool = True
++    # 사용자 지시(2026-11-05 '다'): rank_exit=False일 때 매수 후보가 있는데 자리·현금이 모자라면 묶임(손실 중) 한 종목을 모자란 만큼 판다.
++    swap_stuck_loss: bool = False
+     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
+ 
+     @classmethod
+@@ -126,10 +130,12 @@ def rank(bars_by_market, p):
+     return rows
+ 
+ 
+-def chase_block(r, p):
+-    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None."""
+-    if p.chase_rs_cap > 0 and r['rs'] >= p.chase_rs_cap:
+-        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {p.chase_rs_cap:.0%}'
++def chase_block(r, p, cap=None):
++    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None.
++    cap: 종목별 상한(직접 지정·이익 청산 뒤 재진입은 chase_override.cap_for). 없으면 p.chase_rs_cap."""
++    cap = p.chase_rs_cap if cap is None else cap
++    if cap > 0 and r['rs'] >= cap:
++        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {cap:.0%}'
+     return None
+ 
+ 

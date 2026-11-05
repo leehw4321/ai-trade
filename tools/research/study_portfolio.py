@@ -145,7 +145,7 @@ def main():
     t0 = math.ceil((allmin + 120 * B) / HOUR) * HOUR
     print(f'구간 {pit.from_epoch_kst(t0)} ~ {CUTOFF_KST} · 종목 {len(data)}개 · 시작 {START_CASH}칸', flush=True)
     state = rx.hourly_state(data, t0 - HOUR, cut)
-    span = (cut - t0) // 3
+    span = (cut - t0) // 3 // HOUR * HOUR   # 구간 경계를 정시에 맞춘다(안 맞추면 판단 시각이 어긋나 거래가 0건이 됨)
     thirds = [(t0 + i * span, t0 + (i + 1) * span) for i in range(3)]
     res = {}
     print(f"\n{'정책':22} {'180일 수익':>9} {'구간1':>7} {'구간2':>7} {'구간3':>7} {'최대낙폭':>7} {'매수':>5} {'놓침':>5} {'교체':>4}  청산 사유")

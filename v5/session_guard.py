@@ -148,12 +148,12 @@ def confirm_takeover():
         root.destroy()
 
 
-def notify(message):
+def notify(message, title='봇 실행 상태'):
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True)
     try:
-        messagebox.showwarning('봇 실행 상태', str(message), parent=root)
+        messagebox.showwarning(title, str(message), parent=root)
     finally:
         root.destroy()
 

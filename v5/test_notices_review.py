@@ -1,0 +1,106 @@
+import datetime as dt
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import entry_flags_review as rv
+import manual_orders
+import notices
+
+KST = dt.timezone(dt.timedelta(hours=9))
+
+
+class Notices(unittest.TestCase):
+    def setUp(self):
+        self.p = Path(tempfile.mkdtemp()) / 'notices.json'
+
+    def test_add_is_idempotent_and_ack_sticks(self):
+        self.assertTrue(notices.add(self.p, 'a', '제목', '본문', 'action', popup=True))
+        self.assertFalse(notices.add(self.p, 'a', '제목', '본문'))
+        self.assertEqual(len(notices.active(self.p)), 1)
+        self.assertTrue(notices.ack(self.p, 'a'))
+        self.assertEqual(notices.active(self.p), [])
+        self.assertFalse(notices.add(self.p, 'a', '제목', '본문'))   # 확인한 공지는 되살아나지 않는다
+
+    def test_popup_once(self):
+        notices.add(self.p, 'a', 't', 'b', 'action', popup=True)
+        self.assertEqual(len(notices.take_popups(self.p)), 1)
+        self.assertEqual(notices.take_popups(self.p), [])
+
+    def test_banner_escapes_and_has_button_only_with_action(self):
+        notices.add(self.p, 'a', '<b>x</b>', '줄1\n줄2', 'action')
+        h = notices.banner(notices.active(self.p), {'port': 1, 'token': 't'})
+        self.assertIn('&lt;b&gt;x&lt;/b&gt;', h)
+        self.assertIn('확인했습니다', h)
+        self.assertIn('font-size:21px', h)
+        self.assertNotIn('확인했습니다', notices.banner(notices.active(self.p), None))
+        self.assertEqual(notices.banner([], None), '')
+
+
+class ServerAck(unittest.TestCase):
+    def test_notice_ack_validation(self):
+        s = manual_orders.ManualOrderServer(8765, token='tok', allowed_kinds={'notice_ack'})
+        h = '127.0.0.1:8765'
+        ok = json.dumps({'token': 'tok', 'id': 'entry-flags-propose', 'confirm': True}).encode()
+        self.assertEqual(s.check(h, None, ok, 'notice_ack'), (200, ('entry-flags-propose', None)))
+        bad = json.dumps({'token': 'tok', 'id': '../x', 'confirm': True}).encode()
+        self.assertEqual(s.check(h, None, bad, 'notice_ack')[0], 400)
+        nocfm = json.dumps({'token': 'tok', 'id': 'a'}).encode()
+        self.assertEqual(s.check(h, None, nocfm, 'notice_ack')[0], 400)
+
+
+def make(days, per_day, hit_loss, keep_pnl, hit_win=0.0, markets=10, age=None):
+    """합성 기록: 매일 per_day건 R8 발동(손익 hit_loss) + 통과 1건(keep_pnl)."""
+    tmp = Path(tempfile.mkdtemp())
+    flags, orders, n = [], {}, 0
+    for d in range(days):
+        day = dt.date(2026, 11, 6) + dt.timedelta(days=d)
+        for i in range(per_day + 1):
+            hit = i < per_day
+            m = f'KRW-C{(d * 7 + i) % markets}'
+            slot = f'{day}T{(i % 20) + 1:02d}:00'
+            flags.append({'time': slot + '+09:00', 'market': m, 'flag': {'R8': hit}})
+            t = f'{slot[:13]}:01:00+09:00'
+            pnl = (hit_loss if (i % 3 or not hit_win) else hit_win) if hit else keep_pnl
+            n += 1
+            orders[f'b{n}'] = {'market': m, 'side': 'bid', 'identifier': f'v5-{n}', 'paid_fee': '0',
+                               'trades': [{'volume': '1', 'funds': '1000', 'created_at': t}]}
+            n += 1
+            orders[f's{n}'] = {'market': m, 'side': 'ask', 'identifier': f'v5-{n}', 'paid_fee': '0',
+                               'trades': [{'volume': '1', 'funds': str(1000 + pnl), 'created_at': t.replace(':01:00', ':30:00')}]}
+    fp, op = tmp / 'f.jsonl', tmp / 'o.json'
+    fp.write_text('\n'.join(json.dumps(x) for x in flags), encoding='utf-8')
+    op.write_text(json.dumps({'orders': orders}), encoding='utf-8')
+    now = dt.datetime(2026, 11, 6, tzinfo=KST) + dt.timedelta(days=age if age is not None else days)
+    return rv.evaluate(fp, op, now)
+
+
+class Review(unittest.TestCase):
+    def test_collecting_when_small(self):
+        r = make(2, 3, -100, 50)
+        self.assertEqual(r['state'], 'collecting')
+        self.assertIsNone(rv.notice_text(r))
+
+    def test_extend_when_old_but_small(self):
+        self.assertEqual(make(2, 3, -100, 50, age=15)['state'], 'extend')
+
+    def test_propose_when_hits_lose_and_keeps_win(self):
+        r = make(6, 8, -100, 80, hit_win=20)
+        self.assertEqual((r['state'], r['hit']), ('propose', 48))
+        title, body, level = rv.notice_text(r)
+        self.assertEqual(level, 'action')
+        self.assertIn('적용', title)
+        self.assertIn('자동으로 켜지지 않습니다', body)
+
+    def test_reject_when_hits_do_not_lose_more(self):
+        r = make(6, 8, 100, 20)
+        self.assertEqual(r['state'], 'reject')
+
+    def test_unflagged_or_late_buys_are_ignored(self):
+        r = make(1, 1, -100, 50)
+        self.assertEqual(r['entries'], 2)
+
+
+if __name__ == '__main__':
+    unittest.main()

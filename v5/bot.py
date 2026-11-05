@@ -23,6 +23,8 @@ import rotation_policy as rotation
 import chase_override as co
 import daily_equity
 import entry_flags
+import entry_flags_review
+import notices
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -747,6 +749,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .muted{{color:var(--muted)}} .warn{{color:var(--up)}}
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
+{notices.banner(notices.active(DATA / 'notices.json'), self.notice_action())}
 <header><h1>자동거래 v5 {refresh_btn}{auto_ctl}</h1><div class=sub>갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
@@ -773,6 +776,35 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             try: temporary.unlink(missing_ok=True)
             except OSError: pass
 
+    def run_reviews(self):
+        """급변 표시 효과를 정해 둔 기준으로 판정해 화면 상단 공지로 알린다. 판정만 하고 주문·설정은 바꾸지 않는다."""
+        path = DATA / 'notices.json'
+        at = now_iso()
+        notices.add(path, 'loss-excludes-protected-20261106', '손실 중단 계산 개선 적용됨',
+                    '사용자 보호 종목(BTC·XRP·DOGE)의 시세 변동은 이제 손실 중단선에 들어가지 않습니다.\n'
+                    '어제 밤과 오늘 00:09의 매수 중단은 보호 종목 하락 때문에 잘못 걸렸던 것입니다(00:18에 해제).', 'info', at)
+        notices.add(path, 'entry-flags-started-20261106', '급변 직후 진입 기록 시작 · 판정 결과는 이 화면에 큰 글씨로 알립니다',
+                    '정시마다 후보의 급변 표시를 기록만 합니다(주문에는 영향 없음). 기준: 발동 40건·5일·8종목 이상이면 판정합니다.\n'
+                    '조건을 채우면 "적용 제안" 배너가 뜹니다. 적용은 승인한 뒤에만 합니다.', 'info', at)
+        r = entry_flags_review.evaluate(DATA / 'entry_flags.jsonl', DATA / 'pnl' / 'orders.json')
+        tmp = DATA / 'entry_flags_review.json.tmp'
+        tmp.write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding='utf-8')
+        os.replace(tmp, DATA / 'entry_flags_review.json')
+        t = entry_flags_review.notice_text(r)
+        if t and notices.add(path, f"entry-flags-{r['state']}", t[0], t[1], t[2], at, popup=True):
+            self.log(f"급변 진입 검토 결과 공지: {r['state']}")
+        for n in notices.take_popups(path):
+            try:
+                subprocess.Popen([sys.executable, '-c',
+                                  'import sys;sys.path.insert(0,sys.argv[1]);import session_guard;session_guard.notify(sys.argv[2],"봇 개선 결과 알림")',
+                                  str(ROOT), n['title'] + '\n\n' + n['body']], creationflags=subprocess.CREATE_NO_WINDOW)
+            except OSError as ex:
+                self.log('알림창을 열지 못함(화면 배너는 유지): ' + type(ex).__name__)
+
+    def notice_action(self):
+        srv = getattr(self, 'manual_server', None)
+        return {'port': srv.port, 'token': srv.token} if srv else None
+
     # ---------- 반복 ----------
     def run(self):
         subprocess.Popen([sys.executable, str(ROOT / 'account_sync.py')],
@@ -786,7 +818,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
         if True:
-            kinds={'grant', 'obs', 'refresh'}
+            kinds={'grant', 'obs', 'refresh', 'notice_ack'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
@@ -837,6 +869,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
                     last_stop = now
+                if now - getattr(self, '_rev_at', 0) >= 3600:  # 검토 판정·공지(1시간마다, 시작 직후 한 번)
+                    self._rev_at = now
+                    try: self.run_reviews()
+                    except Exception as ex: self.log('검토 판정 오류(무시): '+type(ex).__name__)
                 if now - getattr(self, '_eq_at', 0) >= 60:  # 하루 총자산 기록(한국시간 0시 기준)
                     self._eq_at = now
                     try:
@@ -899,6 +935,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if req.kind == 'obs':
                     ok, msg = observations.apply(DATA / 'observations.json', req.market, req.krw)
                     req.finish(ok, msg)
+                    continue
+                if req.kind == 'notice_ack':  # 상단 공지 확인(주문과 무관)
+                    notices.ack(DATA / 'notices.json', req.market)
+                    req.finish(True, '확인했습니다.')
                     continue
                 if req.kind == 'refresh':  # 화면 즉시 새로고침(주문과 무관)
                     self._refresh_now = True

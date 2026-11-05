@@ -1,0 +1,119 @@
+"""급변 표시(entry_flags)의 효과를 정해 둔 기준으로 판정한다. 기준은 결과를 보기 전에 고정했고 REVIEW_VERSION이 같은 동안 바꾸지 않는다.
+
+기준(R8 기준, 비용 포함 실현손익 · 정시 후보 기록과 실제 매수를 (정시, 종목)으로 연결):
+  표본: R8 발동 40건 이상, 서로 다른 5일 이상, 8종목 이상
+  효과: 걸린 건 평균손익 < 통과 건 평균손익, 걸린 건 총손실 ≥ 총이익의 1.5배, 가장 큰 손실 1건을 빼도 평균손익이 통과 건보다 나쁨
+판정: collecting(모으는 중) / propose(적용 제안) / reject(효과 없음 · 기준 재검토) / weak(약함 · 관찰 연장) / extend(14일 지나도 표본 미달)
+적용은 판정과 별개로 사용자 승인 뒤에만 한다.
+"""
+import datetime as dt
+import json
+from pathlib import Path
+
+REVIEW_VERSION = 'v1'
+MIN_HITS, MIN_DAYS, MIN_MARKETS, LOSS_RATIO, MAX_DAYS = 40, 5, 8, 1.5, 14
+
+
+def realized_by_entry(orders_json):
+    """거래소 주문 기록에서 V5 매수별 실현손익을 평균단가법(수수료 포함)으로 구한다. {(KST 시각 'YYYY-MM-DDTHH:MM', 종목): 원}"""
+    try:
+        orders = json.loads(Path(orders_json).read_text(encoding='utf-8')).get('orders', {})
+    except (OSError, ValueError):
+        return {}
+    ev = []
+    for r in orders.values():
+        if not r.get('trades'):
+            continue
+        q = sum(float(x['volume']) for x in r['trades']); f = sum(float(x['funds']) for x in r['trades'])
+        ev.append((min(x['created_at'] for x in r['trades']), r['market'], r['side'], q, f, float(r.get('paid_fee') or 0),
+                   str(r.get('identifier') or '').startswith('v5-')))
+    ev.sort()
+    pos, res = {}, {}
+    for t, m, side, q, f, fee, mine in ev:
+        p = pos.setdefault(m, {'q': 0., 'cost': 0., 'key': None})
+        if side == 'bid':
+            if p['q'] <= 1e-9 or p['key'] is None:
+                p['key'] = (t[:16], m) if mine else None
+            p['q'] += q; p['cost'] += f + fee
+        elif p['q'] > 1e-9:
+            take = min(q, p['q']); share = take / p['q']; alloc = p['cost'] * share
+            if p['key']:
+                res[p['key']] = res.get(p['key'], 0.) + f * (take / q) - fee - alloc
+            p['q'] -= take; p['cost'] -= alloc
+            if p['q'] <= 1e-9:
+                p['q'], p['cost'], p['key'] = 0., 0., None
+    return res
+
+
+def load_flags(path):
+    rows = []
+    try:
+        for line in Path(path).read_text(encoding='utf-8').splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+    except OSError:
+        pass
+    return rows
+
+
+def evaluate(flags_path, orders_json, now=None):
+    now = now or dt.datetime.now(dt.timezone(dt.timedelta(hours=9)))
+    rows = load_flags(flags_path)
+    by_slot = {}
+    for r in rows:
+        if (r.get('flag') or {}).get('R8') is not None:
+            by_slot[(str(r['time'])[:13], r['market'][4:])] = r['flag']['R8']
+    first = min((str(r['time'])[:10] for r in rows), default=None)
+    age = (now.date() - dt.date.fromisoformat(first)).days if first else 0
+    entries = []
+    for (t, m), real in realized_by_entry(orders_json).items():
+        flag = by_slot.get((t[:13], m[4:])) if int(t[14:16]) <= 10 else None  # 정시 판단 직후(10분 안) 매수만 연결
+        if flag is not None:
+            entries.append({'t': t, 'm': m[4:], 'real': real, 'hit': flag})
+    hit = [e for e in entries if e['hit']]; keep = [e for e in entries if not e['hit']]
+    out = {'version': REVIEW_VERSION, 'at': now.isoformat(timespec='minutes'), 'first_record': first, 'age_days': age,
+           'records': len(rows), 'entries': len(entries), 'hit': len(hit), 'keep': len(keep),
+           'hit_days': len({e['t'][:10] for e in hit}), 'hit_markets': len({e['m'] for e in hit})}
+    if hit:
+        out['hit_net'] = round(sum(e['real'] for e in hit)); out['hit_profit'] = round(sum(e['real'] for e in hit if e['real'] > 0))
+        out['hit_loss'] = round(sum(e['real'] for e in hit if e['real'] < 0))
+    if keep:
+        out['keep_net'] = round(sum(e['real'] for e in keep)); out['keep_profit'] = round(sum(e['real'] for e in keep if e['real'] > 0))
+        out['keep_loss'] = round(sum(e['real'] for e in keep if e['real'] < 0))
+    enough = len(hit) >= MIN_HITS and out['hit_days'] >= MIN_DAYS and out['hit_markets'] >= MIN_MARKETS and bool(keep)
+    if not enough:
+        out['state'] = 'extend' if age >= MAX_DAYS else 'collecting'
+        return out
+    hit_avg = sum(e['real'] for e in hit) / len(hit); keep_avg = sum(e['real'] for e in keep) / len(keep)
+    worst = min(e['real'] for e in hit)
+    rest_avg = (sum(e['real'] for e in hit) - worst) / (len(hit) - 1)
+    ratio = (-out['hit_loss'] / out['hit_profit']) if out['hit_profit'] > 0 else float('inf')
+    out.update(hit_avg=round(hit_avg), keep_avg=round(keep_avg), loss_ratio=None if ratio == float('inf') else round(ratio, 2))
+    if hit_avg >= keep_avg:
+        out['state'] = 'reject'
+    elif ratio >= LOSS_RATIO and rest_avg < keep_avg:
+        out['state'] = 'propose'
+    else:
+        out['state'] = 'weak'
+    return out
+
+
+def notice_text(r):
+    """판정 결과를 사용자용 공지 (제목, 본문, 수준)으로. 모으는 중이면 None."""
+    s = r['state']
+    nums = (f"R8 발동 {r['hit']}건(손익 {r.get('hit_net', 0):+,}원: 이익 {r.get('hit_profit', 0):+,} / 손실 {r.get('hit_loss', 0):+,}) · "
+            f"통과 {r['keep']}건({r.get('keep_net', 0):+,}원) · {r['hit_days']}일 · {r['hit_markets']}종목")
+    if s == 'propose':
+        return ('급변 직후 진입 차단 — 정해 둔 기준을 충족했습니다. 적용 여부를 결정해 주세요',
+                nums + '\n자동으로 켜지지 않습니다. 적용하려면 Claude에게 "급변 차단 적용"이라고 말씀하세요.', 'action')
+    if s == 'reject':
+        return ('급변 직후 진입 차단 — 효과가 확인되지 않았습니다(기준 재검토)',
+                nums + '\n걸린 진입이 통과한 진입보다 나쁘지 않았습니다. 차단은 적용하지 않습니다. 기준 재검토 여부를 Claude와 상의하세요.', 'action')
+    if s == 'weak':
+        return ('급변 직후 진입 차단 — 효과가 약합니다(관찰 연장)', nums + '\n표본은 찼지만 기준 일부만 충족했습니다. 적용하지 않고 더 지켜봅니다.', 'action')
+    if s == 'extend':
+        return ('급변 직후 진입 차단 — 14일이 지났지만 표본이 부족합니다',
+                nums + f"\n기준은 발동 {MIN_HITS}건·{MIN_DAYS}일·{MIN_MARKETS}종목입니다. 관찰 기간을 늘릴지 Claude와 상의하세요.", 'action')
+    return None

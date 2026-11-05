@@ -18,7 +18,7 @@ DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
 KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs',
-         '/promote': 'promote', '/unpromote': 'unpromote', '/refresh': 'refresh'}
+         '/promote': 'promote', '/unpromote': 'unpromote', '/refresh': 'refresh', '/notice_ack': 'notice_ack'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
@@ -81,6 +81,11 @@ class ManualOrderServer:
             return (200, (None, None)) if doc.get('confirm') is True else (400, '확인되지 않은 요청')
         if kind == 'grant':  # 이 PC에 실행권 받기: 종목이 필요 없다
             return (200, (None, None)) if doc.get('confirm') is True else (400, '확인되지 않은 요청')
+        if kind == 'notice_ack':  # 화면 상단 공지 확인: 주문과 무관
+            nid = doc.get('id')
+            if doc.get('confirm') is not True or not isinstance(nid, str) or not re.match(r'^[A-Za-z0-9_.-]{1,80}$', nid):
+                return 400, '요청 형식 오류'
+            return 200, (nid, None)
         if kind == 'obs':  # 관찰·그림자 관리 창: 주문과 무관한 기록 변경
             oid, act, note = doc.get('id'), doc.get('action'), doc.get('note')
             bad_id = not isinstance(oid, str) or not re.match(r'^[a-z0-9_-]{1,40}$', oid)

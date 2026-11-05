@@ -433,6 +433,8 @@ class Live:
                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
                     if pending.get('atr_r'): new['atr_r'] = pending['atr_r']
                     if co.reentry_ok(self.d.get('last_sell', {}).get(m)): new['reentry'] = True  # 이익 청산 뒤 재진입 1회를 쓴 물량
+                    try: co.consume(self.folder.parent, m)  # 직접 지정은 1회 권한: 첫 체결로 쓴 것으로 본다
+                    except OSError: pass
                 else:
                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
                     for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis', 'reentry'):

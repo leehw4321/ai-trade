@@ -20,14 +20,36 @@ class Rules(unittest.TestCase):
         self.dir = Path(self.tmp.name)
         self.p = st.Params()
 
-    def test_promote_only_between_cap_and_20_percent_and_expires(self):
+    def test_promote_only_between_cap_and_20_percent_and_has_no_time_limit(self):
         self.assertFalse(co.promote(self.dir, 'KRW-A', 0.14, self.p, now=1000)[0])
         self.assertFalse(co.promote(self.dir, 'KRW-A', 0.20, self.p, now=1000)[0])
         self.assertTrue(co.promote(self.dir, 'KRW-A', 0.15, self.p, now=1000)[0])
-        self.assertIn('KRW-A', co.promoted(self.dir, now=1000 + 23 * 3600))
-        self.assertNotIn('KRW-A', co.promoted(self.dir, now=1000 + 24 * 3600))
+        self.assertIn('KRW-A', co.promoted(self.dir, now=1000 + 30 * 24 * 3600))  # 24시간 만료 없음(사용자 지시 11-05)
         self.assertTrue(co.unpromote(self.dir, 'KRW-A')[0])
         self.assertEqual(co.promoted(self.dir, now=1000), {})
+
+    def test_grant_is_used_up_by_one_purchase(self):
+        co.promote(self.dir, 'KRW-A', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-B', 0.17, self.p, now=1000)
+        self.assertTrue(co.consume(self.dir, 'KRW-A'))
+        self.assertEqual(set(co.promoted(self.dir)), {'KRW-B'})
+        self.assertFalse(co.consume(self.dir, 'KRW-A'))
+
+    def test_grant_resets_when_overheat_lifts_so_the_original_rule_applies_again(self):
+        co.promote(self.dir, 'KRW-A', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-B', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-C', 0.17, self.p, now=1000)
+        gone = co.reset_cooled(self.dir, {'KRW-A': 0.18, 'KRW-B': 0.10}, self.p)   # A 여전히 과열, B 해제, C 순위 정보 없음
+        self.assertEqual(set(gone), {'KRW-B', 'KRW-C'})
+        self.assertEqual(set(co.promoted(self.dir)), {'KRW-A'})
+        co.reset_cooled(self.dir, {'KRW-A': 0.12}, self.p)
+        self.assertEqual(co.promoted(self.dir), {})
+        # 다시 과열이 돼도 지정은 없다 → 원래 15% 규칙
+        self.assertEqual(co.cap_for('KRW-A', self.p, co.promoted(self.dir), None), 0.15)
+
+    def test_old_file_with_until_field_still_reads_as_a_grant(self):
+        (self.dir / co.PROMOTED).write_text('{"markets": {"KRW-A": {"at": 1, "until": 2, "rs": 0.17}}}', encoding='utf-8')
+        self.assertIn('KRW-A', co.promoted(self.dir))
 
     def test_disabled_cap_means_no_exception(self):
         p = st.Params(chase_rs_cap=0.0)
@@ -196,6 +218,17 @@ class Receiver(unittest.TestCase):
         co.promote(self.data, 'KRW-A', .17, self.worker.p, now=self.now)
         self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
         self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 120.))
+
+    def test_first_buy_fill_uses_up_the_grant_and_the_rule_returns_to_15_percent(self):
+        co.promote(self.data, 'KRW-A', .17, self.worker.p, now=self.now)
+        self.worker.d['positions'].clear()
+        self.worker.d['pending_order'] = {'identifier': 'i', 'side': 'bid', 'market': 'KRW-A', 'amount': 10000, 'reason': 'p',
+                                          'uuid': 'u', 'time': '2026-11-02T21:00:00+09:00', 'atr': 1.0}
+        self.worker._apply_pending({'identifier': 'i', 'side': 'bid', 'state': 'done', 'executed_volume': '100',
+                                    'trades': [{'volume': '100', 'funds': '10000'}], 'paid_fee': '5', 'uuid': 'u'}, None)
+        self.assertIn('KRW-A', self.worker.d['positions'])
+        self.assertEqual(co.promoted(self.data), {})
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
 
     def test_receiver_allows_profit_reentry_only_once(self):
         self.worker.d['last_sell'] = {'KRW-A': {'time': self.now - 600, 'price': 100., 'profit': True}}

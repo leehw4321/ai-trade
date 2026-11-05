@@ -438,6 +438,7 @@ class Shadow:
         caps.update(state.get('limits', {}))
         rs_of = {**self.rs_out, **{r['market']: r['rs'] for r in self.base_ranked}}
         hot = co.update_hot_held(DATA, {m for m, v in holdings.items() if v >= 5000}, rs_of, self.base)
+        co.reset_cooled(DATA, rs_of, self.base)  # 과열이 풀린 직접 지정은 지운다(다시 과열되면 원래 15% 규칙)
         promoted, protected = co.promoted(DATA), self.protected_markets()
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),

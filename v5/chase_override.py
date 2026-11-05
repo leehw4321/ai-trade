@@ -1,7 +1,8 @@
 """과열 상한 예외 (사용자 지시 2026-11-05: 오른 종목을 끝까지 들고 가기).
 
-1. 사용자 직접 지정: 18시간 상승률이 과열 상한(15%) 이상 EXT_CAP(20%) 미만인 종목을 화면에서 '매수 대상'으로 올리면
-   PROMOTE_HOURS 동안 그 종목의 상한을 EXT_CAP으로 본다.
+1. 사용자 직접 지정(1회 권한, 사용자 지시 2026-11-05 16:30에 24시간 유지를 없앰): 18시간 상승률이 과열 상한(15%) 이상 EXT_CAP(20%) 미만인
+   종목을 화면에서 '매수 대상'으로 올리면 그 종목의 상한을 EXT_CAP으로 본다. 시간 제한은 없고, ① 그 종목을 한 번 사면(첫 체결) 권한이 사라지며
+   ② 상승률이 과열 상한 아래로 내려와 과열이 풀리면(순위 밖으로 빠진 경우 포함) 권한이 사라진다. 다시 과열이 되면 원래 규칙(15%)을 적용한다.
 2. 이익 청산 뒤 재진입: 이익으로 전량 매도한 종목은 REENTRY_HOURS 안에 한 번, 상한 EXT_CAP으로 다시 살 수 있다.
    재진입 대기·눌림 조건(reentry_profit_hours, reentry_dip_atr)은 이 한 번에는 적용하지 않는다. 재진입으로 산 물량을 판 뒤에는 다시 주지 않는다.
 3. 과열 보유: 보유 중 18시간 상승률이 과열 상한 이상이 된 종목은 순위 매도(유지 순위 밖·상대강도 음수·거래대금 상위 밖)를 하지 않고
@@ -16,7 +17,6 @@ import time
 from pathlib import Path
 
 EXT_CAP = 0.20
-PROMOTE_HOURS = 24
 REENTRY_HOURS = 24
 PROMOTED = 'chase_promoted.json'
 HOT_HELD = 'hot_held.json'
@@ -49,12 +49,35 @@ def ext_cap(p):
 
 
 def promoted(data_dir, now=None):
-    """지금 유효한 직접 지정 종목 {종목: 만료 시각}."""
+    """지금 유효한 직접 지정 종목 {종목: 지정 시각}. 시간 제한은 없다(사면 사라지고, 과열이 풀리면 지워진다)."""
     rows = _read(Path(data_dir) / PROMOTED).get('markets', {})
-    if not rows:
-        return {}
-    now = time.time() if now is None else now
-    return {m: v['until'] for m, v in rows.items() if isinstance(v, dict) and _finite(v.get('until')) and v['until'] > now}
+    return {m: v.get('at') for m, v in rows.items() if isinstance(v, dict)} if isinstance(rows, dict) else {}
+
+
+def consume(data_dir, market):
+    """직접 지정 종목을 샀다: 1회 권한을 쓴 것으로 지운다. 지울 게 없으면 False."""
+    path = Path(data_dir) / PROMOTED
+    rows = _read(path).get('markets', {})
+    if not isinstance(rows, dict) or market not in rows:
+        return False
+    rows.pop(market)
+    _write(path, {'markets': rows})
+    return True
+
+
+def reset_cooled(data_dir, rs_of, p):
+    """상승률이 과열 상한 아래로 내려왔거나 순위 정보에서 사라진 종목의 직접 지정을 지운다(원래 규칙으로 되돌림). 지운 종목 목록."""
+    path = Path(data_dir) / PROMOTED
+    rows = _read(path).get('markets', {})
+    cap = p.chase_rs_cap
+    if not isinstance(rows, dict) or not rows:
+        return []
+    gone = [m for m in rows if not (_finite(rs_of.get(m)) and _finite(cap) and cap > 0 and rs_of[m] >= cap)]
+    if gone:
+        for m in gone:
+            rows.pop(m)
+        _write(path, {'markets': rows})
+    return gone
 
 
 def promote(data_dir, market, rs, p, now=None):
@@ -65,10 +88,10 @@ def promote(data_dir, market, rs, p, now=None):
         return False, f'상승률 {rs:+.1%}: 직접 지정은 {cap:.0%} 이상 {EXT_CAP:.0%} 미만일 때만 가능합니다.'
     path = Path(data_dir) / PROMOTED
     doc = _read(path)
-    rows = {m: v for m, v in doc.get('markets', {}).items() if isinstance(v, dict) and _finite(v.get('until')) and v['until'] > now}
-    rows[market] = {'at': now, 'until': now + PROMOTE_HOURS * 3600, 'rs': rs}
+    rows = {m: v for m, v in doc.get('markets', {}).items() if isinstance(v, dict)}
+    rows[market] = {'at': now, 'rs': rs}
     _write(path, {'markets': rows})
-    return True, f'{market[4:]}: {PROMOTE_HOURS}시간 동안 매수 대상(상한 {EXT_CAP:.0%}). 다음 정시 판단부터 적용됩니다.'
+    return True, f'{market[4:]}: 1회 매수 권한(상한 {EXT_CAP:.0%}). 한 번 사면 사라지고, 과열이 풀리면 지워집니다. 다음 정시 판단부터 적용됩니다.'
 
 
 def unpromote(data_dir, market):

@@ -82,7 +82,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         if can_promote and m not in held and rank <= scan and p.chase_rs_cap > 0 and p.chase_rs_cap <= rs < co.ext_cap(p):
             act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
             btn = f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
-        tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 24시간)'" if btn else ''
+        tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
@@ -175,7 +175,7 @@ def promote_script(api):
         return ''
     return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
             "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
-            "if(!confirm(a=='promote'?m.slice(4)+'을(를) 24시간 동안 매수 대상으로 올립니다(과열 상한 20%).\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "if(!confirm(a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"

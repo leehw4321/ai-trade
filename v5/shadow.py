@@ -23,6 +23,7 @@ import traceback
 import strategy as st
 import rotation_policy as rotation
 import chase_override as co
+import missed_ledger
 import upbit
 from bot import boundary, load_params, SETTLE, KST, utc
 from paper import Ledger, now_iso
@@ -437,16 +438,22 @@ class Shadow:
         caps.update(state.get('limits', {}))
         rs_of = {**self.rs_out, **{r['market']: r['rs'] for r in self.base_ranked}}
         hot = co.update_hot_held(DATA, {m for m, v in holdings.items() if v >= 5000}, rs_of, self.base)
+        promoted, protected = co.promoted(DATA), self.protected_markets()
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,
-                                 promoted=co.promoted(DATA), hot=hot, protected=self.protected_markets(),
+                                 promoted=promoted, hot=hot, protected=protected,
                                  costs={m: p.get('cost') for m, p in state.get('positions', {}).items() if isinstance(p, dict)},
                                  stuck_out=(stuck := {}))
         co.write_stuck(DATA, stuck)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
+        try:  # 놓친 이유 장부: 기록 전용, 실패해도 주문안은 그대로 만든다
+            missed_ledger.record(DATA, self.signal_closed_at, self.base_ranked, self.base, holdings, protected, promoted,
+                                 state.get('last_sell'), self.entry_ok, reasons, text, now=self.evaluated_at)
+        except Exception as ex:
+            print(f'[{now_iso()}] 놓친 이유 장부 기록 실패: {type(ex).__name__}: {ex}', flush=True)
         # Public signal prices, not account inventory: the receiver can enforce the SAME
         # chase cap against a later executable ask instead of trusting a frozen return.
         entry_context = {}

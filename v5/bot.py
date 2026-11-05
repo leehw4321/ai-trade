@@ -938,6 +938,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     continue
                 if req.kind == 'notice_ack':  # 상단 공지 확인(주문과 무관)
                     notices.ack(DATA / 'notices.json', req.market)
+                    self._refresh_now = True  # 다음 화면 갱신 때 배너가 사라지게
                     req.finish(True, '확인했습니다.')
                     continue
                 if req.kind == 'refresh':  # 화면 즉시 새로고침(주문과 무관)

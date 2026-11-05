@@ -87,6 +87,7 @@ def banner(items, action=None):
         js = ("<script>(function(){var A=" + json.dumps({'port': action['port'], 'token': action['token']}) + ";"
               "document.querySelectorAll('button[data-nid]').forEach(function(b){b.onclick=function(){b.disabled=true;"
               "fetch('http://127.0.0.1:'+A.port+'/notice_ack',{method:'POST',headers:{'Content-Type':'text/plain'},"
-              "body:JSON.stringify({token:A.token,id:b.dataset.nid,confirm:true})}).then(function(){location.reload()})"
-              ".catch(function(){b.disabled=false})}})})()</script>")
+              "body:JSON.stringify({token:A.token,id:b.dataset.nid,confirm:true})}).then(function(r){return r.json()}).then(function(j){if(!j.ok){throw 0}"
+              "var c=b.parentNode;c.parentNode.removeChild(c)})"
+              ".catch(function(){b.disabled=false;b.textContent='실패 - 다시 누르세요'})}})})()</script>")
     return f"<div id=notices style='display:flex;flex-direction:column;gap:12px'>{''.join(rows)}</div>{js}"

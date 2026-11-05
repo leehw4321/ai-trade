@@ -161,7 +161,8 @@ class DurableReceiverTests(unittest.TestCase):
             accounts.assert_not_called()
 
     def test_profit_reentry_dip_with_new_completed_bar_is_not_permanently_blocked(self):
-        self.worker.d['last_sell']={'KRW-A':{'time':BASE-3*3600,'profit':True,'price':100.}}
+        # 재진입 1회 예외(chase_override)를 이미 쓴 매도: 기존 눌림 규칙 검사
+        self.worker.d['last_sell']={'KRW-A':{'time':BASE-3*3600,'profit':True,'price':100.,'from_reentry':True}}
         context={'market':'KRW-A','rank':1,'policy_hash':rp.policy_hash(self.p),'signal_close':110.,
                  'anchor_close':100.,'rs':.1,'signal_closed_at':BASE,'signal_tf_minutes':15,'evaluated_at':BASE+30}
         bars=[{'t':dt.datetime.fromtimestamp(BASE-900,dt.timezone.utc).isoformat()}]

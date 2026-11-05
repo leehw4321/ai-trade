@@ -20,6 +20,7 @@ import protection_panel
 import observations
 import strategy as st
 import rotation_policy as rotation
+import chase_override as co
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -49,7 +50,7 @@ def utc(ts):
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc)
 
 
-def ranking_rows(ranking, held, warned, p, esc=html.escape):
+def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -64,7 +65,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape):
         if w and w.get('trade_blocked', True):
             cls, tag = 'rk-alert', ('보유 · ' if m in held else '') + f'매수 불가({reasons})'
         elif m in held:
-            cls, tag = 'rk-held', '보유'
+            cls, tag = 'rk-held', '보유' + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
+        elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
+            cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
             cls, tag = 'rk-hot', '과열(매수 보류)'
         elif rank <= scan and rs > 0 and picked < want:
@@ -74,9 +77,27 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape):
         else:
             cls, tag = '', ''
         tag = (tag + note) if tag else note.lstrip(' ·')
-        out.append(f"<tr class='{cls}'><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
-                   f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}</td></tr>")
+        btn = ''
+        if can_promote and m not in held and rank <= scan and p.chase_rs_cap > 0 and p.chase_rs_cap <= rs < co.ext_cap(p):
+            act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
+            btn = f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
+        tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 24시간)'" if btn else ''
+        out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
+                   f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
+
+
+def promote_script(api):
+    """순위표 '매수 대상으로'/'지정 취소' 버튼. 서버가 없으면 버튼이 나오지 않는다."""
+    if not api:
+        return ''
+    return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
+            "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
+            "if(!confirm(a=='promote'?m.slice(4)+'을(를) 24시간 동안 매수 대상으로 올립니다(과열 상한 20%).\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
+            "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
+            ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
+            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})})()</script>")
 
 
 class Bot:
@@ -495,7 +516,10 @@ class Bot:
             except Exception:
                 pass
         warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
-        rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+        promote_api = self.manual_action() if self.live.cfg.get('enabled') and self.can_act() else None
+        rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
+                               can_promote=bool(promote_api)) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+        rk_rows_script = promote_script(promote_api)
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],
                         key=lambda x: x['time'])[-14:][::-1]
         ev = ''.join(f"<li><span class=t>{e(x['time'][5:16].replace('T', ' '))} {e(x['who'])}</span>{e(x['msg'])}</li>" for x in events)
@@ -515,7 +539,7 @@ class Bot:
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
 details>summary{{cursor:pointer;color:var(--muted);padding:8px 2px}}details[open]>summary{{margin-bottom:8px}}
-tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} tr.rk-hot td{{background:#ffe6cc}} .chip-hot{{background:#ffe6cc;color:#17212b}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
+tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} tr.rk-hot td{{background:#ffe6cc}} .pr-btn{{visibility:hidden;margin-left:6px;font-size:12px;cursor:pointer}} tr:hover .pr-btn,.pr-btn:focus,.pr-btn:disabled{{visibility:visible}} @media (hover:none){{.pr-btn{{visibility:visible}}}} .chip-hot{{background:#ffe6cc;color:#17212b}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
 @media (prefers-color-scheme:dark){{tr.rk-held td{{background:#1d3647}} tr.rk-alert td{{background:#4a2a2d}} tr.rk-target td{{background:#22402a}} tr.rk-watch td{{background:#47401f}} tr.rk-hot td{{background:#4d3620}} .chip-hot{{background:#4d3620;color:#e3e8eb}} .chip-held{{background:#1d3647;color:#e3e8eb}} .chip-alert{{background:#4a2a2d;color:#e3e8eb}} .chip-target{{background:#22402a;color:#e3e8eb}} .chip-watch{{background:#47401f;color:#e3e8eb}}}}
 :root{{--bg:#f4f6f7;--card:#fff;--ink:#17212b;--muted:#5d6b77;--line:#dde3e7;--acc:#0f6e5c;--up:#c8322f;--dn:#2457b3}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#11171c;--card:#182128;--ink:#e3e8eb;--muted:#9aa6af;--line:#2c3740;--acc:#4fc2a6;--up:#ff6b66;--dn:#6e9bff}}}}
@@ -538,7 +562,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</div>
 {blocks}
 <div class=grid>
-<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table><div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>매수 불가 경보(이유 표시)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류)</span> · 매수 후보: 상승률 0~{p.chase_rs_cap:.0%}·보유/매수 불가 경보/재진입 대기 아님(거래량·입금량 급증, 가격 급등락 경보는 매수 가능), {p.entry_scan or p.entry_top}위 안에서 {p.entry_want or p.entry_top}종목</div></section>
+<section><h2>상대강도 순위 ({e(d.get('ranking_time', '-'))})</h2><table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L}봉 수익률</th><th>구분</th></tr>{rk_rows}</table>{rk_rows_script}<div class=sub style="margin-top:8px"><span class='chip chip-held'>보유</span> <span class='chip chip-alert'>매수 불가 경보(이유 표시)</span> <span class='chip chip-target'>투자 대상(매수 후보)</span> <span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류)</span> · 매수 후보: 상승률 0~{p.chase_rs_cap:.0%}·보유/매수 불가 경보/재진입 대기 아님(거래량·입금량 급증, 가격 급등락 경보는 매수 가능), {p.entry_scan or p.entry_top}위 안에서 {p.entry_want or p.entry_top}종목</div></section>
 <section><h2>운영 기록</h2><ul>{ev}</ul></section>
 </div>
 <div class=sub>규칙: 거래대금 상위 {p.universe} · 판단 {p.tf}분봉 · 상대강도 {p.L}봉({p.L*p.tf//60}시간) · 실시간 손절 {p.stop_seconds}초 · 유지 {p.M}위 · 신규 상위 {p.entry_top}위 · 최대 {p.slots}종목 · 손절 {p.k:g}×ATR14 · 거래당 위험 {p.risk:.1%} · 편도 비용 BTC·ETH {p.cost_major:.2%} / 기타 {p.cost_other:.2%} + 수수료 {p.fee:.2%} · 경보 종목 신규 진입 제외. L·M·k는 임시값.</div>
@@ -575,7 +599,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -689,7 +713,18 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if not self.can_act():
                     req.finish(False, '이 PC에는 실행권이 없어 주문·보호 변경을 할 수 없습니다. 먼저 실행권을 받으세요.')
                     continue
-                if req.kind in ('protect','unprotect'):
+                if req.kind == 'promote':
+                    row = next((r for r in self.ledger.d.get('ranking', []) if r.get('market') == req.market), None)
+                    scan = self.p.entry_scan or self.p.entry_top
+                    if row is None or row.get('rank', 99) > scan:
+                        ok, msg = False, f'{req.market[4:]}: 지금 {scan}위 안에 없어 지정할 수 없습니다.'
+                    else:
+                        ok, msg = co.promote(DATA, req.market, row['rs'], self.p)
+                    label = '과열 종목 직접 지정'
+                elif req.kind == 'unpromote':
+                    ok, msg = co.unpromote(DATA, req.market)
+                    label = '과열 종목 직접 지정 취소'
+                elif req.kind in ('protect','unprotect'):
                     ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
                     label='사용자 보호 선택'; self._protection_ui_dirty=True
                 elif req.kind == 'buy':

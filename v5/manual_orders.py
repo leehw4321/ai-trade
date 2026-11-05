@@ -17,7 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs'}
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs',
+         '/promote': 'promote', '/unpromote': 'unpromote'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30

@@ -55,6 +55,8 @@ class Params:
     regime_expires: float = 0.0   # 0이 아니면 이 에포크 시각 이후 신규 매수를 전부 보류한다(자동으로 필터 없는 거래로 돌아가지 않는다). 재결정 필요
     rotation_enabled: bool = False  # reviewed hourly rotation; opt-in
     rotation_confirmations: int = 1  # 2 is research-only, not the rollout value
+    # 사용자 지시(2026-11-05): False면 이미 산 종목을 순위(유지 순위 밖·상대강도 음수·거래대금 상위 밖)로 팔지 않고 손절·이익보호로만 판다.
+    rank_exit: bool = True
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])
 
     @classmethod
@@ -126,10 +128,12 @@ def rank(bars_by_market, p):
     return rows
 
 
-def chase_block(r, p):
-    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None."""
-    if p.chase_rs_cap > 0 and r['rs'] >= p.chase_rs_cap:
-        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {p.chase_rs_cap:.0%}'
+def chase_block(r, p, cap=None):
+    """과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None.
+    cap: 종목별 상한(직접 지정·이익 청산 뒤 재진입은 chase_override.cap_for). 없으면 p.chase_rs_cap."""
+    cap = p.chase_rs_cap if cap is None else cap
+    if cap > 0 and r['rs'] >= cap:
+        return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {cap:.0%}'
     return None
 
 

@@ -22,6 +22,7 @@ import traceback
 
 import strategy as st
 import rotation_policy as rotation
+import chase_override as co
 import upbit
 from bot import boundary, load_params, SETTLE, KST, utc
 from paper import Ledger, now_iso
@@ -94,16 +95,23 @@ def claim_slot(slot, path=None):
     tmp.replace(path)
 
 
-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None):
+def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
+             promoted=None, hot=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
+    promoted: 사용자 직접 지정 종목, hot: 과열 보유 종목(순위 매도 제외). chase_override 참고.
     """
     pos = {r['market']: r for r in ranked}
     reasons, sells, sold = [], [], 0.0
     cands = []
+    promoted, hot = promoted or {}, hot or set()
     for m, v in holdings.items():
         if v < 5000:
+            continue
+        if m in hot or not getattr(base, 'rank_exit', True):
+            kind = '과열 보유' if m in hot else '보유'
+            reasons.append(f'{m[4:]} 유지: {kind} — 순위 매도 안 함, 손절·이익보호로만 매도 (사용자 지시)')
             continue
         r = pos.get(m)
         rs = r['rs'] if r else rs_out.get(m)
@@ -170,10 +178,14 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             continue
         if r['market'] in entry_ok and r['rs'] > 0:
             last = (last_sells or {}).get(r['market'])
-            why = st.chase_block(r, base) or (st.reentry_block(r, last, time.time(), base) if last else None)
+            again = co.reentry_ok(last)
+            why = (st.chase_block(r, base, co.cap_for(r['market'], base, promoted, last))
+                   or (st.reentry_block(r, last, time.time(), base) if last and not again else None))
             if why:
                 reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
             else:
+                if r['rs'] >= base.chase_rs_cap > 0:
+                    reasons.append(f'{r["market"][4:]} 과열 예외 매수 후보: ' + ('사용자 직접 지정' if r['market'] in promoted else '이익 청산 뒤 재진입 1회'))
                 picks.append(r)
     buys = []
     # 전략 설계의 비율 한도: 종목당 coin_cap, 총투입 total_cap (계좌 평가액 기준). 고정 금액 한도를 풀어도 이 한도는 유지한다(D-29).
@@ -363,10 +375,13 @@ class Shadow:
         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
+        rs_of = {**self.rs_out, **{r['market']: r['rs'] for r in self.base_ranked}}
+        hot = co.update_hot_held(DATA, {m for m, v in holdings.items() if v >= 5000}, rs_of, self.base)
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
-                                 rotation_slot=self.signal_closed_at)
+                                 rotation_slot=self.signal_closed_at,
+                                 promoted=co.promoted(DATA), hot=hot)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME

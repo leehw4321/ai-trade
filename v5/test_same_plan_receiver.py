@@ -34,7 +34,8 @@ class SamePlanReceiver(unittest.TestCase):
         self.assertIn('재진입 대기', why)
 
     def test_profit_sale_after_wait_still_requires_existing_dip_rule_at_actual_ask(self):
-        self.worker.d['last_sell'] = {'KRW-A': {'time': 1000., 'price': 100., 'profit': True}}
+        # 이익 청산 뒤 재진입 1회 예외(chase_override, 2026-11-05)를 이미 쓴 매도라 기존 눌림 규칙이 적용된다.
+        self.worker.d['last_sell'] = {'KRW-A': {'time': 1000., 'price': 100., 'profit': True, 'from_reentry': True}}
         with patch.object(live.time, 'time', return_value=10000), \
              patch.object(live.upbit, 'accounts', return_value=[{'currency': 'KRW', 'balance': '20000'}]), \
              patch.object(live.upbit, 'orderbooks', return_value={'KRW-A': {'ask': 100., 'bid': 99.9}}), \

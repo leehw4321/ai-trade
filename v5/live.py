@@ -22,6 +22,7 @@ import math
 
 import strategy as st
 import rotation_policy as rotation
+import chase_override as co
 import upbit
 import asset_protection
 import continuity
@@ -431,9 +432,10 @@ class Live:
                     new.update(entry=px, atr=pending['atr'], stop0=stop,
                                trail=bool(self.cfg.get('trail_enabled')) and stop < px)
                     if pending.get('atr_r'): new['atr_r'] = pending['atr_r']
+                    if co.reentry_ok(self.d.get('last_sell', {}).get(m)): new['reentry'] = True  # 이익 청산 뒤 재진입 1회를 쓴 물량
                 else:
                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
-                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis'):
+                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis', 'reentry'):
                         if k in old: new[k] = old[k]
                     new['trail'] = False
                 if rotation.enabled(self.p) and old is None:
@@ -456,7 +458,8 @@ class Live:
                     if pos['qty'] <= 1e-8:
                         # 재진입 규칙(D-38)을 위해 전량 청산 기록을 남긴다
                         self.d.setdefault('last_sell', {})[m] = {'time': time.time(), 'price': df / dv, 'profit': (df - dfee - basis) > 0,
-                                                                  'reason': str(pending.get('reason', ''))[:40]}
+                                                                  'reason': str(pending.get('reason', ''))[:40],
+                                                                  'from_reentry': bool(pos.get('reentry'))}
                         del self.d['positions'][m]
         elif dfee > 0:
             if pending['side'] == 'bid':
@@ -786,8 +789,8 @@ class Live:
                     or not 1 <= context['rank'] <= self.p.M
                     or context.get('policy_hash') != rotation.policy_hash(self.p)):
                 return '신규 매수 순위·유지 범위·정책 불일치: 매수 보류'
-            why = rotation.fresh_reentry(self.d.get('last_sell', {}).get(market),
-                                         self.p, context.get('signal_closed_at'))
+            last = self.d.get('last_sell', {}).get(market)
+            why = None if co.reentry_ok(last) else rotation.fresh_reentry(last, self.p, context.get('signal_closed_at'))
             if why: return why
         if not isinstance(context, dict) or context.get('market') != market:
             return '매수 신호 출처 누락·종목 불일치: 매수 보류'
@@ -808,6 +811,8 @@ class Live:
         cap = self.p.chase_rs_cap
         if type(cap) not in (int, float) or not math.isfinite(cap):
             return '과열 상한 설정 무효: 매수 보류'
+        # 사용자 직접 지정·이익 청산 뒤 재진입은 상한 20%(chase_override). 생성기 표시를 믿지 않고 이 장부·파일로 다시 판단한다.
+        cap = co.cap_for(market, self.p, co.promoted(self.folder.parent), self.d.get('last_sell', {}).get(market))
         if cap > 0 and rs >= cap:
             return '신호 시점부터 기존 과열 상한 이상: 매수 보류'
         if ask is not _NO_ASK:
@@ -824,7 +829,8 @@ class Live:
         if self.d['halted']:
             return '손실 중단선 도달로 신규 매수 중단 상태'
         last = self.d.get('last_sell', {}).get(m)
-        if last:
+        again = co.reentry_ok(last)  # 이익 청산 뒤 재진입 1회: 대기·눌림 조건 없이 허용(사용자 지시 2026-11-05)
+        if last and not again:
             # Re-read the current durable state, not the producer's pre-sale snapshot.
             if type(last.get('time')) not in (int, float) or not math.isfinite(last['time']):
                 return '현재 매도 기록 시각 무효: 재진입 보류'
@@ -860,7 +866,7 @@ class Live:
         if validate_entry:
             why = self.entry_chase_block(m, entry_context, ob.get('ask'))
             if why: return why
-        if (last and last.get('profit') and self.p.reentry_dip_atr > 0
+        if (last and not again and last.get('profit') and self.p.reentry_dip_atr > 0
                 and time.time() - last['time'] < self.p.reentry_window_hours * 3600):
             reentry_bars = upbit.completed_candles(m, self.p.tf, 100)
             atr = st.wilder_atr(reentry_bars)

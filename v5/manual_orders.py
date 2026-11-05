@@ -18,7 +18,7 @@ DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
 KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs',
-         '/promote': 'promote', '/unpromote': 'unpromote'}
+         '/promote': 'promote', '/unpromote': 'unpromote', '/refresh': 'refresh'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
@@ -77,6 +77,8 @@ class ManualOrderServer:
             return 400, '요청 형식 오류'
         if not isinstance(doc, dict) or not hmac.compare_digest(str(doc.get('token', '')), self.token):
             return 403, '인증 실패: 화면을 새로고침한 뒤 다시 시도하세요'
+        if kind == 'refresh':  # 화면 즉시 새로고침: 주문과 무관, 종목이 필요 없다
+            return (200, (None, None)) if doc.get('confirm') is True else (400, '확인되지 않은 요청')
         if kind == 'grant':  # 이 PC에 실행권 받기: 종목이 필요 없다
             return (200, (None, None)) if doc.get('confirm') is True else (400, '확인되지 않은 요청')
         if kind == 'obs':  # 관찰·그림자 관리 창: 주문과 무관한 기록 변경
@@ -102,7 +104,7 @@ class ManualOrderServer:
         """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
         now = self.clock()
         key = (kind, market)
-        if now - self.recent.get(key, -1e9) < REPEAT_SECONDS:
+        if now - self.recent.get(key, -1e9) < (3 if kind == 'refresh' else REPEAT_SECONDS):
             return 429, {'ok': False, 'message': '같은 종목을 방금 요청했습니다. 잠시 뒤 결과를 확인하세요.'}
         if not self.busy.acquire(blocking=False):
             return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}

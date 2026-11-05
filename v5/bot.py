@@ -685,6 +685,12 @@ class Bot:
                    f"<div class=sub style='margin-top:8px'><span class='chip chip-held'>보유</span> <span class='chip chip-target'>매수 후보</span> "
                    f"<span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류 · 20% 미만은 커서를 올려 직접 지정)</span> "
                    f"<span class='chip chip-alert'>매수 불가 경보</span> · {p.entry_scan or p.entry_top}위 안에서 상승률 0~{p.chase_rs_cap:.0%}</div></section>")
+        srv_r = getattr(self, 'manual_server', None)
+        refresh_btn = ("<button id=rf-btn style='font-size:13px;padding:4px 12px;margin-left:10px;cursor:pointer'>지금 새로고침</button>"
+                       "<span id=rf-res class=sub></span><script>(function(){var A=" + json.dumps({'port': srv_r.port, 'token': srv_r.token}) + ","
+                       "b=document.getElementById('rf-btn'),r=document.getElementById('rf-res');b.onclick=function(){b.disabled=true;r.textContent=' ⏳ 봇이 화면을 다시 만드는 중…';"
+                       "fetch('http://127.0.0.1:'+A.port+'/refresh',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,confirm:true})})"
+                       ".then(function(){setTimeout(function(){location.reload()},2500)}).catch(function(){location.reload()})}})()</script>") if srv_r else ''
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
@@ -712,7 +718,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .muted{{color:var(--muted)}} .warn{{color:var(--up)}}
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
-<header><h1>자동거래 v5</h1><div class=sub>갱신 {e(now_iso()[11:16])} · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>
+<header><h1>자동거래 v5 {refresh_btn}</h1><div class=sub>갱신 {e(now_iso()[11:19])} (자동 30초) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
 <div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·
@@ -751,7 +757,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
         if True:
-            kinds={'grant', 'obs'}
+            kinds={'grant', 'obs', 'refresh'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
@@ -783,6 +789,8 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 self.handle_manual_requests()
                 if getattr(self,'_protection_ui_dirty',False):
                     last_display=0; self._protection_ui_dirty=False
+                if getattr(self, '_refresh_now', False):  # 화면의 새로고침 버튼
+                    last_display = 0; self._refresh_now = False
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
                 held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
@@ -857,6 +865,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if req.kind == 'obs':
                     ok, msg = observations.apply(DATA / 'observations.json', req.market, req.krw)
                     req.finish(ok, msg)
+                    continue
+                if req.kind == 'refresh':  # 화면 즉시 새로고침(주문과 무관)
+                    self._refresh_now = True
+                    req.finish(True, '화면을 새로 만드는 중입니다.')
                     continue
                 if req.kind == 'grant':
                     ok, msg = self.request_grant()

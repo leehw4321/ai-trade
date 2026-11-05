@@ -1,0 +1,368 @@
+{
+  "schema": "cached-fill-loss-avoidance-audit-v1",
+  "source": "offline cached exchange detailed fills; no new API query",
+  "synced_at": "2026-11-05T09:08:54+09:00",
+  "baseline_start": "2026-11-02T00:00:00+09:00",
+  "last_fill": "2026-11-05T07:09:46+09:00",
+  "snapshot_sha256": {
+    "orders": "efe7440af59b5bdb0e46ff42ece34dc54d3cf17bf237080bd4a3fad12dd5fe1d",
+    "baseline": "8febe250377f2e078cfb12c0d72f0dab25df2fd753a039be38a9421e188bb910",
+    "summary": "d2093b9d1908c82454d72fc8d446108a87ed2d4c688a2cefff86320e1393e2eb",
+    "config": "96d10f85c606644da6b64c7e3b091cab5cdb0f6f08106c4ac1aee69b29f4b9e6"
+  },
+  "cached_summary_quantity_mismatch": [],
+  "confirmed_bot_closes": {
+    "sell_orders": 56,
+    "net_pnl": -9322.413165041115,
+    "wins": 22,
+    "first_exit": "2026-11-02T22:25:54+09:00",
+    "last_exit": "2026-11-05T07:09:46+09:00"
+  },
+  "estimated_bot_closes": {
+    "sell_orders": 4,
+    "net_pnl": -22259.431413339546,
+    "wins": 0,
+    "first_exit": "2026-11-02T22:28:42+09:00",
+    "last_exit": "2026-11-02T22:28:49+09:00"
+  },
+  "night_exit_window_start": "2026-11-04T18:00:00+09:00",
+  "night_confirmed_closes": {
+    "sell_orders": 11,
+    "net_pnl": -433.75687039207594,
+    "wins": 6,
+    "first_exit": "2026-11-04T20:20:58+09:00",
+    "last_exit": "2026-11-05T07:09:46+09:00"
+  },
+  "top3": [
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-03T13:16:25+09:00",
+      "net_pnl": 14103.04797438807
+    },
+    {
+      "market": "KRW-IRYS",
+      "time": "2026-11-03T13:56:09+09:00",
+      "net_pnl": 8319.70149252032
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-03T12:04:31+09:00",
+      "net_pnl": 6755.40534408957
+    }
+  ],
+  "confirmed_per_market": {
+    "KRW-AXIS": {
+      "sell_orders": 6,
+      "net_pnl": -7776.20829365597,
+      "wins": 2,
+      "first_exit": "2026-11-03T11:03:32+09:00",
+      "last_exit": "2026-11-05T02:01:36+09:00"
+    },
+    "KRW-BMT": {
+      "sell_orders": 4,
+      "net_pnl": -1662.360323154869,
+      "wins": 1,
+      "first_exit": "2026-11-03T17:07:37+09:00",
+      "last_exit": "2026-11-05T03:01:39+09:00"
+    }
+  },
+  "current_config": {
+    "entry_scan": 7,
+    "M": 9,
+    "entry_want": 3,
+    "slots": 3,
+    "tf": 15,
+    "L": 72
+  },
+  "confirmed_exits": [
+    {
+      "market": "KRW-BIRB",
+      "time": "2026-11-02T22:25:54+09:00",
+      "net_pnl": -3333.43220318538
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-02T23:59:05+09:00",
+      "net_pnl": 2433.69739475064
+    },
+    {
+      "market": "KRW-DKA",
+      "time": "2026-11-03T00:15:14+09:00",
+      "net_pnl": -210.3428571426468
+    },
+    {
+      "market": "KRW-MEGA",
+      "time": "2026-11-03T00:21:43+09:00",
+      "net_pnl": -8239.391089105971
+    },
+    {
+      "market": "KRW-SLX",
+      "time": "2026-11-03T06:10:06+09:00",
+      "net_pnl": -4397.715938574844
+    },
+    {
+      "market": "KRW-DKA",
+      "time": "2026-11-03T06:22:06+09:00",
+      "net_pnl": 45.65859030829675
+    },
+    {
+      "market": "KRW-TRUST",
+      "time": "2026-11-03T06:22:08+09:00",
+      "net_pnl": 1924.8039073997838
+    },
+    {
+      "market": "KRW-MEGA",
+      "time": "2026-11-03T07:22:08+09:00",
+      "net_pnl": 70.2132106991675
+    },
+    {
+      "market": "KRW-POD",
+      "time": "2026-11-03T09:03:35+09:00",
+      "net_pnl": -605.05479450643
+    },
+    {
+      "market": "KRW-CAP",
+      "time": "2026-11-03T10:03:25+09:00",
+      "net_pnl": 658.139393936634
+    },
+    {
+      "market": "KRW-IRYS",
+      "time": "2026-11-03T10:03:27+09:00",
+      "net_pnl": -1814.36111110877
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-03T11:03:32+09:00",
+      "net_pnl": -2920.967261872785
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-03T11:17:07+09:00",
+      "net_pnl": -666.88414633295
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-03T12:04:31+09:00",
+      "net_pnl": 6755.40534408957
+    },
+    {
+      "market": "KRW-WAVES",
+      "time": "2026-11-03T12:17:22+09:00",
+      "net_pnl": -5282.06262643887
+    },
+    {
+      "market": "KRW-CAP",
+      "time": "2026-11-03T12:22:44+09:00",
+      "net_pnl": -958.5981595051845
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-03T13:16:25+09:00",
+      "net_pnl": 14103.04797438807
+    },
+    {
+      "market": "KRW-ERA",
+      "time": "2026-11-03T13:34:22+09:00",
+      "net_pnl": -4166.266253861016
+    },
+    {
+      "market": "KRW-IRYS",
+      "time": "2026-11-03T13:56:09+09:00",
+      "net_pnl": 8319.70149252032
+    },
+    {
+      "market": "KRW-BTC",
+      "time": "2026-11-03T15:24:34+09:00",
+      "net_pnl": -1788.2356804700003
+    },
+    {
+      "market": "KRW-META2",
+      "time": "2026-11-03T16:24:21+09:00",
+      "net_pnl": -660.957758550375
+    },
+    {
+      "market": "KRW-PUFFER",
+      "time": "2026-11-03T16:34:00+09:00",
+      "net_pnl": 924.460704605325
+    },
+    {
+      "market": "KRW-BMT",
+      "time": "2026-11-03T17:07:37+09:00",
+      "net_pnl": -93.999999999798
+    },
+    {
+      "market": "KRW-CAP",
+      "time": "2026-11-03T23:35:19+09:00",
+      "net_pnl": -338.18691094071846
+    },
+    {
+      "market": "KRW-META2",
+      "time": "2026-11-03T23:49:05+09:00",
+      "net_pnl": -580.80310854075
+    },
+    {
+      "market": "KRW-ERA",
+      "time": "2026-11-03T23:49:08+09:00",
+      "net_pnl": -196.905805038
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-04T00:16:16+09:00",
+      "net_pnl": -4689.527173845195
+    },
+    {
+      "market": "KRW-FLOCK",
+      "time": "2026-11-04T00:49:03+09:00",
+      "net_pnl": -515.054216533149
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-04T00:49:06+09:00",
+      "net_pnl": -1713.8793103317
+    },
+    {
+      "market": "KRW-PIEVERSE",
+      "time": "2026-11-04T01:25:16+09:00",
+      "net_pnl": 1257.592485401325
+    },
+    {
+      "market": "KRW-PIEVERSE",
+      "time": "2026-11-04T05:49:35+09:00",
+      "net_pnl": -734.140952046583
+    },
+    {
+      "market": "KRW-XRP",
+      "time": "2026-11-04T05:49:38+09:00",
+      "net_pnl": -32.25494186013
+    },
+    {
+      "market": "KRW-ONDO",
+      "time": "2026-11-04T06:49:44+09:00",
+      "net_pnl": 215.07400378624
+    },
+    {
+      "market": "KRW-IRYS",
+      "time": "2026-11-04T06:49:47+09:00",
+      "net_pnl": 1813.282456137054
+    },
+    {
+      "market": "KRW-ENA",
+      "time": "2026-11-04T07:39:22+09:00",
+      "net_pnl": -723.73529410712
+    },
+    {
+      "market": "KRW-ETH",
+      "time": "2026-11-04T09:01:59+09:00",
+      "net_pnl": -296.37401052
+    },
+    {
+      "market": "KRW-BMT",
+      "time": "2026-11-04T09:18:44+09:00",
+      "net_pnl": 4042.066197169975
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-04T10:01:51+09:00",
+      "net_pnl": -1331.80706518695
+    },
+    {
+      "market": "KRW-PEPE",
+      "time": "2026-11-04T10:01:53+09:00",
+      "net_pnl": -660.0416666666663
+    },
+    {
+      "market": "KRW-LSK",
+      "time": "2026-11-04T11:49:15+09:00",
+      "net_pnl": 1769.2307692175
+    },
+    {
+      "market": "KRW-FLOCK",
+      "time": "2026-11-04T12:02:09+09:00",
+      "net_pnl": -3755.84799233133
+    },
+    {
+      "market": "KRW-CT",
+      "time": "2026-11-04T14:01:49+09:00",
+      "net_pnl": -75.99999999974
+    },
+    {
+      "market": "KRW-ENA",
+      "time": "2026-11-04T16:01:47+09:00",
+      "net_pnl": 1519.71161821542
+    },
+    {
+      "market": "KRW-BMT",
+      "time": "2026-11-04T17:13:10+09:00",
+      "net_pnl": -5323.635730851507
+    },
+    {
+      "market": "KRW-LSK",
+      "time": "2026-11-04T17:21:23+09:00",
+      "net_pnl": 1365.7222221802
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-04T20:20:58+09:00",
+      "net_pnl": 1504.96446698829
+    },
+    {
+      "market": "KRW-WLD",
+      "time": "2026-11-04T21:02:06+09:00",
+      "net_pnl": -959.923518094
+    },
+    {
+      "market": "KRW-MPLX",
+      "time": "2026-11-04T21:36:20+09:00",
+      "net_pnl": -4008.80672266492
+    },
+    {
+      "market": "KRW-BEAM",
+      "time": "2026-11-04T22:25:48+09:00",
+      "net_pnl": 2630.188442210823
+    },
+    {
+      "market": "KRW-ENA",
+      "time": "2026-11-05T00:19:39+09:00",
+      "net_pnl": 2785.20454543863
+    },
+    {
+      "market": "KRW-NEAR",
+      "time": "2026-11-05T00:22:22+09:00",
+      "net_pnl": 2457.8709968786
+    },
+    {
+      "market": "KRW-AXIS",
+      "time": "2026-11-05T02:01:36+09:00",
+      "net_pnl": 328.01288659362
+    },
+    {
+      "market": "KRW-BMT",
+      "time": "2026-11-05T03:01:39+09:00",
+      "net_pnl": -286.790789473539
+    },
+    {
+      "market": "KRW-NEAR",
+      "time": "2026-11-05T04:01:36+09:00",
+      "net_pnl": -2385.1531524227
+    },
+    {
+      "market": "KRW-LSK",
+      "time": "2026-11-05T06:01:51+09:00",
+      "net_pnl": 1399.6610486289
+    },
+    {
+      "market": "KRW-ARX",
+      "time": "2026-11-05T07:09:46+09:00",
+      "net_pnl": -3898.98507447578
+    }
+  ],
+  "limits": [
+    "Sale orders are not necessarily whole position round trips.",
+    "Confirmed means post-baseline fill-derived cost, not independent inventory reconciliation.",
+    "Estimated inherited cost is excluded from confirmed numbers.",
+    "Cached quantity match is not a fresh balance query.",
+    "Night grouping uses exit time; includes positions entered before the window.",
+    "No open-position PnL, entry ranks, 60-minute price path or stop timestamps reconstructed.",
+    "The supplied -6029 total is not reproduced; source cutoff and scope remain unresolved."
+  ]
+}

@@ -22,3 +22,8 @@
 - 사용자 전달 원문, ChatGPT 의견, 기존 실제 근거를 구분해 보존했다. 실험 재실행·관측기 생성·자동 토론·주문/설정/프로세스 변경 없음.
 - 남은 일: 원 분석의 기간/버전별 거래 원장과 분류·비용 정의를 확보하면 수치를 독립 대사하고, 기존 소진 자료에 임계값을 다시 맞추지 않고 후속 자료에서 검토한다. 새 Claude 동의·개선 수익 입증은 없다.
 - 외부 일반 원리: [Investor.gov 주문 종류](https://www.investor.gov/introduction-investing/investing-basics/how-stock-markets-work/types-orders), [모멘텀 구현 비용 연구](https://www.aqr.com/insights/research/working-paper/implementing-momentum-what-have-we-learned). 미국 증권 주문의 일반 설명을 업비트 특정 주문 기능의 지원 증거로 사용하지 않는다.
+
+
+## 2026-11-05 출처 정정과 후속 회피 전략
+- 사용자가 원 분석을 Claude 작성이라고 명시했다. 따라서 작성자 미확보라는 앞선 기록은 이 추가 설명으로 정정한다. 확보 형식은 사용자 전달 원문이며, 회피 전략안에 대한 Claude의 새 응답·동의는 아니다.
+- [구체 회피 전략·체결 재검산](2026-11-05-loss-avoidance-plan.md), [원가 재생 결과](2026-11-05-loss-avoidance-audit.json), [연구 후보 명세](2026-11-05-loss-avoidance-candidates.json)로 이어진다. 전체−6,029원 범위는 아직 일치하지 않으며, 큰 승자3건은11-03 낮 거래라는 점을 확인했다. 사용자 제공 누적 분석과11-04 밤 실현손익을 구분한다.

@@ -1,0 +1,56 @@
+{
+  "schema": "loss-avoidance-candidates-v1",
+  "status": "proposal_only_not_applied",
+  "source": "User relayed Claude analysis; independent cached fill scope checked",
+  "baseline": {
+    "entry_scan": 7,
+    "holding_rank": 9,
+    "want": 3,
+    "slots": 3,
+    "stop_max_pct": 0.045,
+    "profit_guard_arm_pct": 0.03,
+    "profit_guard_giveback": 0.3
+  },
+  "primary": {
+    "id": "A_short_chase_defer",
+    "trial_threshold_origin": "Exploratory user-relayed 9-trade cohort, not optimized or validated",
+    "r60_cap": 0.025,
+    "comparison": ">=",
+    "signal": "5 consecutive completed 15m closes, r60=C(T)/C(T-60m)-1; no future bars",
+    "action": "defer_current_regular_hourly_buy",
+    "resume": "next_regular_hourly_fresh_signal_only_if_all_existing_rules_and_r60_pass",
+    "execution": "revalidate ask against same 60m anchor and policy identity",
+    "input_missing": "record_unavailable_no_imputed_price"
+  },
+  "separate_candidates": [
+    {
+      "id": "B_repeat_loss_lock",
+      "consecutive_distinct_fully_closed_losing_positions": 2,
+      "lookback_hours": 24,
+      "lock_hours_from_second_exit": 24,
+      "partial_sells_count_as_one_position": true,
+      "preserve_existing_risk_exits": true
+    },
+    {
+      "id": "C_rank_confirmation",
+      "keep_rank": 9,
+      "consecutive_distinct_hourly_outside_signals": 2,
+      "require_nonnegative_rs": true,
+      "reset_on_reentry_or_gap": true,
+      "do_not_defer": [
+        "stop",
+        "profit_guard",
+        "negative_rs",
+        "verified_universe_exit"
+      ]
+    }
+  ],
+  "constraints": [
+    "No runtime import or automatic application",
+    "No background observer or debate scheduler",
+    "Do not rerun exhausted research samples",
+    "Compare A, B, C independently before combining",
+    "Preserve manual holdings protection and accounting baseline",
+    "No threshold optimization on the same nine reported cases"
+  ]
+}

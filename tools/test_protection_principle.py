@@ -22,7 +22,23 @@ class Judge(unittest.TestCase):
         keep, _ = P.judge(BASE, orders, balances, prices)
         self.assertEqual(keep, {'KRW-DOGE'})       # 직접 거래·5천 원 초과만. 봇 매수 FLOCK, 자투리, 미보유 BTC 제외
 
-    def test_bot_sells_do_not_reduce_direct_and_mixed_holding_counts_only_direct_part(self):
+    def test_bot_sell_of_baseline_then_bot_rebuy_is_not_direct(self):
+        # 실제 사례(ETH 11-05): 기초 0.161개를 봇이 전부 매도 → 봇이 0.0245개 재매수
+        orders = {'1': dict(o('KRW-ETH', 'ask', '0.16101555', 'v5-a'), created_at='2026-11-02T22:28:47+09:00'),
+                  '2': dict(o('KRW-ETH', 'bid', '0.01230968', 'v5-b'), created_at='2026-11-04T07:55:00+09:00'),
+                  '3': dict(o('KRW-ETH', 'ask', '0.01230968', 'v5-c'), created_at='2026-11-04T09:01:59+09:00'),
+                  '4': dict(o('KRW-ETH', 'bid', '0.02453235', 'v5-d'), created_at='2026-11-05T03:01:48+09:00')}
+        base = {'holdings': {'ETH': {'qty': 0.16101555, 'avg': 1}}}
+        keep, _ = P.judge(base, orders, {'KRW-ETH': D('0.02453235')}, {'KRW-ETH': 3270000})
+        self.assertEqual(keep, set())
+
+    def test_bot_selling_its_own_coins_keeps_direct(self):
+        orders = {'1': dict(o('KRW-X', 'bid', 100, 'v5-a'), created_at='1'),
+                  '2': dict(o('KRW-X', 'ask', 100, 'v5-b'), created_at='2')}
+        keep, _ = P.judge({'holdings': {'X': {'qty': 100, 'avg': 1}}}, orders, {'KRW-X': D(100)}, {'KRW-X': 100})
+        self.assertEqual(keep, {'KRW-X'})
+
+    def test_mixed_holding_counts_only_direct_part(self):
         orders = {'1': o('KRW-X', 'bid', 100), '2': o('KRW-X', 'bid', 100, 'v5-a')}
         keep, rows = P.judge({'holdings': {}}, orders, {'KRW-X': D(200)}, {'KRW-X': 40})
         self.assertEqual(keep, set())                 # 직접 분 100개×40원 = 4,000원 ≤ 5,000원

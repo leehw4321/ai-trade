@@ -20,17 +20,24 @@ MIN_VALUE = D(5000)
 
 
 def direct_quantities(baseline, orders):
-    """종목별 직접 보유 수량(기초 + 직접 주문 순매수)."""
-    qty = {'KRW-' + c: D(str(h['qty'])) for c, h in baseline['holdings'].items()}
-    for o in orders.values():
-        if (o.get('identifier') or '').startswith('v5-'):
-            continue
+    """종목별 직접 보유 수량. 체결을 시간순으로 따라가며 직접 분과 봇 분을 나눠 센다.
+    매도는 주문한 쪽의 물량에서 먼저 빼고, 모자라면 다른 쪽에서 뺀다.
+    (2026-11-05 ETH: 봇이 기초 보유 0.161개를 전부 판 뒤 다시 산 0.0245개가 직접 보유로 판정되던 결함)"""
+    direct = {'KRW-' + c: D(str(h['qty'])) for c, h in baseline['holdings'].items()}
+    bot = {}
+    for o in sorted(orders.values(), key=lambda o: o.get('created_at') or ''):
         v = D(str(o.get('executed_volume') or 0))
         if v <= 0:
             continue
         m = o['market']
-        qty[m] = qty.get(m, D(0)) + (v if o['side'] == 'bid' else -v)
-    return qty
+        own, other = (bot, direct) if (o.get('identifier') or '').startswith('v5-') else (direct, bot)
+        if o['side'] == 'bid':
+            own[m] = own.get(m, D(0)) + v
+            continue
+        take = min(v, max(own.get(m, D(0)), D(0)))
+        own[m] = own.get(m, D(0)) - take
+        other[m] = max(other.get(m, D(0)) - (v - take), D(0))
+    return direct
 
 
 def judge(baseline, orders, balances, prices):

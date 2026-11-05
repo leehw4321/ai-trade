@@ -226,8 +226,18 @@ class Live:
             pass
 
     # ---------- 손실 ----------
-    def unrealized(self, prices):
-        return sum(p['qty'] * prices[m] * (1 - 0.0005) - p['cost'] for m, p in self.d['positions'].items() if m in prices)
+    def loss_excluded(self):
+        """손실 집계에서 뺄 사용자 보호 종목. 목록을 못 읽으면 마지막으로 읽은 목록을 쓴다(없으면 빈 집합)."""
+        try:
+            self._loss_prot = frozenset(self.protected_markets())
+        except (ProtectedAssetError, OSError, ValueError, KeyError, TypeError, asset_protection.ProtectionError):
+            pass
+        return getattr(self, '_loss_prot', frozenset())
+
+    def unrealized(self, prices, exclude_protected=True):
+        skip = self.loss_excluded() if exclude_protected else ()  # 봇이 거래하지 못하는 보호 종목의 시세 변동은 손실 중단 판단에 넣지 않는다
+        return sum(p['qty'] * prices[m] * (1 - 0.0005) - p['cost'] for m, p in self.d['positions'].items()
+                   if m in prices and normalize_protected_market(m) not in skip)
 
     def missing_valuations(self, prices):
         return [m for m in self.d['positions']
@@ -265,13 +275,24 @@ class Live:
             self.record({'event': '손실 중단선 기준 총자산 확정', 'base': base, 'pct': pct, 'limit': base * pct})
         return base * pct
 
-    def raw_loss(self, prices):
-        return -(self.d['realized'] + self.unrealized(prices) - self.d.get('risk_baseline_unrealized', 0.))
+    def raw_loss(self, prices, exclude_protected=True):
+        return -(self.d['realized'] + self.unrealized(prices, exclude_protected) - self.d.get('risk_baseline_unrealized', 0.))
+
+    def migrate_loss_scope(self, prices):
+        """보호 종목 제외 방식으로 처음 바뀔 때, 오늘 손실 값이 갑자기 달라지지 않게 기준(offset)을 맞춘다."""
+        if self.d.get('loss_scope') == 'bot_only':
+            return
+        old_today = self.raw_loss(prices, False) - self.d.get('risk_loss_offset', 0.)
+        self.d['risk_loss_offset'] = self.raw_loss(prices) - old_today
+        self.d['loss_scope'] = 'bot_only'
+        self.save()
+        self.record({'event': '손실 집계에서 사용자 보호 종목 제외', 'today_loss': old_today, 'loss_offset': self.d['risk_loss_offset']})
 
     def resume_buying(self, prices, reason='사용자 지시'):
         """중단 해제. 지금까지의 손실을 기준(offset)으로 옮겨 손실 집계를 지금부터 다시 쌓는다(과거 손실은 장부에 남는다)."""
         if self.missing_valuations(prices):
             return False, '보유분 가격이 없어 손실 기준을 정할 수 없음'
+        self.migrate_loss_scope(prices)
         was = self.d['halted']
         offset = self.raw_loss(prices)
         self.d['risk_loss_offset'] = offset
@@ -331,6 +352,7 @@ class Live:
             self.d['valuation_incomplete'] = missing
             return None
         self.d.pop('valuation_incomplete', None)
+        self.migrate_loss_scope(prices)
         if self.cfg.get('loss_daily'):
             today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime('%Y-%m-%d')
             if self.d.get('risk_day') != today:

@@ -2,6 +2,8 @@
 
 LATEST.md가 현재 상태·규칙 한 장이고, 이 문서는 "오늘 무엇이 바뀌었나"만 모았다. 상세 근거는 각 링크.
 
+> 11-05 이후 변경·거래·환경 체크리스트는 [회사 PC 인수 가이드](2026-11-05-company-handover-guide.md).
+
 ## 다른 PC(회사)에서 이어받는 순서
 1. 두 저장소 받기: `ai-trade`(정본)와 `코인 트레이딩`(기록 폴더) 각각 `git pull`.
 2. 읽기: `ai-trade/CLAUDE.md` → `docs/ai-history/LATEST.md` → 이 문서. 상태 단정 전 `python tools/ai_session.py status`.

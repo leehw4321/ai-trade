@@ -17,6 +17,7 @@ import traceback
 import manual_orders
 import position_popup
 import protection_panel
+import observations
 import strategy as st
 import rotation_policy as rotation
 import math
@@ -502,7 +503,12 @@ class Bot:
         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
         protection_top=protection_panel.render(self.live,((self.real or {}).get('coins') or {}),self.protection_action())
-        blocks = protection_top + self.real_block(prices) + self.pnl_block() + self.live_block(prices) + \
+        srv_o = getattr(self, 'manual_server', None)
+        try:
+            obs_panel = observations.render(DATA / 'observations.json', {'port': srv_o.port, 'token': srv_o.token} if srv_o else None)
+        except Exception as ex:  # 관찰 창 오류가 화면·거래를 막지 않는다
+            obs_panel = f'<section><b>관찰·그림자 관리 창 오류: {html.escape(type(ex).__name__)}</b></section>'
+        blocks = protection_top + obs_panel + self.real_block(prices) + self.pnl_block() + self.live_block(prices) + \
             '<details><summary class=lg>모의(가상) 장부 — 실제 거래가 아닙니다 · 전략 실험용 (눌러서 펼치기)</summary>' + paper + '</details>'
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
@@ -568,7 +574,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
         if True:
-            kinds={'grant'}
+            kinds={'grant', 'obs'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
@@ -671,6 +677,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             return
         for req in srv.drain():
             try:
+                if req.kind == 'obs':
+                    ok, msg = observations.apply(DATA / 'observations.json', req.market, req.krw)
+                    req.finish(ok, msg)
+                    continue
                 if req.kind == 'grant':
                     ok, msg = self.request_grant()
                     req.finish(ok, msg)

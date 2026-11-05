@@ -451,6 +451,37 @@ class Bot:
         except (OSError, ValueError):
             return None
 
+    def holding_rows(self, s):
+        """보유 종목 표의 행. 수량·평가액은 5초마다 갱신되는 실제 계좌 조회(account_live.json)를 기준으로 한다.
+        원가는 수량이 일치하는 것 중 손익 집계(pnl, 5분 주기) → 봇 장부 → 업비트 평균 매입가 순서로 고른다.
+        계좌 조회가 없거나 2분 넘게 멈췄으면 손익 집계 행을 그대로 쓴다."""
+        pnl_rows = (s or {}).get('unrealized_rows') or []
+        f = DATA / 'account_live.json'
+        try:
+            acct = json.loads(f.read_text(encoding='utf-8')) if f.exists() else None
+        except (OSError, ValueError):
+            acct = None
+        if not acct or time.time() - float(acct.get('epoch') or 0) > 120:
+            return pnl_rows
+        by_pnl = {r['coin']: r for r in pnl_rows}
+        same = lambda a, b: a and b and abs(a - b) <= max(1e-8, abs(a) * 1e-6)
+        rows = []
+        for x in acct.get('assets', []):
+            coin, qty, value = x.get('currency'), x.get('quantity') or 0, x.get('value')
+            if coin == 'KRW' or not qty or value is None:
+                continue
+            pos = self.live.d['positions'].get('KRW-' + coin)
+            r = by_pnl.get(coin)
+            if r and same(r.get('qty'), qty) and isinstance(r.get('cost'), (int, float)):
+                cost = r['cost']
+            elif pos and same(pos.get('qty'), qty):
+                cost = pos['cost']
+            else:
+                cost = qty * (x.get('avg') or 0) or None
+            rows.append({'coin': coin, 'qty': qty, 'value': value, 'cost': cost,
+                         'unrealized': (value - cost) if cost else None})
+        return rows
+
     def sell_line(self, m):
         """봇 장부 종목의 지금 매도선: (이름, 가격). 손절·이익보호·본전 중 실제로 먼저 걸리는 선."""
         pos = self.live.d['positions'].get(m)
@@ -471,7 +502,7 @@ class Bot:
         limit = self.live.loss_limit(prices)
         protected = self.live.protected_markets()
         s = self.pnl_summary() or {}
-        urows = s.get('unrealized_rows') or []
+        urows = self.holding_rows(s)
         acct = DATA / 'account_live.json'
         try:
             total = json.loads(acct.read_text(encoding='utf-8')).get('priced_total') if acct.exists() else None
@@ -488,7 +519,7 @@ class Bot:
                  + tile('봇 운용 자금', f'{total - prot_value:,.0f}원', '현금 + 봇 보유')
                  + tile('오늘 실현손익', won(today.get('realized', 0)), f"매도 {today.get('sell_orders', 0)}건 · 이익 {today.get('wins', 0)} / 손실 {today.get('losses', 0)}")
                  + tile('누적 실현손익', won(cum.get('realized', 0)), f"{e(str(s.get('baseline_start', ''))[5:10])}부터 · 매도 {cum.get('sell_orders', 0)}건")
-                 + tile('봇 보유 평가손익', won(bot_u), f"보호 종목 포함 {s.get('unrealized_total', 0):+,.0f}원"))
+                 + tile('봇 보유 평가손익', won(bot_u), f"보호 종목 포함 {sum(r['unrealized'] for r in urows if isinstance(r.get('unrealized'), (int, float))):+,.0f}원"))
         chips = []
         if protected:
             chips.append(f"<span class='tag tag-prot'>사용자 보호 {e(', '.join(sorted(m[4:] for m in protected)))}</span> 봇이 사고팔지 않음")

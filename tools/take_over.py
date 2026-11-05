@@ -51,8 +51,21 @@ def bot_running():
                                                encoding='mbcs', errors='replace').stdout
 
 
-def run(args, cwd):
-    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+def key_env():
+    """pnl.py는 실행 사본 폴더의 .env만 찾는다. 키가 상위 폴더(.env)에 있어도 읽히도록 환경변수로 넘긴다(값은 기록하지 않는다)."""
+    env = dict(os.environ)
+    try:
+        sys.path.insert(0, str(APP))
+        import upbit, trade_history
+        trade_history.find_keys(upbit)
+        env['UPBIT_ACCESS_KEY'], env['UPBIT_SECRET_KEY'] = upbit._keys()
+    except Exception:
+        pass
+    return env
+
+
+def run(args, cwd, env=None):
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -126,10 +139,10 @@ def adopt():
 
 def apply_protection_principle():
     """사용자 보호 원칙(보유 중·직접 거래·5,000원 초과만)대로 보호 목록을 맞춘다. 실패하면 봇을 시작하지 않는다."""
-    code, out = run([str(PY), 'pnl.py'], APP)  # 체결 기록 최신화(읽기 전용)
+    code, out = run([str(PY), 'pnl.py'], APP, key_env())  # 체결 기록 최신화(읽기 전용)
     if code:
         raise RuntimeError('체결 기록 갱신 실패: ' + out[-300:])
-    code, out = run([str(PY), str(REPO / 'tools' / 'protection_principle.py'), '--app', str(APP), '--apply'], REPO)
+    code, out = run([str(PY), str(REPO / 'tools' / 'protection_principle.py'), '--app', str(APP), '--apply'], REPO, key_env())
     if code:
         raise RuntimeError('보호 원칙 적용 실패: ' + out[-300:])
     say('보호 목록: ' + out.strip().splitlines()[-1])

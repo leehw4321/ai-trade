@@ -96,7 +96,7 @@ def claim_slot(slot, path=None):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None):
+             promoted=None, hot=None, protected=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -105,9 +105,12 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     pos = {r['market']: r for r in ranked}
     reasons, sells, sold = [], [], 0.0
     cands = []
-    promoted, hot = promoted or {}, hot or set()
+    promoted, hot, protected = promoted or {}, hot or set(), protected or set()
     for m, v in holdings.items():
         if v < 5000:
+            continue
+        if m in protected:
+            reasons.append(f'{m[4:]} 사용자 보호: 봇 매매 대상 아님 (투입 한도 계산에서도 제외)')
             continue
         if m in hot or not getattr(base, 'rank_exit', True):
             kind = '과열 보유' if m in hot else '보유'
@@ -190,7 +193,8 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     buys = []
     # 전략 설계의 비율 한도: 종목당 coin_cap, 총투입 total_cap (계좌 평가액 기준). 고정 금액 한도를 풀어도 이 한도는 유지한다(D-29).
     equity = sum(holdings.values()) + krw
-    invested = sum(v for m, v in holdings.items() if m not in sells)
+    # 사용자 보호 종목은 봇이 투입한 돈이 아니다. 예전에는 보호 종목이 순위 매도 목록에 올라 우연히 빠졌으나 순위 매도를 끈 뒤(2026-11-05) 명시적으로 뺀다.
+    invested = sum(v for m, v in holdings.items() if m not in sells and m not in protected)
     total_room = max(0.0, base.total_cap * equity - invested)
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
@@ -358,6 +362,16 @@ class Shadow:
                 raise ValueError('주문안 순위와 신호 마감 시각 불일치')
         return {'signal_closed_at': closed, 'signal_tf_minutes': tf, 'evaluated_at': evaluated}
 
+    def protected_markets(self):
+        """사용자 보호 종목(봇 매매 대상 아님). 읽기 실패면 빈 집합: 보호 종목이 투입액에 남아 매수 여력이 줄어드는 보수적인 쪽이다.
+        실제 주문의 보호 강제는 live가 따로 한다."""
+        import asset_protection
+        try:
+            policy = asset_protection.Policy(DATA / 'user_protected_assets.json', self.cfg.get('live', {}).get('protected_markets', []), required=False)
+            return asset_protection.effective(policy.read(), policy.configured)
+        except Exception:
+            return set()
+
     def make_proposal(self):
         self.proposal_signal()  # Refuse stale cached ranks before any private account lookup.
         if rotation.enabled(self.base):
@@ -381,7 +395,7 @@ class Shadow:
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,
-                                 promoted=co.promoted(DATA), hot=hot)
+                                 promoted=co.promoted(DATA), hot=hot, protected=self.protected_markets())
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME

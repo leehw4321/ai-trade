@@ -85,6 +85,18 @@ class Proposal(unittest.TestCase):
         self.assertIn('매도 없음', text)
         self.assertEqual(sum('순위 매도 안 함' in r for r in reasons), 3)
 
+    def test_protected_holdings_do_not_eat_the_bot_investment_room(self):
+        # 실제 11-05 12시 계좌: 보호 157만 + ETH 8만 + 현금 30만. 순위 매도를 끄면 보호 종목이 투입액에 남아 매수 여력이 0이 되던 결함
+        self.p.rank_exit = False
+        self.p.total_cap, self.p.size_by_risk = 0.5, False
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .05}]
+        holdings = {'KRW-BTC': 529000, 'KRW-XRP': 524000, 'KRW-DOGE': 516000, 'KRW-ETH': 80000}
+        text, reasons = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, self.p, CAPS, 302000, 0)
+        self.assertIn('매수 없음', text)
+        text, reasons = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, self.p, CAPS, 302000, 0, protected={'KRW-BTC', 'KRW-XRP', 'KRW-DOGE'})
+        self.assertIn('매수 A', text)
+        self.assertIn('매도 없음', text)
+
     def test_promoted_17_percent_is_bought_but_21_percent_is_not(self):
         ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .17}, {'market': 'KRW-B', 'rank': 2, 'rs': .21}]
         text, _ = self.plan(ranked)

@@ -132,12 +132,16 @@ def holdings_table(rows, protected, stuck, positions, sell_line, esc=html.escape
         cost = r.get('cost') or 0
         pnl = (f"<span class={'up' if u >= 0 else 'dn'}>{u:+,.0f}원 <small>({u / cost * 100:+.2f}%)</small></span>"
                if isinstance(u, (int, float)) and cost else '<span class=warn>미확정</span>')
+        qty = r.get('qty') or 0
+        buy = cost / qty if qty and cost else None                       # 매수가 = 원가 ÷ 수량(수수료 포함 평균)
+        now_px = r.get('price') or (r['value'] / qty if qty else None)   # 현재가
         attrs = position_popup.row_attrs(m) if m in positions else ''
         out.append(f"<tr{attrs}><td><b>{esc(r['coin'])}</b></td><td>{kind}</td><td class=n>{r['value']:,.0f}</td>"
-                   f"<td class=n>{cost:,.0f}</td><td class=n>{pnl}</td><td class=n>{line}</td></tr>")
-    body = ''.join(out) or '<tr><td colspan=6 class=muted>보유 없음</td></tr>'
+                   f"<td class=n>{cost:,.0f}</td><td class=n>{pnl}</td><td class=n>{fmt_price(buy)}</td><td class=n><b>{fmt_price(now_px)}</b></td>"
+                   f"<td class=n>{line}</td></tr>")
+    body = ''.join(out) or '<tr><td colspan=8 class=muted>보유 없음</td></tr>'
     note = f"<div class=sub>5,000원 미만 자투리 {dust}개는 숨김(팔 수 없는 잔량)</div>" if dust else ''
-    return (f"<table><tr><th>코인</th><th>구분</th><th class=n>평가액</th><th class=n>원가</th><th class=n>평가손익</th><th class=n>매도선</th></tr>"
+    return (f"<table><tr><th>코인</th><th>구분</th><th class=n>평가액</th><th class=n>원가</th><th class=n>평가손익</th><th class=n>매수가</th><th class=n>현재가</th><th class=n>매도선</th></tr>"
             f"{body}</table>{note}")
 
 
@@ -478,7 +482,7 @@ class Bot:
                 cost = pos['cost']
             else:
                 cost = qty * (x.get('avg') or 0) or None
-            rows.append({'coin': coin, 'qty': qty, 'value': value, 'cost': cost,
+            rows.append({'coin': coin, 'qty': qty, 'value': value, 'cost': cost, 'price': x.get('price'),
                          'unrealized': (value - cost) if cost else None})
         return rows
 

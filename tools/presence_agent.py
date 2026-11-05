@@ -127,7 +127,8 @@ def single_instance():
     try:
         pid = int(LOCK.read_text().strip())
         if pid != os.getpid() and str(pid) in subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True,
-                                                             text=True, encoding='mbcs', errors='replace').stdout:
+                                                             text=True, encoding='mbcs', errors='replace',
+                                                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout:
             return False
     except (OSError, ValueError):
         pass
@@ -203,7 +204,8 @@ def install():
     ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{STARTUP}');"
           f"$s.TargetPath='{pyw}';$s.Arguments='\"{Path(__file__).resolve()}\"';"
           f"$s.WorkingDirectory='{T.REPO}';$s.WindowStyle=7;$s.Save()")
-    r = subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True, text=True)
+    r = subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True, text=True,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     if r.returncode or not STARTUP.exists():
         print('시작 프로그램 등록 실패:', r.stderr[-200:]); return 1
     subprocess.Popen([str(pyw), str(Path(__file__).resolve())], cwd=T.REPO,

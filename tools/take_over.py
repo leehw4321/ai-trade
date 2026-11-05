@@ -48,7 +48,8 @@ def bot_running():
         return False
     pid = lock.read_text().strip()
     return bool(pid) and pid in subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True, text=True,
-                                               encoding='mbcs', errors='replace').stdout
+                                               encoding='mbcs', errors='replace',
+                                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
 
 
 def key_env():
@@ -65,7 +66,8 @@ def key_env():
 
 
 def run(args, cwd, env=None):
-    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -191,7 +193,8 @@ def shortcut():
     ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{link}');"
           f"$s.TargetPath='{PYW}';$s.Arguments='\"{REPO / 'tools' / 'take_over.py'}\"';"
           f"$s.WorkingDirectory='{REPO}';$s.IconLocation='C:\\Windows\\System32\\shell32.dll,137';$s.Save()")
-    subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True)
+    subprocess.run(['powershell', '-NoProfile', '-Command', ps], capture_output=True,
+                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
 
 
 def main():

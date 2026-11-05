@@ -34,7 +34,6 @@ class Params:
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
     entry_risk: float = 0.0   # 실거래 매수 위험(계좌 대비). 0이면 risk 사용. 모의 장부의 risk는 건드리지 않는다(D-47)
     size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
-    vol_size_r0: float = 0.0  # 0=끔(기록만). 켜면 매수 금액에 min(1, r0/직전 4시간 범위)를 곱한다(2026-11-05 사용자 지시, ChatGPT 의견: 그림자 검증 전 실거래 적용 보류)
     entry_want: int = 0    # 한 번에 사려는 후보 수 (0 = entry_top)
     entry_scan: int = 0    # 후보를 찾아보는 최대 순위 (0 = entry_top)
     # 실거래 재진입 규칙(결정 D-38): 직전 매도 뒤 대기 시간과 조건. 0이면 해당 대기 없음.
@@ -113,31 +112,6 @@ def market_index(bars_by_market, n, min_markets=20):
     return sum(values) / len(values) if len(values) >= min_markets else None
 
 
-def range_4h(bars, n=16):
-    """마지막 확정봉까지 n개(15분봉 16개 = 4시간)의 (고가 최대 − 저가 최소) / 마지막 종가. 자료가 모자라거나 비정상이면 None."""
-    if len(bars) < n:
-        return None
-    try:
-        highs, lows, close = [float(b['h']) for b in bars[-n:]], [float(b['l']) for b in bars[-n:]], float(bars[-1]['c'])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not (all(math.isfinite(x) for x in highs) and all(math.isfinite(x) for x in lows) and math.isfinite(close)):
-        return None
-    hi, lo = max(highs), min(lows)
-    if close <= 0 or lo <= 0 or hi < lo:
-        return None
-    return (hi - lo) / close
-
-
-def vol_scale(rng4, r0):
-    """매수 금액 배율 min(1, r0/rng4). 끔(r0<=0)이거나 rng4가 없거나 비정상이면 None(호출자가 처리)."""
-    if type(r0) not in (int, float) or not math.isfinite(r0) or r0 <= 0:
-        return None
-    if type(rng4) not in (int, float) or not math.isfinite(rng4) or rng4 <= 0:
-        return None
-    return min(1.0, r0 / rng4)
-
-
 def rank(bars_by_market, p):
     """적격 종목을 상대강도 내림차순(동률은 코드순)으로 정렬. 자료 부족 종목은 제외."""
     rows = []
@@ -145,7 +119,7 @@ def rank(bars_by_market, p):
         rs, atr = relative_strength(bars, p.L), wilder_atr(bars)
         if rs is None or atr is None:
             continue
-        rows.append({'market': m, 'rs': rs, 'atr': atr, 'close': bars[-1]['c'], 'bar': bars[-1]['t'], 'rng4': range_4h(bars)})
+        rows.append({'market': m, 'rs': rs, 'atr': atr, 'close': bars[-1]['c'], 'bar': bars[-1]['t']})
     rows.sort(key=lambda r: (-r['rs'], r['market']))
     for i, r in enumerate(rows, 1):
         r['rank'] = i

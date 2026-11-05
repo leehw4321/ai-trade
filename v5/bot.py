@@ -21,6 +21,7 @@ import observations
 import strategy as st
 import rotation_policy as rotation
 import chase_override as co
+import daily_equity
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -519,9 +520,16 @@ class Bot:
         won = lambda v: f"<span class={'up' if v > 0 else 'dn' if v < 0 else 'muted'}>{v:+,.0f}원</span>"
         tile = lambda title, big, small='': f"<div class=tile><h2>{title}</h2><b>{big}</b><span class=muted>{small}</span></div>"
         today, cum = per.get('오늘', {}), per.get('누적', {})
+        eq_days = daily_equity.recent(DATA / 'daily_equity.json')
+        eq_rows = ''.join(f"<tr><td>{e(d[5:])}</td><td>{r['open']:,.0f}</td><td>{r['last']:,.0f}</td><td>{won(r['pnl'])}</td><td>{r['pct']:+.2f}%</td>"
+                          f"<td>{r['high']:,.0f} / {r['low']:,.0f}</td></tr>" for d, r in eq_days)
+        eq_table = (f"<details><summary>날짜별 총자산 손익 (한국시간 0시~24시 · 최근 {len(eq_days)}일)</summary><table><tr><th>날짜</th><th>0시 총자산</th><th>마지막</th><th>손익</th><th>%</th><th>최고 / 최저</th></tr>{eq_rows}</table>"
+                    "<p class=sub>입출금은 구분하지 못해 그날 입출금이 있으면 손익에 섞입니다. 0시 값은 전날 마지막 기록입니다.</p></details>") if eq_days else ''
         tiles = (tile('총자산', f'{total:,.0f}원', f'보호 종목 {prot_value:,.0f}원 포함')
                  + tile('봇 운용 자금', f'{total - prot_value:,.0f}원', '현금 + 봇 보유')
-                 + tile('오늘 실현손익', won(today.get('realized', 0)), f"매도 {today.get('sell_orders', 0)}건 · 이익 {today.get('wins', 0)} / 손실 {today.get('losses', 0)}")
+                 + tile('오늘 실현손익', won(today.get('realized', 0)), f"0~24시 · 매도 {today.get('sell_orders', 0)}건 · 이익 {today.get('wins', 0)} / 손실 {today.get('losses', 0)}")
+                 + tile('오늘 총자산 손익', won(eq_days[0][1]['pnl']) if eq_days else '<span class=muted>기록 전</span>',
+                        f"0시 {eq_days[0][1]['open']:,.0f}원 대비 {eq_days[0][1]['pct']:+.2f}% · 실현+평가" if eq_days else '1분마다 기록')
                  + tile('누적 실현손익', won(cum.get('realized', 0)), f"{e(str(s.get('baseline_start', ''))[5:10])}부터 · 매도 {cum.get('sell_orders', 0)}건")
                  + tile('봇 보유 평가손익', won(bot_u), f"보호 종목 포함 {sum(r['unrealized'] for r in urows if isinstance(r.get('unrealized'), (int, float))):+,.0f}원"))
         chips = []
@@ -543,7 +551,7 @@ class Bot:
         table = holdings_table(urows, protected, co.read_stuck(DATA), L['positions'], self.sell_line)
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{self.ownership_html()}{halt}
 <div class=chips>{' · '.join(chips)}</div>
-<div class=tiles>{tiles}</div>
+<div class=tiles>{tiles}</div>{eq_table}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
 <div class=cols><div><h3>최근 실현손익 (매도 체결)</h3><ul>{recent}</ul></div><div><h3>실거래 기록</h3><ul>{ol}</ul></div></div>
 {position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
@@ -821,6 +829,11 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
                     last_stop = now
+                if now - getattr(self, '_eq_at', 0) >= 60:  # 하루 총자산 기록(한국시간 0시 기준)
+                    self._eq_at = now
+                    try:
+                        daily_equity.record(DATA / 'daily_equity.json', json.loads((DATA / 'account_live.json').read_text(encoding='utf-8')).get('priced_total'))
+                    except Exception as ex: self.log('일일 총자산 기록 오류(무시): '+type(ex).__name__)
                 if now - last_display >= 30:
                     self.refresh_display(end4 + TF + SETTLE)
                     last_display = now

@@ -22,6 +22,7 @@ import strategy as st
 import rotation_policy as rotation
 import chase_override as co
 import daily_equity
+import entry_flags
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -268,6 +269,13 @@ class Bot:
             if m not in uni:
                 self.rs_all[m] = (None, st.relative_strength(bars[m], self.p.L))
         entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('trade_blocked', self.markets.get(m, {}).get('warning'))}
+        if end % rotation.HOUR == 0:  # 정시 판단마다 후보의 급변 지표를 기록만 한다(주문 무영향, 오류는 무시)
+            try:
+                idx = st.market_index({m: b for m, b in bars.items() if m in uni}, self.p.regime_bars, self.p.regime_min_markets)
+                entry_flags.record(DATA / 'entry_flags.jsonl', utc(end).astimezone(KST).isoformat(timespec='minutes'), ranked, bars,
+                                   entry_ok, entry_flags.market_state(bars, idx))
+            except Exception as ex:
+                self.log('급변 지표 기록 오류(무시): ' + type(ex).__name__)
         failed = []
         for name, lg in self.ledgers.items():
             if (lg.d['last_4h'] or 0) >= end:

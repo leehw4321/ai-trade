@@ -119,7 +119,7 @@ def completed_candles(market, minutes, count=200, now=None):
         if start + dt.timedelta(minutes=minutes) > now:
             continue
         bars.append({'t': start.isoformat(), 'o': r['opening_price'], 'h': r['high_price'],
-                     'l': r['low_price'], 'c': r['trade_price']})
+                     'l': r['low_price'], 'c': r['trade_price'], 'v': r.get('candle_acc_trade_price')})
     return bars
 
 

@@ -1,0 +1,68 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import entry_flags as ef
+
+
+def bars(n=120, price=100.0, vol=1000.0):
+    return [{'t': str(i), 'o': price, 'h': price, 'l': price, 'c': price, 'v': vol} for i in range(n)]
+
+
+class Features(unittest.TestCase):
+    def test_flat_market_passes(self):
+        f = ef.features(bars())
+        self.assertAlmostEqual(f['r4'], 0)
+        self.assertAlmostEqual(f['vol'], 1.0)
+        self.assertEqual(ef.flags(f), {'H1': False, 'H2': False, 'H3': False, 'R8': False})
+
+    def test_uses_last_completed_close_not_fill_price(self):
+        b = bars(); b[-1]['c'] = 108.0
+        self.assertAlmostEqual(ef.features(b)['r4'], 8.0)
+        self.assertTrue(ef.flags(ef.features(b))['H1'])
+
+    def test_falling_four_hours_flags_h2(self):
+        b = bars(); b[-1]['c'] = 95.0
+        fl = ef.flags(ef.features(b))
+        self.assertTrue(fl['H2'] and fl['R8'])
+
+    def test_volume_burst_flags_h1(self):
+        b = bars()
+        for x in b[-4:]:
+            x['v'] = 3000.0
+        self.assertAlmostEqual(ef.features(b)['vol'], 3.0)
+        self.assertTrue(ef.flags(ef.features(b))['H1'])
+
+    def test_one_hour_swing_flags_h3(self):
+        b = bars(); b[-1]['c'] = 103.0
+        self.assertTrue(ef.flags(ef.features(b))['H3'])
+        b[-1]['c'] = 97.0
+        self.assertTrue(ef.flags(ef.features(b))['H3'])
+
+    def test_missing_data_is_not_counted_as_pass(self):
+        self.assertIsNone(ef.features(bars(50)))
+        self.assertEqual(ef.flags(None), {'H1': None, 'H2': None, 'H3': None, 'R8': None})
+        b = bars()
+        for x in b: x['v'] = None
+        f = ef.features(b)                      # 거래량 없으면 가격 지표만 쓴다
+        self.assertIsNone(f['vol'])
+        self.assertFalse(ef.flags(f)['H1'])
+
+
+class Record(unittest.TestCase):
+    def test_appends_rows_for_top_candidates(self):
+        p = Path(tempfile.mkdtemp()) / 'entry_flags.jsonl'
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': 0.1}, {'market': 'KRW-B', 'rank': 2, 'rs': 0.05}]
+        b = {'KRW-A': bars(), 'KRW-B': bars(50)}
+        self.assertEqual(ef.record(p, '2026-11-06T01:00', ranked, b, {'KRW-A'}, ef.market_state(b, 0.5)), 2)
+        ef.record(p, '2026-11-06T02:00', ranked[:1], b, {'KRW-A'}, {})
+        rows = [json.loads(l) for l in p.read_text(encoding='utf-8').splitlines()]
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(rows[0]['eligible'] and not rows[1]['eligible'])
+        self.assertIsNone(rows[1]['f'])
+        self.assertEqual(rows[0]['v'], ef.VERSION)
+
+
+if __name__ == '__main__':
+    unittest.main()

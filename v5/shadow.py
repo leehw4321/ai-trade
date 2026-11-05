@@ -94,7 +94,7 @@ def claim_slot(slot, path=None):
     tmp.replace(path)
 
 
-def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None):
+def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None, vol_log=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -183,7 +183,18 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
         risk_room = (base.entry_risk or base.risk) * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0 else float('inf')
-        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room) // 1000 * 1000)
+        capped = min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room)
+        amt = int(capped // 1000 * 1000)
+        scale = st.vol_scale(r.get('rng4'), base.vol_size_r0 or 0.0)
+        ref = st.vol_scale(r.get('rng4'), 0.05)   # 끔 상태에서도 5% 기준 배율을 기록해 그림자 비교 자료를 쌓는다
+        if base.vol_size_r0 and base.vol_size_r0 > 0:
+            if scale is None:  # 자료 결측·비정상: 임의 배율을 쓰지 않고 기존 자료 오류 보류 절차
+                reasons.append(f'{r["market"][4:]} 매수 보류: 변동성 크기 조정에 필요한 직전 4시간 범위 자료 없음·비정상')
+                continue
+            amt = int(capped * scale // 1000 * 1000)
+        if vol_log is not None:
+            vol_log.append({'market': r['market'], 'rng4': r.get('rng4'), 'scale_ref_5pct': ref, 'applied_scale': scale, 'r0': base.vol_size_r0,
+                            'capped_krw': int(capped), 'base_amt': int(capped // 1000 * 1000), 'final_amt': amt, 'bar': r.get('bar')})
         if amt < 5000:
             reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원, 종목 한도 잔여 {coin_room:,.0f}원, 총투입 한도 잔여 {total_room:,.0f}원)')
             continue
@@ -191,7 +202,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
         cash -= amt
         room -= amt
         total_room -= amt
-        reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}')
+        reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}' + (f' (변동성 배율 ×{scale:.2f}, 직전 4시간 범위 {r["rng4"]:.1%})' if scale is not None and scale < 1 else ''))
     parts = [f'매도 {m[4:]} 100%' for m in sells] or ['매도 없음']
     parts += [f'매수 {m[4:]} {a}원' for m, a in buys] or ['매수 없음']
     return '실행 주문안: ' + '; '.join(parts), reasons
@@ -363,10 +374,11 @@ class Shadow:
         state = json.loads(lf.read_text(encoding='utf-8')) if lf.exists() else {}
         bought = state.get('bought_krw', 0)
         caps.update(state.get('limits', {}))
+        vol_log = []
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
-                                 rotation_slot=self.signal_closed_at)
+                                 rotation_slot=self.signal_closed_at, vol_log=vol_log)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME
@@ -383,7 +395,11 @@ class Shadow:
                 'anchor_close': anchor, 'rs': rs, **provenance}
             if rotation.enabled(self.base):
                 entry_context[row['market']].update(rank=row['rank'], policy_hash=rotation.policy_hash(self.base))
-        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons,
+        if vol_log:
+            with open(DATA / 'vol_sizing_log.jsonl', 'a', encoding='utf-8') as vf:
+                for v in vol_log:
+                    vf.write(json.dumps({'time': now_iso(), 'signal_closed_at': getattr(self, 'signal_closed_at', None), **v}, ensure_ascii=False) + chr(10))
+        self.prop = {'time': now_iso(), 'text': text, 'reasons': reasons, 'vol_sizing': vol_log,
                      'entry_context': entry_context, 'market_index': getattr(self, 'market_index', None), **provenance}
         if rotation.enabled(self.base):
             self.prop['rotation'] = rotation.envelope(self.base, self.signal_closed_at, time.time())

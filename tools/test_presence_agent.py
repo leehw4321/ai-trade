@@ -10,8 +10,8 @@ LIVE_OTHER = {'owner': 'x:1', 'expires': NOW + 100}
 LIVE_MINE = {'owner': 'me:1', 'expires': NOW + 100}
 
 
-def d(idle=5, streak=3, lease=LIVE_OTHER, mine=False, bot=True, last=0, fails=0, changed=0, paused=False):
-    return p.decide(NOW, idle, streak, lease, mine, bot, last, fails, changed, paused)[0]
+def d(idle=5, streak=3, lease=LIVE_OTHER, mine=False, bot=True, last=0, fails=0, changed=0, paused=False, botchg=0):
+    return p.decide(NOW, idle, streak, lease, mine, bot, last, fails, changed, paused, botchg)[0]
 
 
 class Decide(unittest.TestCase):
@@ -30,6 +30,15 @@ class Decide(unittest.TestCase):
 
     def test_mine_but_bot_down_restarts(self):
         self.assertEqual(d(lease=LIVE_MINE, mine=True, bot=False), 'take')
+
+    def test_deploy_restart_does_not_trigger_a_takeover(self):
+        # 배포: 봇이 정상 종료하며 실행권을 비운다 → 방금 켜지거나 꺼진 동안은 기다린다
+        self.assertEqual(d(lease={'owner': ''}, bot=False, botchg=NOW - 20), 'grace')
+        self.assertEqual(d(lease={'owner': ''}, bot=True, botchg=NOW - 20), 'grace')
+        self.assertEqual(d(lease=LIVE_MINE, mine=True, bot=False, botchg=NOW - 20), 'grace')
+        self.assertEqual(d(lease={'owner': ''}, bot=False, botchg=NOW - 400), 'take')      # 오래 꺼져 있으면 시작
+        self.assertEqual(d(lease={'owner': ''}, bot=True, botchg=0), 'take')               # 대기 봇이 계속 떠 있고 비었으면 가져온다
+        self.assertEqual(d(botchg=NOW - 20), 'take')                                       # 다른 PC 소유면 영향 없음
 
     def test_free_or_expired_lease_is_taken(self):
         self.assertEqual(d(lease={'owner': ''}), 'take')

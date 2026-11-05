@@ -28,6 +28,7 @@ POLL = 10            # 입력 확인 주기(초)
 ACTIVE_IDLE = 60     # 마지막 입력이 이보다 최근이면 '사용 중'
 ACTIVE_STREAK = 3    # 연속 몇 번 사용 중이어야 하는지(약 30초)
 COOLDOWN = 600       # 자동 인수 시도 사이 최소 간격, 그리고 다른 PC의 인수 직후 대기
+OWN_GRACE = 300      # 이 PC가 소유자였다가 비어 보이면(배포·재시작 중 정상 반납) 이만큼 기다린 뒤에야 다시 가져온다
 BACKOFF = (300, 900, 3600)
 RUN_TIMEOUT = 900
 PAUSE = T.REPO / 'tools' / 'presence_pause.txt'
@@ -61,7 +62,7 @@ def idle_seconds():
         return 1e9
 
 
-def decide(now, idle, streak, lease, mine, bot_up, last_attempt, fails, owner_change_at, paused):
+def decide(now, idle, streak, lease, mine, bot_up, last_attempt, fails, owner_change_at, paused, bot_change_at=0):
     """(행동, 이유). 행동: pause | idle | wait | ok | cooldown | settling | take"""
     if paused:
         return 'pause', '일시정지 파일이 있음'
@@ -72,6 +73,8 @@ def decide(now, idle, streak, lease, mine, bot_up, last_attempt, fails, owner_ch
     live = bool(lease.get('owner')) and now < lease.get('expires', 0) + 30
     if live and mine and bot_up:
         return 'ok', '이 PC가 이미 실행권을 가짐'
+    if (not live or (mine and not bot_up)) and now - bot_change_at < OWN_GRACE:
+        return 'grace', '이 PC 봇이 방금 켜지거나 꺼졌음(배포·재시작 중일 수 있어 기다림)'
     wait = max(COOLDOWN, BACKOFF[min(fails, len(BACKOFF)) - 1] if fails else 0)
     if now - last_attempt < wait:
         return 'cooldown', f'직전 시도 뒤 {int(wait)}초 대기 중'
@@ -138,7 +141,7 @@ def once(streak=ACTIVE_STREAK):
     lease = T.lease(); pc = my_pc()
     mine = isinstance(lease.get('owner'), str) and lease['owner'].startswith(pc + ':')
     return decide(now, idle_seconds(), streak, lease, mine, T.bot_running(), st.get('last_attempt', 0),
-                  st.get('fails', 0), st.get('owner_change_at', 0), PAUSE.exists())
+                  st.get('fails', 0), st.get('owner_change_at', 0), PAUSE.exists(), st.get('bot_change_at', 0))
 
 
 def watch():
@@ -147,9 +150,14 @@ def watch():
         return
     log('실행권 자동 이동 감시 시작')
     streak = 0
+    prev_up = T.bot_running()
     while True:
         try:
             streak = streak + 1 if idle_seconds() < ACTIVE_IDLE else 0
+            up = T.bot_running()  # 봇이 켜지거나 꺼진 시각을 기록(사용 여부와 무관, 네트워크 없음): 배포·재시작을 알아보는 데 쓴다
+            if up != prev_up:
+                st0 = load_state(); st0['bot_change_at'] = time.time(); save_state(st0)
+                prev_up = up
             if streak >= ACTIVE_STREAK and not PAUSE.exists():
                 st = load_state(); now = time.time()
                 lease = T.lease(); pc = my_pc()
@@ -160,7 +168,7 @@ def watch():
                 st['owner_seen'] = owner_pc
                 mine = owner_pc == pc
                 action, why = decide(now, idle_seconds(), streak, lease, mine, T.bot_running(), st.get('last_attempt', 0),
-                                     st.get('fails', 0), st.get('owner_change_at', 0), False)
+                                     st.get('fails', 0), st.get('owner_change_at', 0), False, st.get('bot_change_at', 0))
                 if action == 'take':
                     log(f'사용 중 확인 · {why} · 인수 시작')
                     st['last_attempt'] = now; save_state(st)

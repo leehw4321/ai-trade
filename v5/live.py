@@ -981,7 +981,17 @@ class Live:
             if peak != old_peak:
                 pos['profit_guard_peak'] = peak
                 changed = True
-            if peak < entry * (1 + arm): continue
+            if peak < entry * (1 + arm):
+                # 본전 잠금(사용자 지시 2026-11-05 '라'): 고점이 +lock 이상이면 보호선을 본전(수수료·비용 포함)으로 올린다.
+                lock = self.cfg.get('breakeven_lock_pct')
+                if type(lock) in (int, float) and math.isfinite(lock) and 0 < lock < arm and peak >= entry * (1 + lock):
+                    old = pos.get('profit_guard_stop')
+                    old = old if ok(old) else 0
+                    if entry * floor > old:
+                        self.record({'event': '본전 잠금', 'market': m, 'entry': entry, 'peak': peak, 'guard_stop': entry * floor})
+                        pos['profit_guard_stop'] = entry * floor
+                        changed = True
+                continue
             old = pos.get('profit_guard_stop')
             old = old if ok(old) else 0
             new = max(old, entry * floor, entry + (peak - entry) * (1 - give))

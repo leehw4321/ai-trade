@@ -164,8 +164,10 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
     if not getattr(base, 'rank_exit', True):
         # 순위 매도를 끈 뒤에는 봇 보유 종목 수 상한(slots)을 지킨다(사용자 지시 2026-11-05: 최대 4종목). 보호 종목·5,000원 미만 자투리는 세지 않는다.
-        count = sum(1 for m, v in holdings.items() if v >= 5000 and m not in protected and m not in sell_queued)
-        want = max(0, min(want, base.slots - count))
+        bot_held = {m: v for m, v in holdings.items() if v >= 5000 and m not in protected and m not in sell_queued}
+        count = len(bot_held)
+        if not getattr(base, 'swap_stuck_loss', False):   # 부분 교체가 켜져 있으면 자리는 아래에서 금액 기준으로 센다
+            want = max(0, min(want, base.slots - count))
         stuck_n = sum(1 for _ in (stuck_out or {}))
         reasons.append(f'봇 보유 {count}/{base.slots}종목' + (f' (묶임 {stuck_n})' if stuck_n else '') + f' → 신규 매수 최대 {want}종목')
     if rotation.enabled(base): scan = min(scan, base.M)
@@ -206,11 +208,39 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
                 if r['rs'] >= base.chase_rs_cap > 0:
                     reasons.append(f'{r["market"][4:]} 과열 예외 매수 후보: ' + ('사용자 직접 지정' if r['market'] in promoted else '이익 청산 뒤 재진입 1회'))
                 picks.append(r)
+    equity = sum(holdings.values()) + krw
+    partial = {}
+    if not getattr(base, 'rank_exit', True) and getattr(base, 'swap_stuck_loss', False) and picks:
+        # 부분 매도 교체(사용자 지시 2026-11-05 '다'): 자리는 금액(1칸 = 1회 매수 금액)으로 센다. 매수 후보가 있는데 자리·현금이 모자라면
+        # 묶임(손실 중) 중 상승률이 가장 약한 한 종목을 모자란 만큼만 판다(남는 양이 1만 원 미만이면 전량). 묶임(이익 중)·보호 종목은 팔지 않는다.
+        unit = ((base.entry_risk or base.risk) * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0
+                else caps['max_order_krw'])
+        used = sum(min(1.0, v / unit) for v in bot_held.values())
+        short = max(max(0.0, 1 - (base.slots - used)) * unit, unit - cash)
+        losers = sorted(((s['rs'] if isinstance(s.get('rs'), (int, float)) else -1.0), m) for m, s in (stuck_out or {}).items()
+                        if s.get('state') == '손실 중' and m in bot_held)
+        if short > 0 and losers:
+            k = losers[0][1]
+            v = bot_held[k]
+            need = short * 1.03
+            pct = 100 if v - need < 10000 else min(100, math.ceil(need / v * 100))
+            partial[k] = pct
+            cash += v * pct / 100 * 0.997 * 0.98
+            used -= min(1.0, v / unit) - min(1.0, v * (1 - pct / 100) / unit)
+            reasons.append(f'{k[4:]} 부분 교체 매도 {pct}% (약 {v * pct / 100:,.0f}원): 묶임(손실 중) 중 가장 약함, 새 매수 자리·현금 확보')
+        n = max(0, int(base.slots - used + 1e-9))
+        if len(picks) > n:
+            reasons.append(f'봇 자리(금액 기준) {used:.2f}/{base.slots}칸 → 매수 후보 {len(picks)}개 중 {n}개만')
+            picks = picks[:n]
+        if not picks and partial:
+            reasons.append('교체 매도 취소: 자리가 나지 않아 살 수 없음')
+            cash -= sum(bot_held[k] * p / 100 * 0.997 * 0.98 for k, p in partial.items())
+            partial = {}
     buys = []
     # 전략 설계의 비율 한도: 종목당 coin_cap, 총투입 total_cap (계좌 평가액 기준). 고정 금액 한도를 풀어도 이 한도는 유지한다(D-29).
-    equity = sum(holdings.values()) + krw
     # 사용자 보호 종목은 봇이 투입한 돈이 아니다. 예전에는 보호 종목이 순위 매도 목록에 올라 우연히 빠졌으나 순위 매도를 끈 뒤(2026-11-05) 명시적으로 뺀다.
-    invested = sum(v for m, v in holdings.items() if m not in sells and m not in protected)
+    invested = (sum(v for m, v in holdings.items() if m not in sells and m not in protected)
+                - sum(holdings[k] * p / 100 for k, p in partial.items()))
     total_room = max(0.0, base.total_cap * equity - invested)
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
@@ -224,7 +254,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
         room -= amt
         total_room -= amt
         reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}')
-    parts = [f'매도 {m[4:]} 100%' for m in sells] or ['매도 없음']
+    parts = ([f'매도 {m[4:]} 100%' for m in sells] + [f'매도 {m[4:]} {p}%' for m, p in partial.items()]) or ['매도 없음']
     parts += [f'매수 {m[4:]} {a}원' for m, a in buys] or ['매수 없음']
     return '실행 주문안: ' + '; '.join(parts), reasons
 

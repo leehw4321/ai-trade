@@ -64,8 +64,8 @@ class Proposal(unittest.TestCase):
             self.addCleanup(block.stop)
         self.p = st.Params(M=9, entry_want=3, entry_scan=7, coin_cap=1., total_cap=1.)
 
-    def plan(self, ranked, holdings=None, **kw):
-        return shadow.proposal(holdings or {}, ranked, {}, {r['market'] for r in ranked}, self.p, CAPS, 990_000, 0, **kw)
+    def plan(self, ranked, holdings=None, krw=990_000, **kw):
+        return shadow.proposal(holdings or {}, ranked, {}, {r['market'] for r in ranked}, self.p, CAPS, krw, 0, **kw)
 
     def test_hot_holding_is_not_sold_when_rank_drops(self):
         ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(1, 12)]
@@ -110,6 +110,30 @@ class Proposal(unittest.TestCase):
         text, _ = self.plan(ranked, {f'KRW-C{i}': 80000 for i in range(8, 12)})
         self.assertIn('매수 없음', text)                          # 4/4면 신규 매수 없음
 
+    def test_partial_swap_sells_only_the_shortfall_of_the_weakest_stuck_loser(self):
+        self.p.rank_exit, self.p.slots, self.p.entry_want, self.p.swap_stuck_loss = False, 4, 4, True
+        self.p.size_by_risk, self.p.entry_risk, self.p.stop_max_pct, self.p.total_cap = True, 0.0018, 0.045, 1.0
+        ranked = [{'market': 'KRW-NEW', 'rank': 1, 'rs': .05}] + [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(2, 10)]
+        ranked += [{'market': 'KRW-L1', 'rank': 12, 'rs': .01}, {'market': 'KRW-L2', 'rank': 14, 'rs': -.02},
+                   {'market': 'KRW-W1', 'rank': 13, 'rs': .02}]
+        holdings = {'KRW-L1': 76000, 'KRW-L2': 75000, 'KRW-W1': 90000, 'KRW-BTC': 1_500_000}
+        costs = {'KRW-L1': 80000, 'KRW-L2': 80000, 'KRW-W1': 80000}
+        stuck = {}
+        # 자리는 1칸 남았지만 현금 3만 원이 1회 매수 금액(약 7.4만 원)에 모자란다
+        text, reasons = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out=stuck, krw=30000)
+        self.assertIn('매도 L2 ', text)              # 묶임(손실 중) 중 가장 약한 L2만 판다
+        self.assertNotIn('매도 L1', text)
+        self.assertNotIn('매도 W1', text)            # 묶임(이익 중)은 팔지 않는다
+        self.assertNotIn('매도 BTC', text)
+        pct = int(text.split('매도 L2 ')[1].split('%')[0])
+        self.assertLess(pct, 100)                     # 모자란 만큼만
+        self.assertIn('매수 NEW', text)
+        # 4칸이 꽉 차 있으면 자리를 비우려면 전량을 판다
+        holdings['KRW-C9'], costs['KRW-C9'] = 80000, 80000
+        text, _ = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out={}, krw=60000)
+        self.assertIn('매도 L2 100%', text)
+        self.assertIn('매수 NEW', text)
+
     def test_promoted_17_percent_is_bought_but_21_percent_is_not(self):
         ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .17}, {'market': 'KRW-B', 'rank': 2, 'rs': .21}]
         text, _ = self.plan(ranked)
@@ -127,6 +151,32 @@ class Proposal(unittest.TestCase):
         self.assertIn('매수 없음', text)
         text, _ = self.plan(ranked, last_sells={'KRW-A': {**fresh['KRW-A'], 'profit': False}})
         self.assertIn('매수 없음', text)
+
+
+class BreakevenLock(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lv = live.Live(Path(self.tmp.name) / 'live', {'enabled': True, 'profit_guard_enabled': True, 'profit_guard_arm_pct': 0.03,
+                                                           'profit_guard_giveback': 0.3, 'breakeven_lock_pct': 0.015}, st.Params())
+        self.lv.is_protected = lambda m: False
+        self.lv.d['positions'] = {'KRW-A': {'qty': 1.0, 'cost': 100.0, 'stop': 95.5, 'entry': 100.0}}
+
+    def test_lock_to_breakeven_after_one_and_a_half_percent(self):
+        self.lv.update_profit_guard({'KRW-A': 101.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-A'].get('profit_guard_stop'))
+        self.lv.update_profit_guard({'KRW-A': 101.6})
+        g = self.lv.d['positions']['KRW-A']['profit_guard_stop']
+        self.assertGreater(g, 100.0)                                   # 본전 + 수수료·비용
+        self.assertLess(g, 101.0)
+        self.assertEqual(self.lv.stop_limit(self.lv.d['positions']['KRW-A']), g)
+        self.lv.update_profit_guard({'KRW-A': 106.0})                  # +3% 넘으면 기존 30% 반납선이 더 높다
+        self.assertAlmostEqual(self.lv.d['positions']['KRW-A']['profit_guard_stop'], 104.2)
+
+    def test_lock_off_by_default(self):
+        self.lv.cfg.pop('breakeven_lock_pct')
+        self.lv.update_profit_guard({'KRW-A': 102.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-A'].get('profit_guard_stop'))
 
 
 class Receiver(unittest.TestCase):

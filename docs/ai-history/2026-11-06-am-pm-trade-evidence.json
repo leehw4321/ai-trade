@@ -1,0 +1,618 @@
+{
+  "snapshot_at": "2026-11-05T23:52:05.605540+09:00",
+  "cache_synced_at": "2026-11-05T23:50:25+09:00",
+  "snapshot_sha256": {
+    "orders": "fe519533df049ca692efc624794f896c1622e887b2eaabbbb7b9f46512f4d1fd",
+    "baseline": "8febe250377f2e078cfb12c0d72f0dab25df2fd753a039be38a9421e188bb910",
+    "summary": "95d9feafd7756c15a056766fa0d3287d7e25fddb121711e788f229e8accd8dec",
+    "journal": "e53d8d5462b8df3a7323494ae470d972954c98b48f94e7fe74870ebdb492953d",
+    "live": "91e191a5a2123c179a4f28ea713a020608ecb9b4b1208cf6924c97f9c4a88fd2",
+    "config": "ea3326fcffaa7a9ce0b0a7bdf9b56a2a972b91082ebaa07b9df1a0569c4e5ad3",
+    "proposal": "4f4aeae598af5f42f58a3de068ab00121ecdbfbc06827ca36731125f792456b3",
+    "missed": "41f222027d5e4b157301dbf0357c679340c76454e678d78441836567babd34fd",
+    "stdout": "319e6e6df23bcc5b7bfcec8b4b40e17c762acf4079a9676c6e6d57ca1e7f69c9",
+    "deploy": "9f6e27a9e46c24e881c56fa291e44296b8d3ffef369d9d3729dcd8f6d52ee7d7",
+    "ranking": "f782aa8e415e85e09f181f8d7965112eea8feff693a60875547da3e0df607929"
+  },
+  "cached_quantity_mismatch": [],
+  "morning": {
+    "sell_orders": 10,
+    "known_cost_orders": 10,
+    "wins": 7,
+    "net_pnl": 6194.283385782885,
+    "net_return_mean_pct": 0.8108627829945236,
+    "fees": 397.492888112025
+  },
+  "afternoon": {
+    "sell_orders": 6,
+    "known_cost_orders": 6,
+    "wins": 1,
+    "net_pnl": -7564.420341086198,
+    "net_return_mean_pct": -1.5784183492641948,
+    "fees": 234.45401683428537
+  },
+  "market_reference": {
+    "source": "Upbit public completed 15-minute candles",
+    "cohort": "snapshot top15 ranking + today sold symbols; not historical full market universe",
+    "symbols": {
+      "KRW-ARX": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": -14.525139664804465,
+        "afternoon_12_last": 6.209150326797386,
+        "after_16_last": 8.695652173913038
+      },
+      "KRW-AXIS": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 3.092783505154628,
+        "afternoon_12_last": -6.999999999999995,
+        "after_16_last": -0.5347593582887722
+      },
+      "KRW-BEAM": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 8.084358523725843,
+        "afternoon_12_last": -3.25203252032521,
+        "after_16_last": -6.739811912225702
+      },
+      "KRW-BIRB": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": -3.4782608695652195,
+        "afternoon_12_last": 9.90990990990992,
+        "after_16_last": 10.909090909090914
+      },
+      "KRW-BMT": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": -1.0582010582010581,
+        "afternoon_12_last": -7.486631016042777,
+        "after_16_last": -3.888888888888886
+      },
+      "KRW-BTC": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 1.828976167886287,
+        "afternoon_12_last": -1.9298892988929839,
+        "after_16_last": -1.8357095368250032
+      },
+      "KRW-CAP": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 5.691056910569103,
+        "afternoon_12_last": 10.000000000000009,
+        "after_16_last": 13.492063492063489
+      },
+      "KRW-DRV": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 10.389610389610393,
+        "afternoon_12_last": -5.490196078431375,
+        "after_16_last": -2.429149797570851
+      },
+      "KRW-EDGE": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 44.11764705882353,
+        "afternoon_12_last": -6.802721088435371,
+        "after_16_last": 2.238805970149249
+      },
+      "KRW-ELSA": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 22.77227722772277,
+        "afternoon_12_last": -8.064516129032262,
+        "after_16_last": -14.28571428571429
+      },
+      "KRW-ENA": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 0.0,
+        "afternoon_12_last": -4.0650406504065035,
+        "after_16_last": -2.8806584362139898
+      },
+      "KRW-ETH": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 2.3802067021609696,
+        "afternoon_12_last": -2.6001835423676956,
+        "after_16_last": -2.421084891204417
+      },
+      "KRW-FLUID": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 21.124361158432702,
+        "afternoon_12_last": -1.0407876230661084,
+        "after_16_last": 0.05688282138793799
+      },
+      "KRW-LSK": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 11.439114391143912,
+        "afternoon_12_last": -10.596026490066224,
+        "after_16_last": -3.9145907473309594
+      },
+      "KRW-NEAR": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": -0.8968609865470878,
+        "afternoon_12_last": -4.8868778280543035,
+        "after_16_last": -3.4007352941176516
+      },
+      "KRW-QUID": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 3.116883116883118,
+        "afternoon_12_last": -0.25188916876575096,
+        "after_16_last": -2.7027027027027084
+      },
+      "KRW-SOL": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 1.5649452269170583,
+        "afternoon_12_last": -2.5423728813559365,
+        "after_16_last": -2.2411128284389514
+      },
+      "KRW-SOPH": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 2.5559105431310014,
+        "afternoon_12_last": -2.492211838006231,
+        "after_16_last": -1.2618296529968487
+      },
+      "KRW-STX": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 0.42283298097252064,
+        "afternoon_12_last": -3.7894736842105314,
+        "after_16_last": -2.972399150743099
+      },
+      "KRW-UP2": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 9.946236559139777,
+        "afternoon_12_last": 2.2004889975550057,
+        "after_16_last": -4.238258877434142
+      },
+      "KRW-XRP": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": -0.5659309564233217,
+        "afternoon_12_last": -1.2521343198634072,
+        "after_16_last": -1.4764338444065883
+      },
+      "KRW-XTZ": {
+        "last_closed_at": "2026-11-05T23:45:00+09:00",
+        "morning_00_12": 7.941176470588229,
+        "afternoon_12_last": -1.6348773841961872,
+        "after_16_last": 0.557103064066844
+      }
+    },
+    "alt_reference": {
+      "morning_00_12": {
+        "n": 20,
+        "equal_weight_mean_pct": 6.586740026363672,
+        "median_pct": 3.104833311018873,
+        "rising": 14,
+        "falling": 5
+      },
+      "afternoon_12_last": {
+        "n": 20,
+        "equal_weight_mean_pct": -2.1164119732997926,
+        "median_pct": -2.897202700840573,
+        "rising": 4,
+        "falling": 16
+      },
+      "after_16_last": {
+        "n": 20,
+        "equal_weight_mean_pct": -0.8508723673200984,
+        "median_pct": -2.335131313004901,
+        "rising": 6,
+        "falling": 14
+      }
+    }
+  },
+  "limits": [
+    "Exit-time cohorts; morning entries can close in the afternoon.",
+    "Latest prior buy is an annotation, not FIFO or proof of a single buy lot.",
+    "Local detailed reasons before 16:15 handover are unavailable here.",
+    "Realized fills only; not full account equity or open-position returns.",
+    "Market reference cohort will use end-of-snapshot ranking; selection bias applies."
+  ],
+  "latest_market_index": 0.006400372320121223,
+  "sells": [
+    {
+      "market": "KRW-ENA",
+      "exit_time": "2026-11-05T00:19:39+09:00",
+      "net_pnl": 2785.20454543863,
+      "net_return_pct": 3.615341089785685,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 251.00000000000003,
+      "latest_prior_bot_buy": {
+        "market": "KRW-ENA",
+        "time": "2026-11-04T22:01:48+09:00",
+        "price": 242.0,
+        "funds": 76999.99999956
+      },
+      "hours_since_latest_buy": 2.2975,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -1.224489795918371,
+      "entry_prior_closed_60m_momentum_pct": -2.0408163265306145
+    },
+    {
+      "market": "KRW-NEAR",
+      "exit_time": "2026-11-05T00:22:22+09:00",
+      "net_pnl": 2457.8709968786,
+      "net_return_pct": 3.1904450336588344,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 5645.0,
+      "latest_prior_bot_buy": {
+        "market": "KRW-NEAR",
+        "time": "2026-11-04T19:01:37+09:00",
+        "price": 5465.0,
+        "funds": 76999.9999882
+      },
+      "hours_since_latest_buy": 5.345833333333333,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": 0.18331805682860747,
+      "entry_prior_closed_60m_momentum_pct": 0.36663611365719273
+    },
+    {
+      "market": "KRW-AXIS",
+      "exit_time": "2026-11-05T02:01:36+09:00",
+      "net_pnl": 328.01288659362,
+      "net_return_pct": 0.4149986862238983,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 195.00000000000003,
+      "latest_prior_bot_buy": {
+        "market": "KRW-AXIS",
+        "time": "2026-11-05T00:01:37+09:00",
+        "price": 194.0,
+        "funds": 78999.99999896
+      },
+      "hours_since_latest_buy": 1.9997222222222222,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -2.5125628140703515,
+      "entry_prior_closed_60m_momentum_pct": -2.5125628140703515
+    },
+    {
+      "market": "KRW-BMT",
+      "exit_time": "2026-11-05T03:01:39+09:00",
+      "net_pnl": -286.790789473539,
+      "net_return_pct": -0.3628448933428023,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 37.9,
+      "latest_prior_bot_buy": {
+        "market": "KRW-BMT",
+        "time": "2026-11-05T00:01:39+09:00",
+        "price": 38.0,
+        "funds": 78999.99999996
+      },
+      "hours_since_latest_buy": 3.0,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -3.5532994923857864,
+      "entry_prior_closed_60m_momentum_pct": -4.060913705583758
+    },
+    {
+      "market": "KRW-NEAR",
+      "exit_time": "2026-11-05T04:01:36+09:00",
+      "net_pnl": -2385.1531524227,
+      "net_return_pct": -2.9799514657085866,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 5390.000000000001,
+      "latest_prior_bot_buy": {
+        "market": "KRW-NEAR",
+        "time": "2026-11-05T03:01:45+09:00",
+        "price": 5550.0,
+        "funds": 79999.9999755
+      },
+      "hours_since_latest_buy": 0.9975,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": 0.0901713255184955,
+      "entry_prior_closed_60m_momentum_pct": -0.2705139765554532
+    },
+    {
+      "market": "KRW-LSK",
+      "exit_time": "2026-11-05T06:01:51+09:00",
+      "net_pnl": 1399.6610486289,
+      "net_return_pct": 1.7708374277280836,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 271.99999999999994,
+      "latest_prior_bot_buy": {
+        "market": "KRW-LSK",
+        "time": "2026-11-05T04:01:41+09:00",
+        "price": 267.0,
+        "funds": 78999.99999927
+      },
+      "hours_since_latest_buy": 2.0027777777777778,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -1.8382352941176516,
+      "entry_prior_closed_60m_momentum_pct": -1.4705882352941124
+    },
+    {
+      "market": "KRW-ARX",
+      "exit_time": "2026-11-05T07:09:46+09:00",
+      "net_pnl": -3898.98507447578,
+      "net_return_pct": -4.871295695435864,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 319.0,
+      "latest_prior_bot_buy": {
+        "market": "KRW-ARX",
+        "time": "2026-11-05T03:01:42+09:00",
+        "price": 335.0,
+        "funds": 79999.9999969
+      },
+      "hours_since_latest_buy": 4.134444444444444,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -7.9670329670329725,
+      "entry_prior_closed_60m_momentum_pct": -8.791208791208794
+    },
+    {
+      "market": "KRW-STX",
+      "exit_time": "2026-11-05T09:40:25+09:00",
+      "net_pnl": 1579.83403356945,
+      "net_return_pct": 1.9987905207060337,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 485.99999999999994,
+      "latest_prior_bot_buy": {
+        "market": "KRW-STX",
+        "time": "2026-11-05T06:01:54+09:00",
+        "price": 476.0,
+        "funds": 78999.9999978
+      },
+      "hours_since_latest_buy": 3.6419444444444444,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": 1.0615711252653925,
+      "entry_prior_closed_60m_momentum_pct": 0.6369426751592355
+    },
+    {
+      "market": "KRW-BEAM",
+      "exit_time": "2026-11-05T10:14:44+09:00",
+      "net_pnl": 2553.0166666653736,
+      "net_return_pct": 3.230051640846243,
+      "reason": "unavailable_before_local_handover",
+      "fills": 3,
+      "sell_price": 6.199999999999999,
+      "latest_prior_bot_buy": {
+        "market": "KRW-BEAM",
+        "time": "2026-11-05T04:01:44+09:00",
+        "price": 6.0,
+        "funds": 78999.99999996
+      },
+      "hours_since_latest_buy": 6.216666666666667,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": 0.0,
+      "entry_prior_closed_60m_momentum_pct": 0.16666666666667052
+    },
+    {
+      "market": "KRW-DRV",
+      "exit_time": "2026-11-05T11:14:35+09:00",
+      "net_pnl": 1661.61222438033,
+      "net_return_pct": 2.102255485483711,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 510.0,
+      "latest_prior_bot_buy": {
+        "market": "KRW-DRV",
+        "time": "2026-11-05T11:01:51+09:00",
+        "price": 499.0,
+        "funds": 78999.99999674
+      },
+      "hours_since_latest_buy": 0.21222222222222223,
+      "entry_vs_prior_240m_pct": null,
+      "preentry_completed_4h_pct": null,
+      "entry_vs_prior_60m_pct": -0.9920634920634885,
+      "entry_prior_closed_60m_momentum_pct": -0.7936507936507908
+    },
+    {
+      "market": "KRW-BEAM",
+      "exit_time": "2026-11-05T14:33:49+09:00",
+      "net_pnl": 2749.80295950027,
+      "net_return_pct": 3.4790237280113843,
+      "reason": "unavailable_before_local_handover",
+      "fills": 1,
+      "sell_price": 6.6499999999999995,
+      "latest_prior_bot_buy": {
+        "market": "KRW-BEAM",
+        "time": "2026-11-05T13:01:51+09:00",
+        "price": 6.42,
+        "funds": 78999.999999963
+      },
+      "hours_since_latest_buy": 1.5327777777777778,
+      "entry_vs_prior_240m_pct": 6.467661691542292,
+      "preentry_completed_4h_pct": 7.296849087893853,
+      "entry_vs_prior_60m_pct": 4.390243902439028,
+      "entry_prior_closed_60m_momentum_pct": 5.203252032520322
+    },
+    {
+      "market": "KRW-DRV",
+      "exit_time": "2026-11-05T18:29:16+09:00",
+      "net_pnl": -234.095933127735,
+      "net_return_pct": -0.29617587805414974,
+      "reason": "이익보호",
+      "fills": 2,
+      "sell_price": 511.9923542315708,
+      "latest_prior_bot_buy": {
+        "market": "KRW-DRV",
+        "time": "2026-11-05T13:01:55+09:00",
+        "price": 513.0,
+        "funds": 78999.99999768
+      },
+      "hours_since_latest_buy": 5.4558333333333335,
+      "entry_vs_prior_240m_pct": 9.615384615384626,
+      "preentry_completed_4h_pct": 9.615384615384626,
+      "entry_vs_prior_60m_pct": 0.588235294117645,
+      "entry_prior_closed_60m_momentum_pct": 0.588235294117645
+    },
+    {
+      "market": "KRW-BEAM",
+      "exit_time": "2026-11-05T21:01:54+09:00",
+      "net_pnl": -2727.682119204725,
+      "net_return_pct": -3.4078986996567946,
+      "reason": "봇 주문안 11-05T21:01",
+      "fills": 2,
+      "sell_price": 5.84,
+      "latest_prior_bot_buy": {
+        "market": "KRW-BEAM",
+        "time": "2026-11-05T18:01:54+09:00",
+        "price": 6.04,
+        "funds": 79999.9999999832
+      },
+      "hours_since_latest_buy": 3.0,
+      "entry_vs_prior_240m_pct": -5.625000000000002,
+      "preentry_completed_4h_pct": -4.218750000000004,
+      "entry_vs_prior_60m_pct": -1.6286644951139961,
+      "entry_prior_closed_60m_momentum_pct": -0.16286644951140072
+    },
+    {
+      "market": "KRW-ELSA",
+      "exit_time": "2026-11-05T21:11:13+09:00",
+      "net_pnl": -78.99999999956,
+      "net_return_pct": -0.09995002498750627,
+      "reason": "이익보호",
+      "fills": 1,
+      "sell_price": 117.99999999999999,
+      "latest_prior_bot_buy": {
+        "market": "KRW-ELSA",
+        "time": "2026-11-05T21:01:57+09:00",
+        "price": 118.0,
+        "funds": 78999.99999956
+      },
+      "hours_since_latest_buy": 0.15444444444444444,
+      "entry_vs_prior_240m_pct": -10.606060606060607,
+      "preentry_completed_4h_pct": -10.606060606060607,
+      "entry_vs_prior_60m_pct": -5.600000000000005,
+      "entry_prior_closed_60m_momentum_pct": -5.600000000000005
+    },
+    {
+      "market": "KRW-QUID",
+      "exit_time": "2026-11-05T22:13:13+09:00",
+      "net_pnl": -3590.439024362418,
+      "net_return_pct": -4.48580587754903,
+      "reason": "손절",
+      "fills": 1,
+      "sell_price": 78.4,
+      "latest_prior_bot_buy": {
+        "market": "KRW-QUID",
+        "time": "2026-11-05T20:01:41+09:00",
+        "price": 82.0,
+        "funds": 79999.99999938
+      },
+      "hours_since_latest_buy": 2.192222222222222,
+      "entry_vs_prior_240m_pct": 0.7371007371007376,
+      "preentry_completed_4h_pct": 0.49140049140048436,
+      "entry_vs_prior_60m_pct": 0.7371007371007376,
+      "entry_prior_closed_60m_momentum_pct": 0.49140049140048436
+    },
+    {
+      "market": "KRW-STX",
+      "exit_time": "2026-11-05T23:36:56+09:00",
+      "net_pnl": -3683.00622389203,
+      "net_return_pct": -4.659703343349072,
+      "reason": "손절",
+      "fills": 1,
+      "sell_price": 460.0,
+      "latest_prior_bot_buy": {
+        "market": "KRW-STX",
+        "time": "2026-11-05T13:01:58+09:00",
+        "price": 482.0,
+        "funds": 78999.99999626
+      },
+      "hours_since_latest_buy": 10.582777777777778,
+      "entry_vs_prior_240m_pct": -0.6185567010309256,
+      "preentry_completed_4h_pct": -0.6185567010309256,
+      "entry_vs_prior_60m_pct": 1.473684210526316,
+      "entry_prior_closed_60m_momentum_pct": 1.473684210526316
+    }
+  ],
+  "execution_ticks": [
+    {
+      "market": "KRW-DRV",
+      "guard_created": "2026-11-05T18:28:30+09:00",
+      "guard_stop": 514.539,
+      "own_fill_time": "2026-11-05T18:29:16+09:00",
+      "own_average_fill": 511.9923542315708,
+      "sample_ticks": 500,
+      "guard_to_fill_ticks": 234,
+      "covers_guard_start": true,
+      "first_observed_below_guard_at": "2026-11-05T18:28:42.090000+09:00",
+      "first_observed_below_price": 514.0,
+      "first_below_to_fill_seconds": 33.91000008583069,
+      "limits": "Public trade price is not bid/ask or proof of bot detection/submission time."
+    },
+    {
+      "market": "KRW-ELSA",
+      "guard_created": "2026-11-05T21:07:22+09:00",
+      "guard_stop": 118.41317699999998,
+      "own_fill_time": "2026-11-05T21:11:13+09:00",
+      "own_average_fill": 117.99999999999999,
+      "sample_ticks": 500,
+      "guard_to_fill_ticks": 108,
+      "covers_guard_start": true,
+      "first_observed_below_guard_at": "2026-11-05T21:11:08.931000+09:00",
+      "first_observed_below_price": 118.0,
+      "first_below_to_fill_seconds": 4.069000005722046,
+      "limits": "Public trade price is not bid/ask or proof of bot detection/submission time."
+    }
+  ],
+  "tick_continuity": {
+    "ticks": 234,
+    "below_ticks": 25,
+    "below_runs": [
+      [
+        1793870922090,
+        1793870922426
+      ],
+      [
+        1793870925260,
+        1793870925465
+      ],
+      [
+        1793870950353,
+        1793870956000.0
+      ]
+    ],
+    "last_above_ms": 1793870949228
+  },
+  "order_get_verification": [
+    {
+      "market": "KRW-BEAM",
+      "created_at": "2026-11-05T14:33:49+09:00",
+      "state": "done",
+      "trade_times": [
+        "2026-11-05T14:33:49+09:00"
+      ],
+      "same_paid_fee": true,
+      "same_executed_volume": true
+    },
+    {
+      "market": "KRW-DRV",
+      "created_at": "2026-11-05T18:29:16+09:00",
+      "state": "done",
+      "trade_times": [
+        "2026-11-05T18:29:16+09:00",
+        "2026-11-05T18:29:16+09:00"
+      ],
+      "same_paid_fee": true,
+      "same_executed_volume": true
+    },
+    {
+      "market": "KRW-BEAM",
+      "created_at": "2026-11-05T21:01:54+09:00",
+      "state": "done",
+      "trade_times": [
+        "2026-11-05T21:01:54+09:00",
+        "2026-11-05T21:01:54+09:00"
+      ],
+      "same_paid_fee": true,
+      "same_executed_volume": true
+    },
+    {
+      "market": "KRW-STX",
+      "created_at": "2026-11-05T23:36:56+09:00",
+      "state": "done",
+      "trade_times": [
+        "2026-11-05T23:36:56+09:00"
+      ],
+      "same_paid_fee": true,
+      "same_executed_volume": true
+    }
+  ]
+}

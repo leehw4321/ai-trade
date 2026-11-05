@@ -50,7 +50,7 @@ def utc(ts):
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc)
 
 
-def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False):
+def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -65,7 +65,8 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         if w and w.get('trade_blocked', True):
             cls, tag = 'rk-alert', ('보유 · ' if m in held else '') + f'매수 불가({reasons})'
         elif m in held:
-            cls, tag = 'rk-held', '보유' + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
+            s = (stuck or {}).get(m)
+            cls, tag = 'rk-held', '보유' + (f" · 묶임({s.get('state', '')})" if s else '') + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
             cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
@@ -85,6 +86,19 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
+
+
+def stuck_html(stuck, esc=html.escape):
+    """묶인 보유: 예전 규칙이면 순위로 팔았을 종목. 순위 매도 없이 손절·이익보호로만 판다(사용자 지시 2026-11-05)."""
+    if not stuck:
+        return ''
+    items = []
+    for m, s in sorted(stuck.items(), key=lambda x: (x[1].get('pnl_pct') is None, x[1].get('pnl_pct') or 0)):
+        rank = f"{s['rank']}위" if s.get('rank') else '상위 밖'
+        pnl = f" {s['pnl_pct'] * 100:+.2f}%" if isinstance(s.get('pnl_pct'), (int, float)) else ''
+        items.append(f"<b>{esc(m[4:])}</b> {esc(s.get('state', ''))}{pnl} · {rank}")
+    return ("<div class=sub style='margin-top:8px;padding:6px 8px;border-left:3px solid var(--up)'>묶인 종목(순위 매도 안 함, 손절·이익보호로만 매도): "
+            + ' / '.join(items) + '</div>')
 
 
 def promote_script(api):
@@ -518,8 +532,8 @@ class Bot:
         warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
         promote_api = self.manual_action() if self.live.cfg.get('enabled') and self.can_act() else None
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
-                               can_promote=bool(promote_api)) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
-        rk_rows_script = promote_script(promote_api)
+                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA)) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+        rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 12)],
                         key=lambda x: x['time'])[-14:][::-1]
         ev = ''.join(f"<li><span class=t>{e(x['time'][5:16].replace('T', ' '))} {e(x['who'])}</span>{e(x['msg'])}</li>" for x in events)

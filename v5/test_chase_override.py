@@ -97,6 +97,19 @@ class Proposal(unittest.TestCase):
         self.assertIn('매수 A', text)
         self.assertIn('매도 없음', text)
 
+    def test_four_slots_and_stuck_marking_after_rank_exit_off(self):
+        self.p.rank_exit, self.p.slots, self.p.entry_want = False, 4, 4
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(1, 12)]
+        holdings = {'KRW-C11': 70000, 'KRW-C10': 90000, 'KRW-BTC': 500000}
+        costs = {'KRW-C11': 80000, 'KRW-C10': 80000}
+        stuck = {}
+        text, reasons = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out=stuck)
+        self.assertEqual({m: s['state'] for m, s in stuck.items()}, {'KRW-C11': '손실 중', 'KRW-C10': '이익 중'})
+        self.assertEqual(text.count('매수 '), 2)                 # 봇 보유 2(보호 BTC 제외) → 4종목까지 2개 더
+        self.assertTrue(any('봇 보유 2/4종목 (묶임 2)' in r for r in reasons))
+        text, _ = self.plan(ranked, {f'KRW-C{i}': 80000 for i in range(8, 12)})
+        self.assertIn('매수 없음', text)                          # 4/4면 신규 매수 없음
+
     def test_promoted_17_percent_is_bought_but_21_percent_is_not(self):
         ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .17}, {'market': 'KRW-B', 'rank': 2, 'rs': .21}]
         text, _ = self.plan(ranked)

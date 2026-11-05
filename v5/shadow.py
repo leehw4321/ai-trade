@@ -96,7 +96,7 @@ def claim_slot(slot, path=None):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None, protected=None):
+             promoted=None, hot=None, protected=None, costs=None, stuck_out=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -114,6 +114,16 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             continue
         if m in hot or not getattr(base, 'rank_exit', True):
             kind = '과열 보유' if m in hot else '보유'
+            r = pos.get(m)
+            rs = r['rs'] if r else rs_out.get(m)
+            if r is None or r['rank'] > base.M or (rs is not None and rs < 0):
+                # 묶임: 예전 규칙이면 순위로 팔았을 보유. 손익은 봇 장부 원가 기준(없으면 미확인).
+                cost = (costs or {}).get(m)
+                state = '손익 미확인' if not cost else ('이익 중' if v > cost else '손실 중')
+                kind = (kind + ' · ' if m in hot else '') + f'묶임({state})'
+                if stuck_out is not None:
+                    stuck_out[m] = {'state': state, 'rank': r['rank'] if r else None, 'rs': rs,
+                                    'pnl_pct': (v / cost - 1) if cost else None, 'value': v}
             reasons.append(f'{m[4:]} 유지: {kind} — 순위 매도 안 함, 손절·이익보호로만 매도 (사용자 지시)')
             continue
         r = pos.get(m)
@@ -152,6 +162,12 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
+    if not getattr(base, 'rank_exit', True):
+        # 순위 매도를 끈 뒤에는 봇 보유 종목 수 상한(slots)을 지킨다(사용자 지시 2026-11-05: 최대 4종목). 보호 종목·5,000원 미만 자투리는 세지 않는다.
+        count = sum(1 for m, v in holdings.items() if v >= 5000 and m not in protected and m not in sell_queued)
+        want = max(0, min(want, base.slots - count))
+        stuck_n = sum(1 for _ in (stuck_out or {}))
+        reasons.append(f'봇 보유 {count}/{base.slots}종목' + (f' (묶임 {stuck_n})' if stuck_n else '') + f' → 신규 매수 최대 {want}종목')
     if rotation.enabled(base): scan = min(scan, base.M)
     regime_closed = False
     if getattr(base, 'halt_new_buys', False):
@@ -395,7 +411,10 @@ class Shadow:
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,
-                                 promoted=co.promoted(DATA), hot=hot, protected=self.protected_markets())
+                                 promoted=co.promoted(DATA), hot=hot, protected=self.protected_markets(),
+                                 costs={m: p.get('cost') for m, p in state.get('positions', {}).items() if isinstance(p, dict)},
+                                 stuck_out=(stuck := {}))
+        co.write_stuck(DATA, stuck)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         # Public signal prices, not account inventory: the receiver can enforce the SAME

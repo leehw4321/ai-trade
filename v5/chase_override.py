@@ -20,6 +20,7 @@ PROMOTE_HOURS = 24
 REENTRY_HOURS = 24
 PROMOTED = 'chase_promoted.json'
 HOT_HELD = 'hot_held.json'
+STUCK = 'stuck_held.json'
 
 
 def _read(path):
@@ -99,6 +100,16 @@ def cap_for(market, p, promoted_markets, last, now=None):
 def hot_held(data_dir):
     rows = _read(Path(data_dir) / HOT_HELD).get('markets', [])
     return {m for m in rows if isinstance(m, str)} if isinstance(rows, list) else set()
+
+
+def write_stuck(data_dir, stuck):
+    """묶인 보유(예전 규칙이면 순위로 팔았을 종목) 표시용. 주문 판단에는 쓰지 않는다."""
+    _write(Path(data_dir) / STUCK, {'markets': stuck})  # 시각은 파일 수정 시각으로 본다
+
+
+def read_stuck(data_dir):
+    rows = _read(Path(data_dir) / STUCK).get('markets', {})
+    return rows if isinstance(rows, dict) else {}
 
 
 def update_hot_held(data_dir, held, rs_of, p):

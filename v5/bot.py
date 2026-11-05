@@ -690,14 +690,23 @@ class Bot:
                    f"<span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류 · 20% 미만은 커서를 올려 직접 지정)</span> "
                    f"<span class='chip chip-alert'>매수 불가 경보</span> · {p.entry_scan or p.entry_top}위 안에서 상승률 0~{p.chase_rs_cap:.0%}</div></section>")
         srv_r = getattr(self, 'manual_server', None)
-        refresh_btn = ("<button id=rf-btn style='font-size:13px;padding:4px 12px;margin-left:10px;cursor:pointer'>지금 새로고침</button>"
+        refresh_btn = ("<button id=rf-btn style='font-size:17px;font-weight:700;padding:10px 26px;margin-left:14px;cursor:pointer;background:#1f9d55;color:#fff;border:0;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.25)'>⟳ 지금 새로고침</button>"
                        "<span id=rf-res class=sub></span><script>(function(){var A=" + json.dumps({'port': srv_r.port, 'token': srv_r.token}) + ","
                        "b=document.getElementById('rf-btn'),r=document.getElementById('rf-res');b.onclick=function(){b.disabled=true;r.textContent=' ⏳ 봇이 화면을 다시 만드는 중…';"
                        "fetch('http://127.0.0.1:'+A.port+'/refresh',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,confirm:true})})"
                        ".then(function(){setTimeout(function(){location.reload()},4000)}).catch(function(){location.reload()})}})()</script>") if srv_r else ''
+        auto_ctl = ("<span class=sub style='margin-left:14px'>자동 새로고침 <select id=rf-iv style='font-size:14px;padding:3px 4px'>"
+                    "<option value=30>30초</option><option value=60>1분</option><option value=180>3분</option><option value=300>5분</option>"
+                    "<option value=600>10분</option><option value=1800>30분</option><option value=0>끄기</option></select></span>"
+                    "<script>(function(){var s=document.getElementById('rf-iv'),l=document.getElementById('rf-lbl'),t=null,v=180;"
+                    "try{var x=parseInt(localStorage.getItem('rfIv'),10);if(x>=0&&x<=86400)v=x}catch(e){}"
+                    "function arm(){clearTimeout(t);if(l)l.textContent=v?(v>=60?(v/60)+'분':v+'초'):'꺼짐';if(v>0)t=setTimeout(function(){location.reload()},v*1000)}"
+                    "var ok=false;for(var i=0;i<s.options.length;i++)if(+s.options[i].value===v)ok=true;"
+                    "if(!ok){var o=document.createElement('option');o.value=v;o.textContent=(v/60)+'분';s.appendChild(o)}"
+                    "s.value=v;s.onchange=function(){v=+s.value;try{localStorage.setItem('rfIv',v)}catch(e){}arm()};arm()})()</script>")
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
-        page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>
+        page = f"""<!doctype html><html lang=ko><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
@@ -722,7 +731,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .muted{{color:var(--muted)}} .warn{{color:var(--up)}}
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
-<header><h1>자동거래 v5 {refresh_btn}</h1><div class=sub>갱신 {e(now_iso()[11:19])} (자동 30초) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>
+<header><h1>자동거래 v5 {refresh_btn}{auto_ctl}</h1><div class=sub>갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
 <div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·

@@ -690,7 +690,7 @@ class Bot:
                        "<span id=rf-res class=sub></span><script>(function(){var A=" + json.dumps({'port': srv_r.port, 'token': srv_r.token}) + ","
                        "b=document.getElementById('rf-btn'),r=document.getElementById('rf-res');b.onclick=function(){b.disabled=true;r.textContent=' ⏳ 봇이 화면을 다시 만드는 중…';"
                        "fetch('http://127.0.0.1:'+A.port+'/refresh',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,confirm:true})})"
-                       ".then(function(){setTimeout(function(){location.reload()},2500)}).catch(function(){location.reload()})}})()</script>") if srv_r else ''
+                       ".then(function(){setTimeout(function(){location.reload()},4000)}).catch(function(){location.reload()})}})()</script>") if srv_r else ''
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8><meta http-equiv=refresh content=30>

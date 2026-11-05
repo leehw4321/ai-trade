@@ -32,13 +32,15 @@ def render(live, account_markets=(), action=None):
     note='<p class="warn">직접 주문 확인 지연 · 새 주문의 출처를 확인 중입니다.</p>' if error else ''
     health={'checked_at':getattr(getattr(live,'_manual_detector',None),'last_global_success',0),'error':error}
     payload=json.dumps({'rows':data,'action':action,'health':health},ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
-    return f'''<section id="asset-protection-board">{''.join(pending)}<details id="ap-fold"><summary class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span> · {len(protected)}개 보호 중 (눌러서 열기·닫기)</summary>
+    wait_chip=f' <span class="ap-chip" style="background:#fbe9c4">확인 대기 {len(pending)}건</span>' if pending else ''
+    return f'''<section id="asset-protection-board"><details id="ap-fold"><summary class="lg">사용자 직접 주문 보호 <span class="ap-chip">기본 자동 보호</span>{wait_chip} · {len(protected)}개 보호 중 (실수 방지: 눌러서 열어야 보호 유지·해제 버튼이 보입니다)</summary>
+{''.join(pending)}
 <p class="sub">업비트에서 직접 주문한 종목은 감지 즉시 종목 전체를 보호합니다. 자동 해제는 없으며, 직접 해제를 확인하기 전까지 봇은 그 종목을 매수·매도·손절·익절하지 않습니다. 해제한 뒤에도 새 직접 주문을 감지하면 다시 보호합니다.</p>
 {warning}{note}
-<details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details></details>
-<script>(function(){{var d=document.getElementById('ap-fold');if(!d)return;try{{d.open=localStorage.getItem('apOpen')==='1'}}catch(e){{}}d.addEventListener('toggle',function(){{try{{localStorage.setItem('apOpen',d.open?'1':'0')}}catch(e){{}}}})}})();</script>
+<details><summary>보호 종목 관리 · {len(protected)}개 보호 중</summary><table><tr><th>종목</th><th>현재 상태</th><th>안내</th><th>선택</th></tr>{''.join(rows)}</table></details>
 <div id="ap-confirm" hidden><b id="ap-question"></b><p>해제는 즉시 주문을 넣지 않습니다. 다음 봇 판단부터 관리하며, 보호 중에는 봇 손절도 하지 않습니다.</p><button type="button" id="ap-yes">보호 해제 확인</button> <button type="button" id="ap-no">취소</button></div>
-<p id="ap-result" role="status">{'화면에서 보호 유지·해제를 선택할 수 있습니다.' if action else '보호 제어 연결을 기다리고 있습니다. 보호 상태는 유지됩니다.'}</p>
+<p id="ap-result" role="status">{'화면에서 보호 유지·해제를 선택할 수 있습니다.' if action else '보호 제어 연결을 기다리고 있습니다. 보호 상태는 유지됩니다.'}</p></details>
+<script>(function(){{var d=document.getElementById('ap-fold');if(!d)return;try{{d.open=sessionStorage.getItem('apOpen')==='1'}}catch(e){{}}d.addEventListener('toggle',function(){{try{{sessionStorage.setItem('apOpen',d.open?'1':'0')}}catch(e){{}}}})}})();</script>
 <script type="application/json" id="ap-data">{payload}</script>
 <style>#asset-protection-board{{border:2px solid var(--acc,#0f6e5c)}}#asset-protection-board p{{line-height:1.6}}#asset-protection-board button{{padding:7px 12px;margin:3px;border:1px solid var(--line,#ddd);border-radius:7px;background:var(--card,#fff);color:inherit;cursor:pointer}}#asset-protection-board button:disabled{{opacity:.5;cursor:wait}}.ap-chip{{font-size:12px;background:#e0f3dc;color:#17212b;padding:4px 9px;border-radius:14px}}.ap-pending{{padding:8px 0;border-bottom:1px solid var(--line,#ddd)}}#ap-confirm{{padding:12px;background:rgba(220,150,30,.1);margin:10px 0}}#ap-confirm[hidden]{{display:none}}</style>
 <script>{SCRIPT}</script></section>'''

@@ -263,6 +263,22 @@ class EndpointAndPanelTests(unittest.TestCase):
             self.assertNotIn('</script><bad>',page)
             self.assertIn('revision',page)
 
+    def test_release_buttons_are_inside_the_folded_window_and_closed_by_default(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker=live.Live(Path(folder)/'data/live',{'enabled':True,'protection_ui':True},live.st.Params())
+            worker.protection_file.write_text('{"markets":[]}')
+            worker.protection_policy.observe([order(market='KRW-BTC')])
+            worker.d['positions']['KRW-BTC']={'qty':1,'cost':100,'stop':90}
+            page=protection_panel.render(worker,{'KRW-BTC'},{'port':8765,'token':'t'})
+            start,end=page.index('<details id="ap-fold">'),page.index('</details>',page.index('id="ap-result"'))
+            inside=page[start:end]
+            for needle in ('class="ap-pending"','보호 해제</button>','보호 유지</button>','id="ap-confirm"','id="ap-result"'):
+                self.assertIn(needle,inside)
+            self.assertNotIn('class="ap-pending"',page[:start])      # 접힌 창 밖에는 해제 버튼이 없다
+            self.assertNotIn('<details id="ap-fold" open',page)         # 처음에는 접혀 있다
+            self.assertIn('확인 대기 1건',page[start:page.index('</summary>',start)])  # 접힌 제목 줄에서도 대기 건수는 보인다
+            self.assertIn("sessionStorage.getItem('apOpen')",page)      # 새 화면은 항상 접힌 채 시작(같은 탭에서만 펼침 기억)
+
     def test_stale_release_fails_without_order_submission(self):
         with tempfile.TemporaryDirectory() as folder:
             worker=live.Live(Path(folder)/'data/live',{'enabled':True},live.st.Params())

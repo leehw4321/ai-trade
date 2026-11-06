@@ -182,7 +182,13 @@ class BreakevenLock(unittest.TestCase):
         self.lv = live.Live(Path(self.tmp.name) / 'live', {'enabled': True, 'profit_guard_enabled': True, 'profit_guard_arm_pct': 0.03,
                                                            'profit_guard_giveback': 0.3, 'breakeven_lock_pct': 0.015}, st.Params())
         self.lv.is_protected = lambda m: False
-        self.lv.d['positions'] = {'KRW-A': {'qty': 1.0, 'cost': 100.0, 'stop': 95.5, 'entry': 100.0}}
+        self.lv.d['positions'] = {'KRW-A': {'qty': 100.0, 'cost': 10000.0, 'stop': 95.5, 'entry': 100.0}}
+
+    def test_dust_below_min_order_gets_no_guard(self):
+        self.lv.d['positions']['KRW-D'] = {'qty': 1e-08, 'cost': 1e-06, 'stop': 95.5, 'entry': 100.0}
+        self.lv.update_profit_guard({'KRW-D': 150.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-D'].get('profit_guard_stop'))
+        self.assertFalse([r for r in self.lv.d.get('executed', []) if r.get('market') == 'KRW-D'])
 
     def test_lock_to_breakeven_after_one_and_a_half_percent(self):
         self.lv.update_profit_guard({'KRW-A': 101.0})

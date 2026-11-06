@@ -993,6 +993,7 @@ class Live:
             if self.is_protected(m): continue
             if ok(q) and ok(pos.get('cost')): entry = pos['cost'] / q
             if not (ok(px) and ok(entry) and ok(q)): continue
+            if q * px < 5000: continue  # 팔 수 없는 자투리(최소 주문 미만)는 보호선을 두지 않는다
             try: c = float(st.cost(m, self.p))
             except (TypeError, ValueError, OverflowError): continue
             floor = 1 + 2 * fee + c

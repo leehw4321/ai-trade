@@ -1,0 +1,46 @@
+{
+  "status": "research_only_no_runtime_integration",
+  "fixed_before_fetch": true,
+  "last_completed_daily_boundary_kst": "2026-11-06T09:00:00+09:00",
+  "warmup_from": "2018-01-01T00:00:00+00:00",
+  "evaluation_from": "2019-01-01T00:00:00+00:00",
+  "later_reference_from": "2024-01-01T00:00:00+00:00",
+  "later_reference_is_pristine_holdout": false,
+  "markets": [
+    "KRW-BTC",
+    "KRW-ETH",
+    "KRW-XRP",
+    "KRW-DOGE"
+  ],
+  "models": {
+    "SMA65": "previous completed close > SMA65; otherwise cash",
+    "EMA10_20": "previous completed EMA10 > EMA20; otherwise cash; inspired by published product, not replica",
+    "Donchian55_20_ATR": "close > preceding 55 highs enters; close < preceding 20 lows exits; initial 2.5*ATR20 stop, prior-close peak-3*ATR20 trailing; daily-close adaptation",
+    "SMA65_VOL20": "SMA65 signal times min(1, .20/annualized stdev of prior 20 daily returns)",
+    "ENSEMBLE_VOL20": "mean of close>SMA20,65,150 signals times same VOL20 scaler"
+  },
+  "allocation": "Four independent equal initial cash sleeves, no transfers, aggregate equity; fixed survivors only",
+  "initial_swing_capital_krw": 1000000,
+  "fee_one_way": 0.0005,
+  "slippage_one_way_scenarios": [
+    0.0005,
+    0.002
+  ],
+  "minimum_buy_krw": 5000,
+  "execution": "prior completed daily signal; next daily opening price plus side-specific cost; sells before buys; no leverage or shorts; cash interest zero",
+  "vol_rebalance": "daily within independent sleeve; trade below minimum skipped",
+  "intraday_stops": "Donchian model only, prior-day stop; gap uses worse opening price; daily low touches use stop minus sell slippage; not a fill guarantee",
+  "benchmarks": [
+    "buy and hold BTC",
+    "equal initial four coin buy and hold",
+    "KRW cash"
+  ],
+  "selection_rule": "Report all fixed models and both cost scenarios, not only the winner; no retuning after results",
+  "limits": [
+    "Not all Upbit markets",
+    "Survivorship and fixed-cohort bias",
+    "No historical orderbook or capacity proof",
+    "No live short-term strategy simulated",
+    "No promise of future returns or drawdown bounds"
+  ]
+}

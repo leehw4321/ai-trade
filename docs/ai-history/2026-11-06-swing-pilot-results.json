@@ -1,0 +1,980 @@
+{
+  "schema": "gpt-swing-fixed-pilot-v1",
+  "protocol_sha256": "ebff156ca54c657bd206ab9d2064727dee8a23e4dcacb753a239288db7e02150",
+  "source_code_sha256": "4ce67e738ce60c4760d5868343701cbabefb1347a6a5ef23008d76541de7d9fa",
+  "first_daily_open_utc": "2021-09-12T00:00:00+00:00",
+  "last_daily_open_utc": "2026-11-05T00:00:00+00:00",
+  "last_completed_close_utc": "2026-11-06T00:00:00+00:00",
+  "common_daily_observations": 1881,
+  "data_manifest": [
+    {
+      "market": "KRW-BTC",
+      "rows": 3231,
+      "first": "2018-01-01T00:00:00+00:00",
+      "last": "2026-11-05T00:00:00+00:00",
+      "sha256": "c253eaa28ce370aaeda3998e6ce1ac634526512059ca7a1e032f6183c83aa4c4",
+      "gaps": 0
+    },
+    {
+      "market": "KRW-ETH",
+      "rows": 3231,
+      "first": "2018-01-01T00:00:00+00:00",
+      "last": "2026-11-05T00:00:00+00:00",
+      "sha256": "794801aebc1f366485ffab85af1db815b9785b0881565654ae3d5424da1ba3d4",
+      "gaps": 0
+    },
+    {
+      "market": "KRW-XRP",
+      "rows": 3231,
+      "first": "2018-01-01T00:00:00+00:00",
+      "last": "2026-11-05T00:00:00+00:00",
+      "sha256": "c95bebb273677bc57e3562dfde245e46ea540908188db6eaf01ac3a1a0b9df54",
+      "gaps": 0
+    },
+    {
+      "market": "KRW-DOGE",
+      "rows": 2081,
+      "first": "2021-02-24T00:00:00+00:00",
+      "last": "2026-11-05T00:00:00+00:00",
+      "sha256": "f0eaae164b0fdd8e0639e0a6f22ed42de9442f69ff8300565fe704447b857116",
+      "gaps": 0
+    }
+  ],
+  "results": [
+    {
+      "model": "HOLD",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 5.800042645256975,
+      "cagr_pct": 1.100808201160075,
+      "maximum_daily_close_drawdown_pct": -74.72768002156647,
+      "annualized_volatility_pct": 53.59444251729039,
+      "sharpe_zero_cash": 0.2876691300251232,
+      "calmar": 0.01473092970158288,
+      "ending_equity_krw": 1058000.4264525697,
+      "completed_position_cycles": 0,
+      "profitable_cycles": 0,
+      "median_cycle_days": null,
+      "buy_or_resize_orders": 4,
+      "sell_or_resize_orders": 0,
+      "fees_paid_krw": 499.7499717105999,
+      "open_positions": 4,
+      "average_invested_fraction": 0.9999996195808054,
+      "maximum_coin_fraction": 0.4562184580253289,
+      "later_reference_2024_onward": {
+        "total_return_pct": 47.674687292445775,
+        "cagr_pct": 14.672851986993486,
+        "maximum_daily_close_drawdown_pct": -62.240247426571436,
+        "annualized_volatility_pct": 52.88662050818419,
+        "sharpe_zero_cash": 0.5204188005819491,
+        "calmar": 0.2357453993784959,
+        "ending_equity_krw": 1058000.4264525697
+      },
+      "calendar_year_returns_pct": {
+        "2021": -8.415874596251038,
+        "2022": -61.67670694976552,
+        "2023": 104.12526441384449,
+        "2024": 171.33244058230724,
+        "2025": -21.887533660910975,
+        "2026": -30.323875238403307
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 88.23679840740961,
+          "cagr_pct": 13.068530631304686,
+          "maximum_daily_close_drawdown_pct": -74.12743248151597,
+          "annualized_volatility_pct": 44.49684491252109,
+          "sharpe_zero_cash": 0.49802254916319355,
+          "calmar": 0.176298169163803,
+          "ending_equity_krw": 470591.99601852405
+        },
+        "KRW-ETH": {
+          "total_return_pct": -23.475432112800444,
+          "cagr_pct": -5.062757030547271,
+          "maximum_daily_close_drawdown_pct": -77.38156275858363,
+          "annualized_volatility_pct": 61.026904646134085,
+          "sharpe_zero_cash": 0.21882887790265318,
+          "calmar": -0.06542588247205798,
+          "ending_equity_krw": 191311.41971799888
+        },
+        "KRW-XRP": {
+          "total_return_pct": 25.468369993747018,
+          "cagr_pct": 4.504080088278251,
+          "maximum_daily_close_drawdown_pct": -73.78640776462268,
+          "annualized_volatility_pct": 76.56235826978292,
+          "sharpe_zero_cash": 0.412960844004264,
+          "calmar": 0.06104213804046655,
+          "ending_equity_krw": 313670.92498436756
+        },
+        "KRW-DOGE": {
+          "total_return_pct": -67.02956570732832,
+          "cagr_pct": -19.38235471591778,
+          "maximum_daily_close_drawdown_pct": -85.14592933931213,
+          "annualized_volatility_pct": 82.73902876193449,
+          "sharpe_zero_cash": 0.1409911787087935,
+          "calmar": -0.22763689193734468,
+          "ending_equity_krw": 82426.08573167918
+        }
+      }
+    },
+    {
+      "model": "SMA65",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 136.82949168161835,
+      "cagr_pct": 18.224483877906138,
+      "maximum_daily_close_drawdown_pct": -39.03137638177322,
+      "annualized_volatility_pct": 32.771943636777685,
+      "sharpe_zero_cash": 0.6734833047955063,
+      "calmar": 0.46691881166703014,
+      "ending_equity_krw": 2368294.9168161834,
+      "completed_position_cycles": 196,
+      "profitable_cycles": 38,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 196,
+      "sell_or_resize_orders": 196,
+      "fees_paid_krw": 56009.35321714963,
+      "open_positions": 0,
+      "average_invested_fraction": 0.491989317166898,
+      "maximum_coin_fraction": 0.42162426938272235,
+      "later_reference_2024_onward": {
+        "total_return_pct": 167.97368294839563,
+        "cagr_pct": 41.36659078247096,
+        "maximum_daily_close_drawdown_pct": -29.6067870733437,
+        "annualized_volatility_pct": 33.33632798544175,
+        "sharpe_zero_cash": 1.2019677048253925,
+        "calmar": 1.3971995907558348,
+        "ending_equity_krw": 2368294.9168161834
+      },
+      "calendar_year_returns_pct": {
+        "2021": -15.741132136227842,
+        "2022": -23.52170058259815,
+        "2023": 37.14810015557628,
+        "2024": 132.46977742544996,
+        "2025": 10.702148361805897,
+        "2026": 4.128496120729563
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 273.16480832727547,
+          "cagr_pct": 29.137058480314558,
+          "maximum_daily_close_drawdown_pct": -51.84338609171741,
+          "annualized_volatility_pct": 29.669193149740263,
+          "sharpe_zero_cash": 1.0085919556871135,
+          "calmar": 0.5620207451104268,
+          "ending_equity_krw": 932912.0208181887
+        },
+        "KRW-ETH": {
+          "total_return_pct": 196.42335274951643,
+          "cagr_pct": 23.49099944224955,
+          "maximum_daily_close_drawdown_pct": -35.408813826687656,
+          "annualized_volatility_pct": 38.751249313224825,
+          "sharpe_zero_cash": 0.7367809554806606,
+          "calmar": 0.6634223771863366,
+          "ending_equity_krw": 741058.381873791
+        },
+        "KRW-XRP": {
+          "total_return_pct": -47.423462798279104,
+          "cagr_pct": -11.735966605748793,
+          "maximum_daily_close_drawdown_pct": -83.80646419178949,
+          "annualized_volatility_pct": 49.02196628739565,
+          "sharpe_zero_cash": -0.015633509089561713,
+          "calmar": -0.1400365320137031,
+          "ending_equity_krw": 131441.34300430224
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 125.15326844796064,
+          "cagr_pct": 17.069494810278684,
+          "maximum_daily_close_drawdown_pct": -63.297086098755415,
+          "annualized_volatility_pct": 60.83240956770888,
+          "sharpe_zero_cash": 0.5478146911546554,
+          "calmar": 0.26967267946026846,
+          "ending_equity_krw": 562883.1711199016
+        }
+      }
+    },
+    {
+      "model": "EMA10_20",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 144.93679641766337,
+      "cagr_pct": 18.999730696017238,
+      "maximum_daily_close_drawdown_pct": -43.306422720352565,
+      "annualized_volatility_pct": 33.61101745888724,
+      "sharpe_zero_cash": 0.6840365762433808,
+      "calmar": 0.438727779911685,
+      "ending_equity_krw": 2449367.964176634,
+      "completed_position_cycles": 147,
+      "profitable_cycles": 47,
+      "median_cycle_days": 16,
+      "buy_or_resize_orders": 147,
+      "sell_or_resize_orders": 147,
+      "fees_paid_krw": 56332.18229446381,
+      "open_positions": 0,
+      "average_invested_fraction": 0.4569011941153635,
+      "maximum_coin_fraction": 0.5055125062792339,
+      "later_reference_2024_onward": {
+        "total_return_pct": 171.43655229823992,
+        "cagr_pct": 42.00549551764104,
+        "maximum_daily_close_drawdown_pct": -35.96823632675119,
+        "annualized_volatility_pct": 35.276275582024816,
+        "sharpe_zero_cash": 1.166648966764159,
+        "calmar": 1.167849742090347,
+        "ending_equity_krw": 2449367.964176634
+      },
+      "calendar_year_returns_pct": {
+        "2021": -6.759251927696475,
+        "2022": -29.429993487393304,
+        "2023": 37.13862671132866,
+        "2024": 198.19293177094667,
+        "2025": 0.8686945372066823,
+        "2026": -9.75677954058407
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 237.76163229942054,
+          "cagr_pct": 26.661558033539023,
+          "maximum_daily_close_drawdown_pct": -53.669418402768024,
+          "annualized_volatility_pct": 29.617811231028217,
+          "sharpe_zero_cash": 0.945022116289571,
+          "calmar": 0.49677374614821507,
+          "ending_equity_krw": 844404.0807485513
+        },
+        "KRW-ETH": {
+          "total_return_pct": 183.38441616063213,
+          "cagr_pct": 22.41700335079515,
+          "maximum_daily_close_drawdown_pct": -43.97428514190419,
+          "annualized_volatility_pct": 39.813047363816445,
+          "sharpe_zero_cash": 0.7049088290323215,
+          "calmar": 0.5097752761291264,
+          "ending_equity_krw": 708461.0404015803
+        },
+        "KRW-XRP": {
+          "total_return_pct": 50.74707176352866,
+          "cagr_pct": 8.295927200837895,
+          "maximum_daily_close_drawdown_pct": -54.93425203081218,
+          "annualized_volatility_pct": 47.78412798623109,
+          "sharpe_zero_cash": 0.3964533669660741,
+          "calmar": 0.15101556668478483,
+          "ending_equity_krw": 376867.6794088216
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 107.85406544707227,
+          "cagr_pct": 15.266183620508,
+          "maximum_daily_close_drawdown_pct": -65.37568601851547,
+          "annualized_volatility_pct": 61.64959790993875,
+          "sharpe_zero_cash": 0.5222209376486194,
+          "calmar": 0.23351469866311408,
+          "ending_equity_krw": 519635.1636176807
+        }
+      }
+    },
+    {
+      "model": "Donchian55_20_ATR",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 77.36252111770419,
+      "cagr_pct": 11.769588848999435,
+      "maximum_daily_close_drawdown_pct": -24.24216710303818,
+      "annualized_volatility_pct": 19.828061015622232,
+      "sharpe_zero_cash": 0.6593414458730517,
+      "calmar": 0.48550068972688487,
+      "ending_equity_krw": 1773625.2111770418,
+      "completed_position_cycles": 66,
+      "profitable_cycles": 29,
+      "median_cycle_days": 15.5,
+      "buy_or_resize_orders": 66,
+      "sell_or_resize_orders": 66,
+      "fees_paid_krw": 23483.71345615422,
+      "open_positions": 0,
+      "average_invested_fraction": 0.1704774266266104,
+      "maximum_coin_fraction": 0.40123053551449983,
+      "later_reference_2024_onward": {
+        "total_return_pct": 56.31123643117317,
+        "cagr_pct": 16.98487914470739,
+        "maximum_daily_close_drawdown_pct": -24.24216710303818,
+        "annualized_volatility_pct": 21.987356937491615,
+        "sharpe_zero_cash": 0.8223442019943896,
+        "calmar": 0.7006336963405692,
+        "ending_equity_krw": 1773625.2111770418
+      },
+      "calendar_year_returns_pct": {
+        "2021": 2.5505820961870818,
+        "2022": 1.4220150975060575,
+        "2023": 9.094106609707065,
+        "2024": 68.9628718826088,
+        "2025": -0.905895446431837,
+        "2026": -6.642094833166723
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 106.69983837780688,
+          "cagr_pct": 15.141614634604107,
+          "maximum_daily_close_drawdown_pct": -24.98466952877677,
+          "annualized_volatility_pct": 20.424929482575273,
+          "sharpe_zero_cash": 0.7903696299174274,
+          "calmar": 0.6060362182163083,
+          "ending_equity_krw": 516749.5959445172
+        },
+        "KRW-ETH": {
+          "total_return_pct": 102.85608348532574,
+          "cagr_pct": 14.722697884022185,
+          "maximum_daily_close_drawdown_pct": -27.159359116621616,
+          "annualized_volatility_pct": 26.338141606758892,
+          "sharpe_zero_cash": 0.652262081059047,
+          "calmar": 0.5420856147894831,
+          "ending_equity_krw": 507140.2087133144
+        },
+        "KRW-XRP": {
+          "total_return_pct": 70.15004361258303,
+          "cagr_pct": 10.872197076117107,
+          "maximum_daily_close_drawdown_pct": -49.03137155485224,
+          "annualized_volatility_pct": 32.32198349769474,
+          "sharpe_zero_cash": 0.4732101438159785,
+          "calmar": 0.22173960734413053,
+          "ending_equity_krw": 425375.10903145757
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 29.744118995101054,
+          "cagr_pct": 5.186307771307597,
+          "maximum_daily_close_drawdown_pct": -50.08301040708809,
+          "annualized_volatility_pct": 42.4864213914821,
+          "sharpe_zero_cash": 0.31504279835546534,
+          "calmar": 0.1035542338440102,
+          "ending_equity_krw": 324360.2974877526
+        }
+      }
+    },
+    {
+      "model": "SMA65_VOL20",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 54.0873344715044,
+      "cagr_pct": 8.757778321916954,
+      "maximum_daily_close_drawdown_pct": -15.185583027536753,
+      "annualized_volatility_pct": 12.394427848298987,
+      "sharpe_zero_cash": 0.7388178386760208,
+      "calmar": 0.5767166335356404,
+      "ending_equity_krw": 1540873.344715044,
+      "completed_position_cycles": 196,
+      "profitable_cycles": 44,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 727,
+      "sell_or_resize_orders": 663,
+      "fees_paid_krw": 32657.475274962737,
+      "open_positions": 0,
+      "average_invested_fraction": 0.20522496393271386,
+      "maximum_coin_fraction": 0.315212110596258,
+      "later_reference_2024_onward": {
+        "total_return_pct": 49.4365495499703,
+        "cagr_pct": 15.151493381120806,
+        "maximum_daily_close_drawdown_pct": -15.125167273368302,
+        "annualized_volatility_pct": 12.332211462012472,
+        "sharpe_zero_cash": 1.2046604423583978,
+        "calmar": 1.001740549858173,
+        "ending_equity_krw": 1540873.344715044
+      },
+      "calendar_year_returns_pct": {
+        "2021": -4.154306057149693,
+        "2022": -4.60207159345476,
+        "2023": 12.771293299492159,
+        "2024": 35.83975275772242,
+        "2025": 7.304251016840313,
+        "2026": 2.521044287331664
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 91.12502180136136,
+          "cagr_pct": 13.403342571153122,
+          "maximum_daily_close_drawdown_pct": -31.779061872132928,
+          "annualized_volatility_pct": 17.05628928473017,
+          "sharpe_zero_cash": 0.822092708680604,
+          "calmar": 0.4217664645068241,
+          "ending_equity_krw": 477812.5545034034
+        },
+        "KRW-ETH": {
+          "total_return_pct": 71.31668101208516,
+          "cagr_pct": 11.019405081114343,
+          "maximum_daily_close_drawdown_pct": -20.67741433388247,
+          "annualized_volatility_pct": 17.230528149988345,
+          "sharpe_zero_cash": 0.6910375684526442,
+          "calmar": 0.5329198759178365,
+          "ending_equity_krw": 428291.7025302129
+        },
+        "KRW-XRP": {
+          "total_return_pct": -20.65922229772851,
+          "cagr_pct": -4.39417375161042,
+          "maximum_daily_close_drawdown_pct": -44.5375297147302,
+          "annualized_volatility_pct": 15.488270666635218,
+          "sharpe_zero_cash": -0.21268762974138733,
+          "calmar": -0.09866226932108238,
+          "ending_equity_krw": 198351.94425567874
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 74.56685737029952,
+          "cagr_pct": 11.425299271265633,
+          "maximum_daily_close_drawdown_pct": -17.30544818415084,
+          "annualized_volatility_pct": 15.912816271355654,
+          "sharpe_zero_cash": 0.7573676727833366,
+          "calmar": 0.6602140059989587,
+          "ending_equity_krw": 436417.1434257488
+        }
+      }
+    },
+    {
+      "model": "ENSEMBLE_VOL20",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 63.33613472454802,
+      "cagr_pct": 9.995779993627174,
+      "maximum_daily_close_drawdown_pct": -12.324065200639344,
+      "annualized_volatility_pct": 11.27360459127799,
+      "sharpe_zero_cash": 0.9007990322900642,
+      "calmar": 0.8110781492058818,
+      "ending_equity_krw": 1633361.3472454802,
+      "completed_position_cycles": 254,
+      "profitable_cycles": 37,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 1098,
+      "sell_or_resize_orders": 959,
+      "fees_paid_krw": 36062.41503074769,
+      "open_positions": 3,
+      "average_invested_fraction": 0.19184008328276106,
+      "maximum_coin_fraction": 0.278043533439481,
+      "later_reference_2024_onward": {
+        "total_return_pct": 43.09769537181114,
+        "cagr_pct": 13.411862387047258,
+        "maximum_daily_close_drawdown_pct": -11.726449170133913,
+        "annualized_volatility_pct": 11.320314431507194,
+        "sharpe_zero_cash": 1.1674603105555217,
+        "calmar": 1.1437274994723827,
+        "ending_equity_krw": 1633361.3472454802
+      },
+      "calendar_year_returns_pct": {
+        "2021": -2.269528861194914,
+        "2022": -3.020978503290439,
+        "2023": 20.43198493148548,
+        "2024": 41.08454868124789,
+        "2025": 1.935716710638058,
+        "2026": -0.4991466604422623
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 79.09957943576988,
+          "cagr_pct": 11.98131308236765,
+          "maximum_daily_close_drawdown_pct": -28.465056886817695,
+          "annualized_volatility_pct": 15.218148666014358,
+          "sharpe_zero_cash": 0.8189682778560742,
+          "calmar": 0.4209130208313848,
+          "ending_equity_krw": 447748.9485894247
+        },
+        "KRW-ETH": {
+          "total_return_pct": 68.14651596425274,
+          "cagr_pct": 10.61748029099292,
+          "maximum_daily_close_drawdown_pct": -17.93786581103287,
+          "annualized_volatility_pct": 15.031756935517532,
+          "sharpe_zero_cash": 0.7452462961087475,
+          "calmar": 0.5919032064819287,
+          "ending_equity_krw": 420366.28991063184
+        },
+        "KRW-XRP": {
+          "total_return_pct": 22.01387507547521,
+          "cagr_pct": 3.939069337594958,
+          "maximum_daily_close_drawdown_pct": -19.074262647796235,
+          "annualized_volatility_pct": 15.581254194402064,
+          "sharpe_zero_cash": 0.3235800831552558,
+          "calmar": 0.20651227312580087,
+          "ending_equity_krw": 305034.68768868805
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 84.08456842269423,
+          "cagr_pct": 12.579862024017396,
+          "maximum_daily_close_drawdown_pct": -13.5396515851267,
+          "annualized_volatility_pct": 14.509499461356858,
+          "sharpe_zero_cash": 0.8873043582392777,
+          "calmar": 0.9291126839509201,
+          "ending_equity_krw": 460211.42105673556
+        }
+      }
+    },
+    {
+      "model": "BTC_HOLD",
+      "slippage_one_way": 0.0005,
+      "total_return_pct": 88.23689521178221,
+      "cagr_pct": 13.068541922333976,
+      "maximum_daily_close_drawdown_pct": -74.1274872837837,
+      "annualized_volatility_pct": 44.49689441710319,
+      "sharpe_zero_cash": 0.49802271634123657,
+      "calmar": 0.17629819114606468,
+      "ending_equity_krw": 1882368.9521178221
+    },
+    {
+      "model": "HOLD",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 5.641671772174028,
+      "cagr_pct": 1.071404120179098,
+      "maximum_daily_close_drawdown_pct": -74.72768727617851,
+      "annualized_volatility_pct": 53.593434172690515,
+      "sharpe_zero_cash": 0.2871220388484671,
+      "calmar": 0.014337445185736897,
+      "ending_equity_krw": 1056416.7177217402,
+      "completed_position_cycles": 0,
+      "profitable_cycles": 0,
+      "median_cycle_days": null,
+      "buy_or_resize_orders": 4,
+      "sell_or_resize_orders": 0,
+      "fees_paid_krw": 499.7500437404362,
+      "open_positions": 4,
+      "average_invested_fraction": 0.999999798108306,
+      "maximum_coin_fraction": 0.4562186673518191,
+      "later_reference_2024_onward": {
+        "total_return_pct": 47.67470356813255,
+        "cagr_pct": 14.67285642564191,
+        "maximum_daily_close_drawdown_pct": -62.240247730341494,
+        "annualized_volatility_pct": 52.88662302199931,
+        "sharpe_zero_cash": 0.5204188737817337,
+        "calmar": 0.23574546954267733,
+        "ending_equity_krw": 1056416.7177217402
+      },
+      "calendar_year_returns_pct": {
+        "2021": -8.552976023260273,
+        "2022": -61.676716846827695,
+        "2023": 104.12531739544168,
+        "2024": 171.33246908368199,
+        "2025": -21.88753270665741,
+        "2026": -30.323875729310746
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 87.95505672953281,
+          "cagr_pct": 13.035649117297133,
+          "maximum_daily_close_drawdown_pct": -74.12746070276013,
+          "annualized_volatility_pct": 44.496692649587715,
+          "sharpe_zero_cash": 0.4973691393306386,
+          "calmar": 0.17585452130308507,
+          "ending_equity_krw": 469887.641823832
+        },
+        "KRW-ETH": {
+          "total_return_pct": -23.589990088155844,
+          "cagr_pct": -5.090370730065052,
+          "maximum_daily_close_drawdown_pct": -77.38156331911836,
+          "annualized_volatility_pct": 61.02571797018002,
+          "sharpe_zero_cash": 0.21834501828363498,
+          "calmar": -0.06578273314371505,
+          "ending_equity_krw": 191025.0247796104
+        },
+        "KRW-XRP": {
+          "total_return_pct": 25.280543092366425,
+          "cagr_pct": 4.473683816440155,
+          "maximum_daily_close_drawdown_pct": -73.78640776412968,
+          "annualized_volatility_pct": 76.56141744718784,
+          "sharpe_zero_cash": 0.4125767142526871,
+          "calmar": 0.06063018856726318,
+          "ending_equity_krw": 313201.35773091606
+        },
+        "KRW-DOGE": {
+          "total_return_pct": -67.0789226450473,
+          "cagr_pct": -19.405803330212322,
+          "maximum_daily_close_drawdown_pct": -85.14592933940108,
+          "annualized_volatility_pct": 82.73824608220004,
+          "sharpe_zero_cash": 0.1406333914937893,
+          "calmar": -0.22791228518815793,
+          "ending_equity_krw": 82302.69338738175
+        }
+      }
+    },
+    {
+      "model": "SMA65",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 107.7237999759162,
+      "cagr_pct": 15.25215277553842,
+      "maximum_daily_close_drawdown_pct": -42.815025447867306,
+      "annualized_volatility_pct": 32.7526760148425,
+      "sharpe_zero_cash": 0.5959680465228289,
+      "calmar": 0.3562336496590394,
+      "ending_equity_krw": 2077237.9997591618,
+      "completed_position_cycles": 196,
+      "profitable_cycles": 37,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 196,
+      "sell_or_resize_orders": 196,
+      "fees_paid_krw": 51497.2647899544,
+      "open_positions": 0,
+      "average_invested_fraction": 0.49252843630962884,
+      "maximum_coin_fraction": 0.4253841520897902,
+      "later_reference_2024_onward": {
+        "total_return_pct": 151.17845651379915,
+        "cagr_pct": 38.1893530536972,
+        "maximum_daily_close_drawdown_pct": -30.858861210615206,
+        "annualized_volatility_pct": 33.27993440098974,
+        "sharpe_zero_cash": 1.1351268697372006,
+        "calmar": 1.2375490071733546,
+        "ending_equity_krw": 2077237.9997591618
+      },
+      "calendar_year_returns_pct": {
+        "2021": -16.995198747719385,
+        "2022": -25.6122782987644,
+        "2023": 33.936639962062884,
+        "2024": 126.10381777181377,
+        "2025": 8.185287494973936,
+        "2026": 2.6848299819835164
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 234.96306373578807,
+          "cagr_pct": 26.457089462715388,
+          "maximum_daily_close_drawdown_pct": -53.75486673401073,
+          "annualized_volatility_pct": 29.662947371010002,
+          "sharpe_zero_cash": 0.9380602701157593,
+          "calmar": 0.49218035631322615,
+          "ending_equity_krw": 837407.6593394701
+        },
+        "KRW-ETH": {
+          "total_return_pct": 156.66927478872398,
+          "cagr_pct": 20.085800983343425,
+          "maximum_daily_close_drawdown_pct": -36.84600838479889,
+          "annualized_volatility_pct": 38.741401252876905,
+          "sharpe_zero_cash": 0.6647172458107806,
+          "calmar": 0.5451282747802333,
+          "ending_equity_krw": 641673.18697181
+        },
+        "KRW-XRP": {
+          "total_return_pct": -56.86780884279654,
+          "cagr_pct": -15.065084253178352,
+          "maximum_daily_close_drawdown_pct": -85.87268687744158,
+          "annualized_volatility_pct": 49.03342043521691,
+          "sharpe_zero_cash": -0.093797889766955,
+          "calmar": -0.17543510982344596,
+          "ending_equity_krw": 107830.47789300863
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 96.13067022194923,
+          "cagr_pct": 13.974077660138295,
+          "maximum_daily_close_drawdown_pct": -64.59489259310777,
+          "annualized_volatility_pct": 60.82842529447573,
+          "sharpe_zero_cash": 0.5037901772553032,
+          "calmar": 0.2163340954549295,
+          "ending_equity_krw": 490326.6755548731
+        }
+      }
+    },
+    {
+      "model": "EMA10_20",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 119.54628078596383,
+      "cagr_pct": 16.4976236562252,
+      "maximum_daily_close_drawdown_pct": -44.712432965831006,
+      "annualized_volatility_pct": 33.60072075474862,
+      "sharpe_zero_cash": 0.6209195095254431,
+      "calmar": 0.3689717280388789,
+      "ending_equity_krw": 2195462.8078596382,
+      "completed_position_cycles": 147,
+      "profitable_cycles": 46,
+      "median_cycle_days": 16,
+      "buy_or_resize_orders": 147,
+      "sell_or_resize_orders": 147,
+      "fees_paid_krw": 52574.65399588892,
+      "open_positions": 0,
+      "average_invested_fraction": 0.45701299312735977,
+      "maximum_coin_fraction": 0.5064386182138589,
+      "later_reference_2024_onward": {
+        "total_return_pct": 156.4642656731433,
+        "cagr_pct": 39.2037773955471,
+        "maximum_daily_close_drawdown_pct": -36.96766589723097,
+        "annualized_volatility_pct": 35.26937032761597,
+        "sharpe_zero_cash": 1.110289613593211,
+        "calmar": 1.0604883063088824,
+        "ending_equity_krw": 2195462.8078596382
+      },
+      "calendar_year_returns_pct": {
+        "2021": -7.655259658141523,
+        "2022": -30.896218679730893,
+        "2023": 34.14832243634505,
+        "2024": 193.32566060586078,
+        "2025": -1.3579466918649308,
+        "2026": -11.36307110022966
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 204.094759758687,
+          "cagr_pct": 24.10520970602672,
+          "maximum_daily_close_drawdown_pct": -54.700327324489095,
+          "annualized_volatility_pct": 29.617563958082414,
+          "sharpe_zero_cash": 0.8762043019508469,
+          "calmar": 0.44067761355488133,
+          "ending_equity_krw": 760236.8993967174
+        },
+        "KRW-ETH": {
+          "total_return_pct": 152.85195003394193,
+          "cagr_pct": 19.73690467387943,
+          "maximum_daily_close_drawdown_pct": -44.393010736137974,
+          "annualized_volatility_pct": 39.80353479956042,
+          "sharpe_zero_cash": 0.6493880679850709,
+          "calmar": 0.4445948663223392,
+          "ending_equity_krw": 632129.8750848549
+        },
+        "KRW-XRP": {
+          "total_return_pct": 34.102335495979204,
+          "cagr_pct": 5.863296632263237,
+          "maximum_daily_close_drawdown_pct": -55.870766557855504,
+          "annualized_volatility_pct": 47.77125737458979,
+          "sharpe_zero_cash": 0.34895050551176104,
+          "calmar": 0.10494390883632597,
+          "ending_equity_krw": 335255.838739948
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 87.13607785524724,
+          "cagr_pct": 12.93984165629265,
+          "maximum_daily_close_drawdown_pct": -66.49964305824956,
+          "annualized_volatility_pct": 61.646341890394766,
+          "sharpe_zero_cash": 0.48916657088029747,
+          "calmar": 0.1945851295014945,
+          "ending_equity_krw": 467840.1946381181
+        }
+      }
+    },
+    {
+      "model": "Donchian55_20_ATR",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 69.922511424593,
+      "cagr_pct": 10.843392003124364,
+      "maximum_daily_close_drawdown_pct": -25.50769829060704,
+      "annualized_volatility_pct": 19.869655216647832,
+      "sharpe_zero_cash": 0.6165636225483979,
+      "calmar": 0.4251027230911437,
+      "ending_equity_krw": 1699225.11424593,
+      "completed_position_cycles": 66,
+      "profitable_cycles": 29,
+      "median_cycle_days": 15.5,
+      "buy_or_resize_orders": 66,
+      "sell_or_resize_orders": 66,
+      "fees_paid_krw": 22889.94650341509,
+      "open_positions": 0,
+      "average_invested_fraction": 0.16994736013488113,
+      "maximum_coin_fraction": 0.401553011644859,
+      "later_reference_2024_onward": {
+        "total_return_pct": 52.41034110033844,
+        "cagr_pct": 15.951139647803014,
+        "maximum_daily_close_drawdown_pct": -25.50769829060704,
+        "annualized_volatility_pct": 22.031777789409258,
+        "sharpe_zero_cash": 0.7809230155799379,
+        "calmar": 0.6253461000703802,
+        "ending_equity_krw": 1699225.11424593
+      },
+      "calendar_year_returns_pct": {
+        "2021": 2.3555942099116933,
+        "2022": 0.939088552400591,
+        "2023": 7.910951134032285,
+        "2024": 67.05085277314413,
+        "2025": -1.6835407466537555,
+        "2026": -7.201809368631917
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 96.18473557338008,
+          "cagr_pct": 13.980177701827845,
+          "maximum_daily_close_drawdown_pct": -26.861784464811034,
+          "annualized_volatility_pct": 20.454401469897416,
+          "sharpe_zero_cash": 0.7400260973767869,
+          "calmar": 0.5204485844989893,
+          "ending_equity_krw": 490461.83893345017
+        },
+        "KRW-ETH": {
+          "total_return_pct": 93.40933539723426,
+          "cagr_pct": 13.66527183997881,
+          "maximum_daily_close_drawdown_pct": -27.58187647353424,
+          "annualized_volatility_pct": 26.39322834818238,
+          "sharpe_zero_cash": 0.6164466554045299,
+          "calmar": 0.4954438779062443,
+          "ending_equity_krw": 483523.33849308564
+        },
+        "KRW-XRP": {
+          "total_return_pct": 65.2988767306143,
+          "cagr_pct": 10.25120638072905,
+          "maximum_daily_close_drawdown_pct": -49.90456678579296,
+          "annualized_volatility_pct": 32.37699852669415,
+          "sharpe_zero_cash": 0.45569903444732013,
+          "calmar": 0.20541619817542242,
+          "ending_equity_krw": 413247.19182653574
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 24.797097997143382,
+          "cagr_pct": 4.3952780233497135,
+          "maximum_daily_close_drawdown_pct": -50.64949459033713,
+          "annualized_volatility_pct": 42.5249979026373,
+          "sharpe_zero_cash": 0.29751857198693965,
+          "calmar": 0.08677831948570404,
+          "ending_equity_krw": 311992.74499285844
+        }
+      }
+    },
+    {
+      "model": "SMA65_VOL20",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 42.04682608439403,
+      "cagr_pct": 7.053025632380083,
+      "maximum_daily_close_drawdown_pct": -17.22253334015935,
+      "annualized_volatility_pct": 12.382179331550185,
+      "sharpe_zero_cash": 0.6118985783290434,
+      "calmar": 0.40952312259044377,
+      "ending_equity_krw": 1420468.2608439403,
+      "completed_position_cycles": 196,
+      "profitable_cycles": 39,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 711,
+      "sell_or_resize_orders": 651,
+      "fees_paid_krw": 31108.01261335217,
+      "open_positions": 0,
+      "average_invested_fraction": 0.2047632980175245,
+      "maximum_coin_fraction": 0.3120339276167119,
+      "later_reference_2024_onward": {
+        "total_return_pct": 43.18812811579782,
+        "cagr_pct": 13.437028690241348,
+        "maximum_daily_close_drawdown_pct": -15.837477807952837,
+        "annualized_volatility_pct": 12.322339259394969,
+        "sharpe_zero_cash": 1.0838355047907415,
+        "calmar": 0.848432361085545,
+        "ending_equity_krw": 1420468.2608439403
+      },
+      "calendar_year_returns_pct": {
+        "2021": -4.600347955838425,
+        "2022": -5.821260213212565,
+        "2023": 10.414181427915349,
+        "2024": 33.716935567058925,
+        "2025": 5.808723208300193,
+        "2026": 1.2043366630029473
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 74.27913846374238,
+          "cagr_pct": 11.389614703613349,
+          "maximum_daily_close_drawdown_pct": -33.286586473452736,
+          "annualized_volatility_pct": 17.04498195607496,
+          "sharpe_zero_cash": 0.7174602827771348,
+          "calmar": 0.3421682999155525,
+          "ending_equity_krw": 435697.84615935595
+        },
+        "KRW-ETH": {
+          "total_return_pct": 56.43654908515576,
+          "cagr_pct": 9.077790039104539,
+          "maximum_daily_close_drawdown_pct": -22.35653156421855,
+          "annualized_volatility_pct": 17.22937458330532,
+          "sharpe_zero_cash": 0.5887184400509073,
+          "calmar": 0.40604643940536234,
+          "ending_equity_krw": 391091.3727128894
+        },
+        "KRW-XRP": {
+          "total_return_pct": -28.033827855456785,
+          "cagr_pct": -6.188217211762326,
+          "maximum_daily_close_drawdown_pct": -47.87029926771154,
+          "annualized_volatility_pct": 15.493241687379744,
+          "sharpe_zero_cash": -0.3347344235859689,
+          "calmar": -0.129270493529926,
+          "ending_equity_krw": 179915.43036135804
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 65.50544464413477,
+          "cagr_pct": 10.277946243906811,
+          "maximum_daily_close_drawdown_pct": -18.516971753671505,
+          "annualized_volatility_pct": 15.899049721513766,
+          "sharpe_zero_cash": 0.6928279339044141,
+          "calmar": 0.5550554583456078,
+          "ending_equity_krw": 413763.6116103369
+        }
+      }
+    },
+    {
+      "model": "ENSEMBLE_VOL20",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 50.163201433943414,
+      "cagr_pct": 8.214351678307153,
+      "maximum_daily_close_drawdown_pct": -13.15319787941892,
+      "annualized_volatility_pct": 11.265071845409539,
+      "sharpe_zero_cash": 0.756520205326207,
+      "calmar": 0.6245136546725506,
+      "ending_equity_krw": 1501632.0143394342,
+      "completed_position_cycles": 254,
+      "profitable_cycles": 36,
+      "median_cycle_days": 4.0,
+      "buy_or_resize_orders": 1085,
+      "sell_or_resize_orders": 948,
+      "fees_paid_krw": 34302.28748489394,
+      "open_positions": 3,
+      "average_invested_fraction": 0.1912241036982915,
+      "maximum_coin_fraction": 0.2728699848649587,
+      "later_reference_2024_onward": {
+        "total_return_pct": 36.68495422386009,
+        "cagr_pct": 11.600303309484538,
+        "maximum_daily_close_drawdown_pct": -12.536254882550779,
+        "annualized_volatility_pct": 11.313350676716071,
+        "sharpe_zero_cash": 1.0258348564746427,
+        "calmar": 0.9253404161103176,
+        "ending_equity_krw": 1501632.0143394342
+      },
+      "calendar_year_returns_pct": {
+        "2021": -2.642956790158346,
+        "2022": -4.228841102379699,
+        "2023": 17.825879098540874,
+        "2024": 38.86230712536602,
+        "2025": 0.3034578386164499,
+        "2026": -1.865790137640544
+      },
+      "per_coin": {
+        "KRW-BTC": {
+          "total_return_pct": 61.154338510174156,
+          "cagr_pct": 9.708927042886684,
+          "maximum_daily_close_drawdown_pct": -29.93234240590349,
+          "annualized_volatility_pct": 15.214728321550277,
+          "sharpe_zero_cash": 0.6844335005370499,
+          "calmar": 0.32436242079643635,
+          "ending_equity_krw": 402885.8462754354
+        },
+        "KRW-ETH": {
+          "total_return_pct": 54.306570071456676,
+          "cagr_pct": 8.787808441978173,
+          "maximum_daily_close_drawdown_pct": -19.42925358456682,
+          "annualized_volatility_pct": 15.038189829506079,
+          "sharpe_zero_cash": 0.6341351260279098,
+          "calmar": 0.4522977891934339,
+          "ending_equity_krw": 385766.4251786417
+        },
+        "KRW-XRP": {
+          "total_return_pct": 11.956989576071898,
+          "cagr_pct": 2.217368707130385,
+          "maximum_daily_close_drawdown_pct": -20.779427152621988,
+          "annualized_volatility_pct": 15.573689228226142,
+          "sharpe_zero_cash": 0.2164675309357036,
+          "calmar": 0.1067098092187105,
+          "ending_equity_krw": 279892.47394017974
+        },
+        "KRW-DOGE": {
+          "total_return_pct": 73.23490757807099,
+          "cagr_pct": 11.259703015243815,
+          "maximum_daily_close_drawdown_pct": -14.334470712620673,
+          "annualized_volatility_pct": 14.504558629454703,
+          "sharpe_zero_cash": 0.8062743369318148,
+          "calmar": 0.7854983445834731,
+          "ending_equity_krw": 433087.26894517743
+        }
+      }
+    },
+    {
+      "model": "BTC_HOLD",
+      "slippage_one_way": 0.002,
+      "total_return_pct": 87.95510504947801,
+      "cagr_pct": 13.035654760026683,
+      "maximum_daily_close_drawdown_pct": -74.12748818611266,
+      "annualized_volatility_pct": 44.49671747607168,
+      "sharpe_zero_cash": 0.4973692231748761,
+      "calmar": 0.17585453222558856,
+      "ending_equity_krw": 1879551.05049478
+    }
+  ],
+  "limits": [
+    "Not all Upbit markets",
+    "Survivorship and fixed-cohort bias",
+    "No historical orderbook or capacity proof",
+    "No live short-term strategy simulated",
+    "No promise of future returns or drawdown bounds",
+    "Candle-open fill proxy, not orderbook execution",
+    "Daily-close drawdown understates possible intraday drawdown",
+    "Four independent cash sleeves drift; no production coin cap or cross-sleeve order router modeled",
+    "20% scaler is a per-coin exposure rule, not a proven portfolio volatility ceiling",
+    "2024-onward is a later historical reference, not a pristine untouched validation set",
+    "70/30 combined live portfolio and takeover of existing holdings not simulated"
+  ]
+}

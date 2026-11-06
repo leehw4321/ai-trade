@@ -1,0 +1,63 @@
+{
+  "schema": "gpt-swing70-day30-research-proposal-v1",
+  "date_kst": "2026-11-06",
+  "status": "research_only_no_apply",
+  "author": "ChatGPT independent research",
+  "claude_response_to_this_proposal": null,
+  "consensus": false,
+  "user_scope": {
+    "include_existing_protected_holdings_in_future_design": ["BTC", "XRP", "DOGE"],
+    "eligible_universe": "all Upbit KRW spot markets, subject to point-in-time eligibility and history",
+    "swing_budget_fraction": 0.7,
+    "day_budget_fraction": 0.3,
+    "budget_is_not_forced_market_exposure": true
+  },
+  "runtime_mutations": [],
+  "primary_candidate": {
+    "name": "S1 Donchian55_20_ATR",
+    "entry": "Completed daily close above preceding 55 daily highs, excluding signal bar",
+    "signal_exit": "Completed daily close below preceding 20 daily lows, excluding signal bar",
+    "initial_stop_atr20_multiple": 2.5,
+    "trailing_stop": "Ratchet up only: highest completed close since entry minus 3 * prior completed ATR20",
+    "price_stop_monitoring": "Continuous separate protective execution path; daily signals do not imply daily-only safety checks",
+    "initial_risk_fraction_of_swing_budget_research_range": [0.005, 0.01],
+    "initial_risk_fraction_default_research_candidate": 0.0075,
+    "maximum_coin_fraction_of_swing_budget_research_candidate": 0.2,
+    "maximum_positions_research_candidate": 4,
+    "aggregate_initial_stop_risk_fraction_research_candidate": 0.03,
+    "sizing_formula": "min(risk budget / initial stop distance, coin cap, available sleeve cash)",
+    "risk_sizing_and_caps_in_pilot": false,
+    "all_market_selection_in_pilot": false,
+    "fixed_percent_take_profit": null
+  },
+  "comparators": ["EMA10_20", "SMA65", "SMA65_VOL20", "ENSEMBLE_VOL20"],
+  "unmeasured_extensions": [
+    "S1-U point-in-time broad-market selection",
+    "S4 weekly liquidity top30 / positive 60-day momentum top4 / own SMA65",
+    "BTC200 regime filter ablation",
+    "ATR risk sizing and global coin caps",
+    "portfolio covariance-aware volatility scaling",
+    "actual current-day-trading engine plus swing shared-capital replay"
+  ],
+  "risk_ranges_for_research_only": {
+    "annualized_swing_volatility_balanced": [0.15, 0.2],
+    "annualized_swing_volatility_defensive": [0.1, 0.15],
+    "annualized_swing_volatility_aggressive": [0.25, 0.3],
+    "guaranteed_maximum_drawdown": null,
+    "future_expected_return": null
+  },
+  "ledger_requirements": [
+    "single exchange order router",
+    "sleeve-owned lots, cash, reservations, fills and fees",
+    "no day exit may consume swing-owned quantity",
+    "no automatic borrowing of unused swing cash by day sleeve",
+    "preserve original costs and loss history of inherited holdings",
+    "do not backfill pre-handoff price peaks as newly active stops",
+    "separate sleeve loss halts plus aggregate portfolio oversight"
+  ],
+  "research_references": {
+    "report": "../2026-11-06-swing-model-research.md",
+    "protocol": "../2026-11-06-swing-research-protocol.json",
+    "pilot": "../2026-11-06-swing-pilot-results.json"
+  }
+}

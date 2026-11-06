@@ -23,6 +23,8 @@ import rotation_policy as rotation
 import chase_override as co
 import daily_equity
 import entry_flags
+import exit_watch
+import market_state as ms
 import entry_flags_review
 import notices
 import math
@@ -278,6 +280,16 @@ class Bot:
                                    entry_ok, entry_flags.market_state(bars, idx))
             except Exception as ex:
                 self.log('급변 지표 기록 오류(무시): ' + type(ex).__name__)
+        try:  # 시장 자세 바(화면)와 단기 브레이크 기록 — 표시·기록 전용, 주문 무영향
+            ub = {m: b for m, b in bars.items() if m in uni}
+            state = ms.compute(ub, st.market_index(ub, self.p.regime_bars, self.p.regime_min_markets),
+                               st.market_index(ub, 4 * 60 // self.p.tf, self.p.regime_min_markets),
+                               utc(end).astimezone(KST).isoformat(timespec='minutes'), self.p.tf)
+            ms.save(DATA / 'market_state.json', state)
+            if end % rotation.HOUR == 0:
+                ms.record_brake(DATA / 'regime_watch.jsonl', state)
+        except Exception as ex:
+            self.log('시장 자세 계산 오류(무시): ' + type(ex).__name__)
         failed = []
         for name, lg in self.ledgers.items():
             if (lg.d['last_4h'] or 0) >= end:
@@ -723,7 +735,13 @@ class Bot:
                     "if(!ok){var o=document.createElement('option');o.value=v;o.textContent=(v/60)+'분';s.appendChild(o)}"
                     "s.value=v;s.onchange=function(){v=+s.value;try{localStorage.setItem('rfIv',v)}catch(e){}arm()};arm()})()</script>")
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
-        blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
+        try:
+            if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
+            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl')
+        except Exception as ex:
+            watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
+        market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'), extra=watch_line)
+        blocks = market + self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
@@ -859,6 +877,11 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     if self.can_act():  # 실행권이 없는 PC는 실거래 손절·판단을 하지 않는다(주문은 어차피 막힌다)
                         self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
+                        try:  # 정체 탈출 기록 모드: 주문 없이 '했다면'만 기록
+                            if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
+                            self.exit_watch.update({m: p for m, p in self.live.d['positions'].items() if not self.live.is_protected(m)},
+                                                   live, getattr(self, 'rs_all', {}))
+                        except Exception as ex: self.log('정체 탈출 기록 오류(무시): ' + type(ex).__name__)
                         if now - last_trail >= self.p.stop_seconds:
                             self.live.trail_check()
                             last_trail = now
@@ -878,6 +901,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     try:
                         daily_equity.record(DATA / 'daily_equity.json', json.loads((DATA / 'account_live.json').read_text(encoding='utf-8')).get('priced_total'))
                     except Exception as ex: self.log('일일 총자산 기록 오류(무시): '+type(ex).__name__)
+                self._fng_at = ms.fng_background(DATA / 'fng.json', getattr(self, '_fng_at', 0))  # 공포·탐욕(1시간마다, 별도 스레드)
                 if now - last_display >= 30:
                     self.refresh_display(end4 + TF + SETTLE)
                     last_display = now

@@ -9,6 +9,9 @@
 `take_over.py --button`(확인창 없음)으로 가져온다. 반대쪽 봇은 양도 요청을 받으면 스스로 주문을 멈추고 반납한다(session_guard).
 핑퐁 방지: 시도 사이 10분, 실패하면 5분→15분→1시간으로 늦춘다. 다른 PC가 방금 가져갔다면 10분이 지나야 다시 가져온다.
 멈추려면 tools/presence_pause.txt 파일을 만든다(감시만 쉬고 실행권은 그대로).
+
+2026-11-06 사용자 지시로 꺼 둠: 집 PC는 다른 사람도 쓰므로 입력 감지로 옮기지 않는다. 실행권은 봇 화면의
+[이 PC에 실행권 받기] 버튼으로만 옮긴다. presence_pause.txt를 Git에 올려 두었고, 설치와 감시 시작을 거부한다.
 """
 import argparse
 import ctypes
@@ -158,6 +161,8 @@ LEASE_EVERY = 60  # 사용 중이어도 GitHub 실행권 확인은 이 간격으
 
 
 def watch():
+    if PAUSE.exists():
+        print('자동 이동은 꺼져 있습니다(사용자 지시 2026-11-06).'); return
     hide_child_windows()
     if not single_instance():
         print('이미 실행 중')
@@ -200,6 +205,8 @@ def watch():
 
 
 def install():
+    if PAUSE.exists():
+        print('자동 이동은 꺼져 있습니다(사용자 지시 2026-11-06). 실행권은 봇 화면 버튼으로 옮기세요.'); return 1
     pyw = T.PYW
     ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{STARTUP}');"
           f"$s.TargetPath='{pyw}';$s.Arguments='\"{Path(__file__).resolve()}\"';"

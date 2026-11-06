@@ -59,16 +59,16 @@ class Resting(unittest.TestCase):
         return msg
 
     def test_candidate_only_big_tick_and_only_when_enabled(self):
-        self.assertEqual(self.lv.resting_candidate(['KRW-BIG', 'KRW-CAP']), 'KRW-CAP')   # 1칸 0.68% vs 0.03%
-        self.assertIsNone(self.lv.resting_candidate(['KRW-BIG']))
+        self.assertEqual(self.lv.resting_candidates(['KRW-BIG', 'KRW-CAP']), {'KRW-CAP'})   # 1칸 0.68% vs 0.03%
         self.lv.cfg['resting_buy_enabled'] = False
-        self.assertIsNone(self.lv.resting_candidate(['KRW-CAP']))
+        self.assertEqual(self.lv.resting_candidates(['KRW-CAP']), set())
 
     def test_places_post_only_one_tick_below_ask_and_returns_without_waiting(self):
         self.place()
         self.assertEqual(self.sent[:2], ('KRW-CAP', 146.0))
-        self.assertTrue(self.lv.has_uncertain_orders())
-        self.assertEqual(self.lv.resting_info()['price'], 146.0)
+        self.assertFalse(self.lv.has_uncertain_orders())             # 다른 종목 매수·손절을 막지 않는다
+        self.assertTrue(self.lv.market_has_uncertain_order('KRW-CAP'))
+        self.assertEqual(self.lv.resting_info()['KRW-CAP']['price'], 146.0)
 
     def test_partial_fill_goes_into_the_ledger_while_waiting(self):
         self.place()
@@ -84,7 +84,7 @@ class Resting(unittest.TestCase):
         self.assertEqual(self.cancelled, ['u1'])
         self.assertEqual(len(self.market_buys), 1)
         self.assertAlmostEqual(self.market_buys[0][1], int(80000 - 29200 - 14.6))
-        self.assertIsNone(self.lv.resting_info())
+        self.assertEqual(self.lv.resting_info(), {})
 
     def test_deadline_skips_market_buy_when_price_ran_more_than_one_tick(self):
         self.place()
@@ -92,7 +92,7 @@ class Resting(unittest.TestCase):
         self.now += 901
         self.lv.manage_resting({})
         self.assertEqual(self.market_buys, [])
-        self.assertFalse(self.lv.has_uncertain_orders())
+        self.assertFalse(self.lv.market_has_uncertain_order('KRW-CAP'))
 
     def test_buy_now_button_forces_market_even_if_price_ran(self):
         self.place()
@@ -109,6 +109,13 @@ class Resting(unittest.TestCase):
         self.assertEqual(self.cancelled, ['u1'])
         self.assertEqual(self.market_buys, [])
 
+    def test_two_markets_rest_at_the_same_time(self):
+        self.place()
+        self.book['KRW-SOPH'] = {'ask': 3.49, 'bid': 3.48}
+        msg = self.lv._rest_buy('KRW-SOPH', 80000, '봇 주문안 t', {'market': 'KRW-SOPH'})
+        self.assertIn('지정가 매수 대기 3.48', msg)
+        self.assertEqual(set(self.lv.resting_info()), {'KRW-CAP', 'KRW-SOPH'})
+
     def test_post_only_rejected_immediately_falls_back_to_market(self):
         self.place()
         self.order['state'] = 'cancel'                     # 호가가 움직여 즉시 체결될 가격이 되면 거래소가 취소한다
@@ -120,7 +127,7 @@ class Display(unittest.TestCase):
     def test_ranking_row_shows_resting_badge_countdown_and_button(self):
         p = st.Params(entry_scan=7, entry_want=4)
         rows = bot.ranking_rows([{'market': 'KRW-CAP', 'rs': .1, 'rank': 3}], set(), {}, p, can_promote=True,
-                                resting={'market': 'KRW-CAP', 'price': 146.0, 'deadline': 1_000_900})
+                                resting={'KRW-CAP': {'market': 'KRW-CAP', 'price': 146.0, 'deadline': 1_000_900}})
         self.assertIn('지정가 매수 중 146원', rows)
         self.assertIn("data-dl='1000900'", rows)
         self.assertIn('data-act=buy_now', rows)

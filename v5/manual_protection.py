@@ -116,7 +116,7 @@ class Detector:
         for market,(qty,locked) in inventory.items():
             if qty<=EPS or markets is not None and market not in markets: continue
             pending=state.get('pending_order')
-            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):
+            if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}) or market in (state.get('resting_orders') or {}):
                 continue  # Its own uncertain fills are settled first, never guessed to be manual.
             owned,known=self._owned(state,market)
             if (not known and market not in doc.get('bootstrap',{}) and state.get('positions',{}).get(market)
@@ -136,7 +136,7 @@ class Detector:
             prior=doc.setdefault('external_quantities',{})
             for market,(qty,_) in inventory.items():
                 pending=state.get('pending_order')
-                if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}):continue
+                if (pending and pending.get('market')==market) or market in (state.get('risk_pending_orders') or {}) or market in (state.get('resting_orders') or {}):continue
                 # This is evidence for avoiding repeated bootstrap of an explicitly released holding.
                 # Signed residual handles withdrawals too. Even inherited ledger quantities
                 # explain the bot's OWN fills after the user authorizes management by release.

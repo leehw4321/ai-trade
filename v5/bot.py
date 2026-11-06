@@ -90,9 +90,10 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
             btn = f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
         tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
-        if resting and resting.get('market') == m:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
-            tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(resting['price'])}원"
-            btn += (f" <span class=rest-cd data-dl='{resting['deadline']:.0f}'></span>"
+        rest = (resting or {}).get(m)
+        if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
+            tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(rest['price'])}원"
+            btn += (f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>"
                     + (f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
 
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"

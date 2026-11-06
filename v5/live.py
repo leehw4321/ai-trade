@@ -394,11 +394,16 @@ class Live:
         return vol, funds, float(o.get('paid_fee') or 0)
 
     def _pending(self, risk_market=None):
+        if isinstance(risk_market, tuple):   # ('rest', 종목): 걸어 둔 지정가 매수(종목별로 여러 개)
+            return self.d.get('resting_orders', {}).get(risk_market[1])
         return (self.d.get('risk_pending_orders', {}).get(risk_market) if risk_market is not None
                 else self.d.get('pending_order'))
 
     def _set_pending(self, pending, risk_market=None):
-        if risk_market is None:
+        if isinstance(risk_market, tuple):
+            if pending is None: self.d.setdefault('resting_orders', {}).pop(risk_market[1], None)
+            else: self.d.setdefault('resting_orders', {})[risk_market[1]] = pending
+        elif risk_market is None:
             self.d['pending_order'] = pending
         elif pending is None:
             self.d.setdefault('risk_pending_orders', {}).pop(risk_market, None)
@@ -411,7 +416,8 @@ class Live:
     def market_has_uncertain_order(self, market):
         primary = self.d.get('pending_order')
         return bool((primary and primary['market'] == market)
-                    or market in self.d.get('risk_pending_orders', {}))
+                    or market in self.d.get('risk_pending_orders', {})
+                    or market in self.d.get('resting_orders', {}))
 
     def _apply_pending(self, order, risk_market=None):
         """Apply cumulative fills once and retain partial/unknown orders durably."""
@@ -475,7 +481,7 @@ class Live:
                 self.d['bought_krw'] += df + dfee
             else:
                 pos = self.d['positions'].get(m)
-                if not pos and (risk_market is not None or self.d.get('account_adoption')):
+                if not pos and (isinstance(risk_market, str) or self.d.get('account_adoption')):
                     raise ValueError('위임 장부 없는 매도 체결: 대사 필요')
                 if pos:
                     if dv > pos['qty'] + 1e-8:
@@ -790,9 +796,7 @@ class Live:
             v, funds, fee = self._fill(o)
             done.append(f'{m[4:]} 매도 {v:g}개 → {funds - fee:,.0f}원 ({o["state"]})')
         self.save()
-        rest_m = self.resting_candidate([m for side, m, _ in orders if side == 'buy'])
-        if rest_m:   # 지정가 대기는 주 주문 칸을 최대 15분 쓰므로 다른 매수를 먼저 끝내고 마지막에 건다
-            orders = [o for o in orders if o[1] != rest_m] + [o for o in orders if o[1] == rest_m]
+        rest_ms = self.resting_candidates([m for side, m, _ in orders if side == 'buy'])
         for side, m, krw in orders:
             if side != 'buy':
                 continue
@@ -809,7 +813,7 @@ class Live:
             if why:
                 done.append(f'{m[4:]} 매수 안 함: {why}')
                 continue
-            if m == rest_m and strict:
+            if m in rest_ms and strict:
                 done.append(self._rest_buy(m, krw, plan[0], context))
                 continue
             o = (self._trade('bid', m, krw, plan[0], entry_context=context, validate_entry=True)
@@ -823,25 +827,25 @@ class Live:
             self.save()
         return ' / '.join(done) or '실행할 주문 없음'
 
-    def resting_candidate(self, markets):
-        """호가 1칸이 큰 매수 후보 하나(1칸 비율이 가장 큰 것). 2026-11-06 사용자 지시·study_limit_entry: 1칸 ≥ 0.3%면 매수 1호가
-        지정가로 15분 기다리고, 안 사지면 시장가(가격이 1칸 넘게 오르지 않았을 때만). 180일 1,841건에서 시장가 대비 +0.08~0.33%p/진입."""
-        if not self.cfg.get('resting_buy_enabled') or not markets: return None
+    def resting_candidates(self, markets):
+        """호가 1칸이 큰 매수 후보 전부. 2026-11-06 사용자 지시·study_limit_entry: 1칸 ≥ 0.3%면 매수 1호가 지정가로 15분 기다리고,
+        안 사지면 시장가(가격이 1칸 넘게 오르지 않았을 때만). 180일 1,841건에서 시장가 대비 +0.08~0.33%p/진입.
+        지정가는 종목마다 따로 걸어 둔다(resting_orders): 다른 매수·손절을 막지 않는다."""
+        if not self.cfg.get('resting_buy_enabled') or not markets: return set()
         try: book = upbit.orderbooks(markets)
-        except Exception: return None
-        best, pick = 0.0, None
+        except Exception: return set()
+        out = set()
         for m in markets:
             ask = (book.get(m) or {}).get('ask')
-            if type(ask) in (int, float) and ask > 0:
-                r = upbit.tick_size(ask) / ask
-                if r >= self.cfg.get('resting_min_tick', 0.003) and r > best: best, pick = r, m
-        return pick
+            if type(ask) in (int, float) and ask > 0 and upbit.tick_size(ask) / ask >= self.cfg.get('resting_min_tick', 0.003):
+                out.add(m)
+        return out
 
     def _rest_buy(self, market, krw, reason, context):
         """매도 1호가 − 1칸에 post_only 지정가를 걸고 바로 돌아온다. 이후는 manage_resting이 3초마다 관리한다."""
         self.assert_unprotected(market)
         if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
-        if self.has_uncertain_orders(): raise RuntimeError('미확정 주문 대사 중: 중복 주문 차단')
+        if self.market_has_uncertain_order(market): return f'{market[4:]} 매수 안 함: 같은 종목 주문 진행 중'
         why = self.entry_chase_block(market, context)
         if why: return f'{market[4:]} 매수 안 함: {why}'
         atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
@@ -864,13 +868,14 @@ class Live:
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'bid', 'market': market, 'amount': krw,
                    'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r,
                    'resting': {'price': price, 'ref_ask': ask, 'tick': tk, 'krw': krw, 'deadline': time.time() + wait}}
-        self._set_pending(pending)
+        slot = ('rest', market)
+        self._set_pending(pending, slot)
         self.save()
         try:
             self.assert_unprotected(market)
             order = upbit.limit_buy_post_only(market, price, volume, identifier=pending['identifier'])
         except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
-            self._set_pending(None); self.save()
+            self._set_pending(None, slot); self.save()
             self.record({'event': '주문 전송 차단·거부', 'market': market, 'identifier': pending['identifier'], 'reason': str(error)[:300]})
             raise
         if order.get('uuid'):
@@ -879,36 +884,45 @@ class Live:
         return f'{market[4:]} 지정가 매수 대기 {price:,.8g}원(매도호가 {ask:,.8g}) · 최대 {wait / 60:.0f}분, 안 사지면 시장가'
 
     def resting_info(self):
-        """화면 표시용: 걸어 둔 지정가 매수 {market, price, ref_ask, krw, deadline} 또는 None."""
-        p = self.d.get('pending_order')
-        return {'market': p['market'], **p['resting']} if p and 'resting' in p else None
+        """화면 표시용: {종목: {price, ref_ask, krw, deadline, ...}} 걸어 둔 지정가 매수."""
+        return {m: dict(p['resting'], market=m) for m, p in self.d.get('resting_orders', {}).items()}
 
     def request_resting_now(self, market):
         """화면의 '즉시 시장가' 버튼: 다음 관리 주기에 지정가를 취소하고 남은 금액을 바로 시장가로 산다(가격 조건 없이)."""
-        p = self.d.get('pending_order')
-        if not p or 'resting' not in p or p['market'] != market: return False, '걸어 둔 지정가 매수가 없음'
+        p = self.d.get('resting_orders', {}).get(market)
+        if not p: return False, '걸어 둔 지정가 매수가 없음'
         p['resting']['deadline'] = 0; p['resting']['force'] = True; self.save()
         return True, f'{market[4:]} 지정가 취소 후 즉시 시장가 매수 요청'
 
     def manage_resting(self, prices):
-        """걸어 둔 지정가 매수 관리(3초마다, 손절 감시보다 먼저). 체결분은 즉시 장부에 반영(_apply_pending)한다.
-        기한 만료 → 취소 후 남은 금액은 매도호가가 기준가+1칸 이하일 때만 시장가. 보호 지정·손절선 근접 → 취소하고 사지 않는다."""
-        pending = self.d.get('pending_order')
-        if not pending or 'resting' not in pending or not pending.get('uuid'): return
-        rest, m = pending['resting'], pending['market']
+        """걸어 둔 지정가 매수 관리(3초마다, 손절 감시보다 먼저). 종목마다 따로 처리하고 한 종목 오류가 다른 종목을 막지 않는다."""
+        errors = []
+        for m in list(self.d.get('resting_orders', {})):
+            try: self._manage_one_resting(m, prices)
+            except SessionLost: raise
+            except Exception as ex: errors.append(f'{m[4:]} {type(ex).__name__}: {str(ex)[:80]}')
+        if errors: raise RuntimeError(' / '.join(errors))
+
+    def _manage_one_resting(self, m, prices):
+        """체결분은 즉시 장부에 반영(_apply_pending). 기한 만료 → 취소 후 남은 금액은 매도호가가 기준가+1칸 이하일 때만 시장가.
+        보호 지정·손절선 근접 → 취소하고 사지 않는다."""
+        slot = ('rest', m)
+        pending = self._pending(slot)
+        if not pending or not pending.get('uuid'): return
+        rest = pending['resting']
         order = upbit.get_order(pending['uuid'])
         if order.get('state') not in ('done', 'cancel'):
             pos = self.d['positions'].get(m)
             px = prices.get(m)
             danger = self.is_protected(m) or bool(pos and type(px) in (int, float) and px <= self.stop_limit(pos) * 1.005)
             if not danger and time.time() < rest['deadline']:
-                self._apply_pending(order)          # 일부 체결분을 바로 장부에 넣어 손절 관리를 시작한다
+                self._apply_pending(order, slot)    # 일부 체결분을 바로 장부에 넣어 손절 관리를 시작한다
                 return
             if danger: rest['no_fallback'] = True; self.save()
             upbit.cancel_order(pending['uuid'])
             order = self._wait(order)
         _, f0, fee0 = self._fill(order)
-        if not self._apply_pending(order):
+        if not self._apply_pending(order, slot):
             return
         left = rest['krw'] - f0 - fee0
         msg = f'{m[4:]} 지정가 매수 {f0:,.0f}원 체결'

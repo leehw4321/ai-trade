@@ -283,7 +283,7 @@ class Bot:
                 self.log('급변 지표 기록 오류(무시): ' + type(ex).__name__)
         try:  # 시장 자세 바(화면)와 단기 브레이크 기록 — 표시·기록 전용, 주문 무영향
             ub = {m: b for m, b in bars.items() if m in uni}
-            state = ms.compute(ub, st.market_index(ub, self.p.regime_bars, self.p.regime_min_markets),
+            state = ms.compute(ub, st.market_index(ub, 24 * 60 // self.p.tf, self.p.regime_min_markets),  # 24h는 고정(필터 기간과 별개)
                                st.market_index(ub, 4 * 60 // self.p.tf, self.p.regime_min_markets),
                                utc(end).astimezone(KST).isoformat(timespec='minutes'), self.p.tf,
                                index_6h=st.market_index(ub, 6 * 60 // self.p.tf, self.p.regime_min_markets),

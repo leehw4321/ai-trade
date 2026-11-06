@@ -131,7 +131,7 @@ def render(watch, brake_log, esc=None):
         rows = []
     b = sum(1 for r in rows if r.get('brake_4h'))
     a = s[2]; c = s[4]
-    return (f"<div class=sub style='margin-top:8px'>기록 모드(주문 없음) · {since} · 정체 탈출 2시간: 판정 {a['checked']} · 발동 {a['armed']} "
+    return (f"<div class=sub>정체 탈출·단기 브레이크 기록 모드(주문 없음) · {since} · 정체 탈출 2시간: 판정 {a['checked']} · 발동 {a['armed']} "
             f"(가상 체결 {a['filled']} · 실제 매도 먼저 {a['sold_first']} · 2단계 {a['stage2']} · 취소 {a['cancel']} · 진행 {a['open']}) · "
             f"4시간 비교: 발동 {c['armed']}(가상 체결 {c['filled']}) · 단기 브레이크 발동 {b}/{len(rows)}시간 · "
             f"판정 기준: 최소 2주 그리고 발동 30건</div>")

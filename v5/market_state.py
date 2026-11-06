@@ -97,40 +97,39 @@ def _pos(x):
     return max(1.0, min(99.0, (x + SPAN) / (2 * SPAN) * 100))
 
 
-def render(state, fng, now=None, esc=html.escape, extra=''):
+def render(state, fng, now=None, esc=html.escape):
+    """머리글의 새로고침 버튼 옆에 들어가는 한 줄짜리 자세 바와 공포·탐욕."""
     now = now or time.time()
     if not state or not isinstance(state.get('index_24h'), (int, float)):
-        bar = "<div class=sub>시장 자세: 첫 판단 뒤 표시</div>"
+        bar = "<span class=sub>시장 자세: 첫 판단 뒤 표시</span>"
     else:
         x = state['index_24h']; name, color = zone(x)
-        segs = ''.join(f"<div style='flex:{(min(hi, SPAN) - max(lo, -SPAN)) / (2 * SPAN):.3f};background:{c};opacity:.85;"
-                       f"color:#fff;font-size:12.5px;text-align:center;line-height:26px;font-weight:{800 if n == name else 500}'>{n}</div>"
+        segs = ''.join(f"<div style='flex:{(min(hi, SPAN) - max(lo, -SPAN)) / (2 * SPAN):.3f};background:{c};opacity:{1 if n == name else .55};"
+                       f"color:#fff;font-size:10.5px;text-align:center;line-height:18px;font-weight:{800 if n == name else 400}'>{n}</div>"
                        for n, lo, hi, c in ZONES)
         x4 = state.get('index_4h')
-        m4 = (f"<span title='4시간 균등지수' style='position:absolute;left:{_pos(x4):.1f}%;bottom:-9px;transform:translateX(-50%);"
-              f"font-size:11px;color:var(--muted)'>▲4h</span>") if isinstance(x4, (int, float)) else ''
+        m4 = (f"<span title='4시간 균등지수 {x4:+.2%}' style='position:absolute;left:{_pos(x4):.1f}%;top:17px;transform:translateX(-50%);"
+              f"font-size:9px;line-height:9px;color:var(--muted)'>▲</span>") if isinstance(x4, (int, float)) else ''
         btc = state.get('btc_24h')
-        brake = (" · <b class=warn>4시간 급락(≤ −2%): 단기 브레이크라면 신규 매수 멈춤 — 지금은 기록만</b>" if state.get('brake_4h') else '')
-        bar = (f"<div style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap'><b style='font-size:20px;color:{color}'>{esc(name)}</b>"
-               f"<span class=sub>거래대금 상위 균등지수 24시간 <b>{x:+.2%}</b>"
-               + (f" · 4시간 {x4:+.2%}" if isinstance(x4, (int, float)) else '')
-               + f" · 오른 종목 {state.get('up', 0)}/{state.get('total', 0)}"
-               + (f" · BTC 24시간 {btc:+.2%}" if isinstance(btc, (int, float)) else '')
-               + f" · {esc(str(state.get('at', ''))[11:16])} 판단</span></div>"
-               f"<div style='position:relative;margin:8px 0 14px'><div style='display:flex;height:26px;border-radius:6px;overflow:hidden'>{segs}</div>"
-               f"<span style='position:absolute;left:{_pos(x):.1f}%;top:-5px;width:4px;height:36px;background:var(--ink);"
-               f"border:1px solid var(--card);transform:translateX(-50%)'></span>{m4}</div>"
-               f"<div class=sub>막대 = 24시간(봇 장세 필터와 같은 값, 0 이하면 신규 매수 보류) · 양 끝 ±10% · 구간 눈금 ±2%·±6%는 보기용{brake}</div>")
+        tip = (f"거래대금 상위 균등지수(봇 장세 필터와 같은 값, 0 이하면 신규 매수 보류) · 양 끝 ±10% · 눈금 ±2%·±6%는 보기용 · "
+               f"▲ = 4시간 · {str(state.get('at', ''))[11:16]} 판단" + (f" · BTC 24시간 {btc:+.2%}" if isinstance(btc, (int, float)) else ''))
+        bar = (f"<span title='{esc(tip)}' style='display:inline-flex;align-items:center;gap:8px'>"
+               f"<b style='font-size:16px;color:{color}'>{esc(name)}</b>"
+               f"<span style='position:relative;display:inline-block;width:250px;height:26px'>"
+               f"<span style='display:flex;height:18px;border-radius:4px;overflow:hidden'>{segs}</span>"
+               f"<span style='position:absolute;left:{_pos(x):.1f}%;top:-3px;width:3px;height:24px;background:var(--ink);transform:translateX(-50%)'></span>{m4}</span>"
+               f"<span class=sub>24h <b>{x:+.2%}</b>" + (f" · 4h {x4:+.2%}" if isinstance(x4, (int, float)) else '')
+               + f" · 오름 {state.get('up', 0)}/{state.get('total', 0)}</span>"
+               + ("<b class=warn style='font-size:12px'>4h 급락: 브레이크 기록</b>" if state.get('brake_4h') else '') + "</span>")
     if fng and isinstance(fng.get('value'), int):
         v = fng['value']; old = now - fng.get('fetched', 0) > 48 * 3600
         c = '#dc2626' if v < 25 else '#f97316' if v < 45 else '#eab308' if v < 55 else '#84cc16' if v < 75 else '#16a34a'
-        g = (f"<div style='font-size:13px;color:var(--muted)'>공포·탐욕 지수</div><b style='font-size:30px;color:{c}'>{v}</b>"
-             f"<span class=sub> / 100 · {esc(str(fng.get('label') or ''))}{' (오래된 값)' if old else ''}</span>"
-             f"<div style='position:relative;height:12px;margin:8px 0 4px;border-radius:6px;background:linear-gradient(90deg,#dc2626,#f97316,#eab308,#84cc16,#16a34a)'>"
-             f"<span style='position:absolute;left:{max(1, min(99, v))}%;top:-4px;width:4px;height:20px;background:var(--ink);transform:translateX(-50%)'></span></div>"
-             f"<div class=sub style='display:flex;justify-content:space-between'><span>공포</span><span>탐욕</span></div>"
-             f"<div class=sub>Alternative.me 일간 · BTC 중심</div>")
+        g = (f"<span title='공포·탐욕 지수(Alternative.me 일간, BTC 중심) 0 극도의 공포 ~ 100 극도의 탐욕' "
+             f"style='display:inline-flex;align-items:center;gap:6px'><span class=sub>공포·탐욕</span>"
+             f"<b style='font-size:18px;color:{c}'>{v}</b><span class=sub>{esc(str(fng.get('label') or ''))}{' (오래됨)' if old else ''}</span>"
+             f"<span style='position:relative;display:inline-block;width:80px;height:8px;border-radius:4px;"
+             f"background:linear-gradient(90deg,#dc2626,#f97316,#eab308,#84cc16,#16a34a)'>"
+             f"<span style='position:absolute;left:{max(1, min(99, v))}%;top:-3px;width:3px;height:14px;background:var(--ink);transform:translateX(-50%)'></span></span></span>")
     else:
-        g = "<div class=sub>공포·탐욕 지수 수신 대기</div>"
-    return (f"<section><h2 class=lg>시장 자세</h2><div style='display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center'>"
-            f"<div style='flex:3 1 380px;min-width:0'>{bar}</div><div style='flex:1 1 170px'>{g}</div></div>{extra}</section>")
+        g = "<span class=sub>공포·탐욕 수신 대기</span>"
+    return f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px;font-weight:400'>{bar}{g}</div>"

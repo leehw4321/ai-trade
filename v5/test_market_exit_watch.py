@@ -29,8 +29,8 @@ class MarketState(unittest.TestCase):
     def test_render_with_and_without_data(self):
         self.assertIn('첫 판단 뒤', ms.render(None, None))
         page = ms.render({'index_24h': -0.047, 'index_4h': -0.01, 'up': 5, 'total': 30, 'at': '2026-11-06T12:00+09:00'},
-                         {'value': 22, 'label': '극도의 공포', 'fetched': 0}, now=1, extra='<i>x</i>')
-        for want in ('약세', '-4.70%', '5/30', '공포·탐욕', '22', '<i>x</i>'):
+                         {'value': 22, 'label': '극도의 공포', 'fetched': 0}, now=1)
+        for want in ('약세', '-4.70%', '5/30', '공포·탐욕', '22'):
             self.assertIn(want, page)
 
     def test_fng_fetch_saves_and_rejects_bad_value(self):

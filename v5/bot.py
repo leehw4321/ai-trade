@@ -604,7 +604,7 @@ class Bot:
                  + tile('봇 보유 평가손익', won(bot_u), f"보호 종목 포함 {sum(r['unrealized'] for r in urows if isinstance(r.get('unrealized'), (int, float))):+,.0f}원"))
         chips = []
         if protected:
-            chips.append(f"<span class='tag tag-prot'>사용자 보호 {e(', '.join(sorted(m[4:] for m in protected)))}</span> 봇이 사고팔지 않음")
+            chips.append(f"<span class='tag tag-prot'>사용자 보호 {e(', '.join(sorted(m[4:] for m in protected)))}</span> (이 코인만 봇 매매 제외)")
         chips.append(f"손실 중단선 여유 <b>{max(limit - loss, 0):,.0f}원</b> <span class=muted>(중단선 {limit:,.0f}원 · 지금 손익 {-loss:+,.0f}원)</span>")
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])} · 재개: python tools/resume_trading.py</div>" if L['halted'] else ''
         cw = L.get('concurrent_warn') or {}

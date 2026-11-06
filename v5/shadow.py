@@ -210,12 +210,22 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
                     reasons.append(f'{r["market"][4:]} 과열 예외 매수 후보: ' + ('사용자 직접 지정' if r['market'] in promoted else '이익 청산 뒤 재진입 1회'))
                 picks.append(r)
     equity = sum(holdings.values()) + krw
+    # 1회 매수 금액(사용자 지시 2026-11-06): 봇 운용자금 비례. 총자산(보호 코인 포함) 비례였던 것을 봇 자금 기준으로 바꾼다.
+    bot_capital = krw + sum(v for m, v in holdings.items() if v >= 5000 and m not in protected)
+    div = getattr(base, 'bot_capital_divisor', 0) or 0
+    if div > 0:
+        unit_size = bot_capital / div
+        if picks:
+            reasons.append(f'1회 매수 금액: 봇 운용자금 {bot_capital:,.0f}원(원화+봇 보유, 보호 종목 제외) ÷ {div:g} = {unit_size:,.0f}원')
+    elif base.size_by_risk and base.stop_max_pct > 0:
+        unit_size = (base.entry_risk or base.risk) * equity / base.stop_max_pct
+    else:
+        unit_size = None
     partial = {}
     if not getattr(base, 'rank_exit', True) and getattr(base, 'swap_stuck_loss', False) and picks:
         # 부분 매도 교체(사용자 지시 2026-11-05 '다'): 자리는 금액(1칸 = 1회 매수 금액)으로 센다. 매수 후보가 있는데 자리·현금이 모자라면
         # 묶임(손실 중) 중 상승률이 가장 약한 한 종목을 모자란 만큼만 판다(남는 양이 1만 원 미만이면 전량). 묶임(이익 중)·보호 종목은 팔지 않는다.
-        unit = ((base.entry_risk or base.risk) * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0
-                else caps['max_order_krw'])
+        unit = unit_size or caps['max_order_krw']
         used = sum(min(1.0, v / unit) for v in bot_held.values())
         short = max(max(0.0, 1 - (base.slots - used)) * unit, unit - cash)
         losers = sorted(((s['rs'] if isinstance(s.get('rs'), (int, float)) else -1.0), m) for m, s in (stuck_out or {}).items()
@@ -245,7 +255,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     total_room = max(0.0, base.total_cap * equity - invested)
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
-        risk_room = (base.entry_risk or base.risk) * equity / base.stop_max_pct if base.size_by_risk and base.stop_max_pct > 0 else float('inf')
+        risk_room = unit_size if unit_size else float('inf')
         amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room) // 1000 * 1000)
         if amt < 5000:
             reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원, 종목 한도 잔여 {coin_room:,.0f}원, 총투입 한도 잔여 {total_room:,.0f}원)')

@@ -34,6 +34,7 @@ class Params:
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
     entry_risk: float = 0.0   # 실거래 매수 위험(계좌 대비). 0이면 risk 사용. 모의 장부의 risk는 건드리지 않는다(D-47)
     size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
+    bot_capital_divisor: float = 0.0  # >0이면 1회 매수 = 봇 운용자금(원화 + 봇 보유, 사용자 보호·5,000원 미만 제외) ÷ 이 값. size_by_risk보다 우선 (사용자 지시 2026-11-06, 4.5)
     entry_want: int = 0    # 한 번에 사려는 후보 수 (0 = entry_top)
     entry_scan: int = 0    # 후보를 찾아보는 최대 순위 (0 = entry_top)
     # 실거래 재진입 규칙(결정 D-38): 직전 매도 뒤 대기 시간과 조건. 0이면 해당 대기 없음.

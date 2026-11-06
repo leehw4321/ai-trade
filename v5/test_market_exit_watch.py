@@ -125,3 +125,20 @@ class RegimeCompare(unittest.TestCase):
     def test_filter_note_shows_6h_decision(self):
         page = ms.render({'index_24h': -0.05, 'index_6h': 0.004, 'filter_hours': 6, 'up': 4, 'total': 29, 'at': 'x'}, None)
         self.assertIn('매수 필터 6h +0.40% → 매수 가능', page)
+
+
+class BotCapitalSizing(unittest.TestCase):
+    def test_unit_is_bot_capital_over_divisor_ignoring_protected(self):
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, size_by_risk=True, entry_risk=0.00184,
+                      stop_max_pct=0.045, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5)
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': 0.05, 'close': 1.0, 'atr': 0.01}]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        holdings = {'KRW-BTC': 1_486_145.0, 'KRW-SUI': 2_213.0}
+        text, why = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, p, caps, 363_638.0, 0, market_index=0.01,
+                                    protected={'KRW-BTC'})
+        self.assertIn('매수 A 80000원', text)                        # 363,638 ÷ 4.5 = 80,808 → 1,000원 내림
+        self.assertTrue(any('봇 운용자금 363,638원' in r for r in why))   # 보호 BTC·자투리 SUI 제외
+        p.bot_capital_divisor = 0                                     # 끄면 예전(총자산 비례)
+        text, _ = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, p, caps, 363_638.0, 0, market_index=0.01, protected={'KRW-BTC'})
+        self.assertIn('매수 A 75000원', text)                         # 1,851,996 × 0.00184 / 0.045 = 75,726

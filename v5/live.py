@@ -1293,6 +1293,32 @@ class Live:
         self.share(f'{msg} (수동 강제 청산, 실현 누적 {self.d["realized"]:+,.0f}원)')
         return True, msg
 
+    def stagnation_sell(self, market, w, price):
+        """정체 탈출(2026-11-06 사용자 승인): 매수 T시간 뒤 최고수익 1% 미만·본전 아래였던 종목이 본전 지정가 위로 되돌아오면 판다.
+        거래소에 지정가를 걸지 않고 봇이 3초마다 감시해 닿는 순간 위험 청산 경로(_trade risk=True)로 시장가 매도한다.
+        (걸어 둔 매도 주문이 잔고를 묶어 손절·순환 매도를 막는 일을 피하려는 선택.) 성공하면 True, 보류·실패면 False."""
+        if not self.cfg.get('stagnation_exit_enabled') or not self.cfg['enabled'] or self.is_protected(market): return False
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0 or pos.get('time') != w.get('opened'): return False
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False
+        if self.market_has_uncertain_order(market): return False
+        try:
+            balances = {r['currency']: r for r in upbit.accounts()}
+            volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
+            if volume * price < 5000: return False
+            reason = f"정체 탈출 {w.get('T')}시간"
+            self.record({'event': '정체 탈출 매도 요청', 'market': market, 'limit': w.get('limit'), 'price': price, 'entry': w.get('entry')})
+            o = self._trade('ask', market, volume, reason, risk=True)
+            v, funds, fee = self._fill(o)
+            if v <= 0: return False
+            self.share(f'{market[4:]} {reason} 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            return True
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '정체 탈출 매도 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False
+
     def sweep_dust(self, market, markets, krw=DUST_BUY_KRW):
         """팔 수 없는 자투리(평가 5,000원 미만)를 없앤다(사용자 지시 2026-11-06). krw만큼 사서 자투리와 합친 뒤 잔고 전부를 판다.
         비용은 수수료 2회와 호가 차이(종목당 수~수십 원). 손절과 같은 주문 경로(_trade)를 쓰고, 보호 종목·장부 밖 잔고·잠긴 수량은 하지 않는다."""

@@ -786,7 +786,7 @@ class Bot:
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         try:
             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
-            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl') + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
+            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl', live_hours=self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None) + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'))
@@ -951,9 +951,12 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                         self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
                         try:  # 정체 탈출 기록 모드: 주문 없이 '했다면'만 기록
                             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
+                            hours = self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None
                             self.exit_watch.update({m: p for m, p in self.live.d['positions'].items() if not self.live.is_protected(m)},
-                                                   live, getattr(self, 'rs_all', {}))
-                        except Exception as ex: self.log('정체 탈출 기록 오류(무시): ' + type(ex).__name__)
+                                                   live, getattr(self, 'rs_all', {}),
+                                                   live_sell=self.live.stagnation_sell if hours else None, live_hours=hours)
+                        except SessionLost: raise
+                        except Exception as ex: self.log('정체 탈출 오류(무시): ' + type(ex).__name__)
                         if now - last_trail >= self.p.stop_seconds:
                             self.live.trail_check()
                             last_trail = now

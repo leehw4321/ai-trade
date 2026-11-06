@@ -59,8 +59,10 @@ class Watch:
         tmp.write_text(json.dumps(self.s, ensure_ascii=False), encoding='utf-8')
         os.replace(tmp, self.state_path)
 
-    def update(self, positions, prices, rs_all, protected=(), now=None):
-        """3초 감시마다 부른다. positions = 실거래 장부 positions, rs_all = {종목: (순위, 18h 상승률)}."""
+    def update(self, positions, prices, rs_all, protected=(), now=None, live_sell=None, live_hours=None):
+        """3초 감시마다 부른다. positions = 실거래 장부 positions, rs_all = {종목: (순위, 18h 상승률)}.
+        live_sell(종목, 판정, 현재가) → bool 이 있고 T가 live_hours이면, 본전 지정가에 닿는 순간(가상 체결 조건) 실제로 판다.
+        실제 매도가 성공(True)해야 '체결'로 닫고, 실패하면 armed로 남겨 다음 감시에서 다시 시도한다(유효 2시간 안에서만)."""
         now = now or time.time(); changed = False
         live_keys = set()                 # 아직 보유 중인 포지션(가격을 못 받은 순간도 보유로 본다)
         for m, p in positions.items():
@@ -88,8 +90,15 @@ class Watch:
                 if w['state'] != 'armed': continue
                 w['last_px'] = px
                 if px >= w['limit'] + tick(w['limit']):
+                    if live_sell and T == live_hours and now - w['at'] < HOLD:
+                        if not live_sell(m, w, px):
+                            if now - w.get('live_fail_at', 0) >= 60:
+                                w['live_fail_at'] = now
+                                self._event({'event': '정체 탈출 실제 매도 보류', 'key': key, 'px': px, 'at': now}); changed = True
+                            continue
+                        w['live'] = 'sold'
                     w.update(state='filled', fill_at=now, pnl=w['qty'] * w['limit'] * (1 - FEE) - w['cost'])
-                    self._event({'event': '가상 체결', 'key': key, 'px': px, 'limit': w['limit'], 'pnl': w['pnl'], 'at': now}); changed = True
+                    self._event({'event': '정체 탈출 실제 매도' if w.get('live') else '가상 체결', 'key': key, 'px': px, 'limit': w['limit'], 'pnl': w['pnl'], 'at': now}); changed = True
                 elif now - w['at'] >= HOLD and rs_all:      # 순위 자료가 아직 없으면(재시작 직후) 판단을 미룬다
                     rank, rs = (rs_all.get(m) or (None, None))
                     gone = (rs is not None and rs <= 0) or rank is None or rank > RANK_OUT
@@ -117,7 +126,7 @@ class Watch:
         return out, first
 
 
-def render(watch, brake_log, esc=None):
+def render(watch, brake_log, esc=None, live_hours=None):
     """화면 한 줄 요약."""
     import datetime as dt
     s, first = watch.summary()
@@ -131,7 +140,7 @@ def render(watch, brake_log, esc=None):
         rows = []
     b = sum(1 for r in rows if r.get('brake_4h'))
     a = s[2]; c = s[4]
-    return (f"<div class=sub>정체 탈출·단기 브레이크 기록 모드(주문 없음) · {since} · 정체 탈출 2시간: 판정 {a['checked']} · 발동 {a['armed']} "
+    return (f"<div class=sub>{'정체 탈출 ' + str(live_hours) + '시간 실제 적용(그 외 기록 비교)' if live_hours else '정체 탈출·단기 브레이크 기록 모드(주문 없음)'} · {since} · 정체 탈출 2시간: 판정 {a['checked']} · 발동 {a['armed']} "
             f"(가상 체결 {a['filled']} · 실제 매도 먼저 {a['sold_first']} · 2단계 {a['stage2']} · 취소 {a['cancel']} · 진행 {a['open']}) · "
             f"4시간 비교: 발동 {c['armed']}(가상 체결 {c['filled']}) · 단기 브레이크 발동 {b}/{len(rows)}시간 · "
             f"판정 기준: 최소 2주 그리고 발동 30건</div>")

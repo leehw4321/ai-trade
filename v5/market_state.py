@@ -37,12 +37,12 @@ def _ret(bars, n):
         return None
 
 
-def compute(bars_uni, index_24h, index_4h, at, tf=15):
+def compute(bars_uni, index_24h, index_4h, at, tf=15, index_6h=None, filter_hours=24):
     """15분 판단마다 부른다. bars_uni = 거래대금 상위 종목 봉."""
     n24 = 24 * 60 // tf
     r24 = [r for r in (_ret(b, n24) for b in bars_uni.values()) if r is not None]
     btc = _ret(bars_uni.get('KRW-BTC', []), n24)
-    return {'at': at, 'index_24h': index_24h, 'index_4h': index_4h,
+    return {'at': at, 'index_24h': index_24h, 'index_4h': index_4h, 'index_6h': index_6h, 'filter_hours': filter_hours,
             'up': sum(r > 0 for r in r24), 'total': len(r24), 'btc_24h': btc,
             'zone': zone(index_24h)[0] if isinstance(index_24h, (int, float)) else None,
             'brake_4h': isinstance(index_4h, (int, float)) and index_4h <= BRAKE_4H}
@@ -93,6 +93,16 @@ def _quiet(fn, *a):
     except Exception: pass
 
 
+def _filter_note(state):
+    """봇이 실제로 쓰는 매수 필터 기간과 그 값(24시간이 아닐 때만 따로 보인다)."""
+    h = state.get('filter_hours') or 24
+    v = state.get('index_24h') if h == 24 else state.get(f'index_{h}h')
+    if not isinstance(v, (int, float)) or h == 24:
+        return ''
+    ok = v > 0
+    return (f"<b style='font-size:12.5px;color:{'#1a7f37' if ok else '#b42318'}'>매수 필터 {h}h {v:+.2%} → {'매수 가능' if ok else '매수 보류'}</b>")
+
+
 def _pos(x):
     return max(1.0, min(99.0, (x + SPAN) / (2 * SPAN) * 100))
 
@@ -120,6 +130,7 @@ def render(state, fng, now=None, esc=html.escape):
                f"<span style='position:absolute;left:{_pos(x):.1f}%;top:-3px;width:3px;height:24px;background:var(--ink);transform:translateX(-50%)'></span>{m4}</span>"
                f"<span class=sub>24h <b>{x:+.2%}</b>" + (f" · 4h {x4:+.2%}" if isinstance(x4, (int, float)) else '')
                + f" · 오름 {state.get('up', 0)}/{state.get('total', 0)}</span>"
+               + _filter_note(state)
                + ("<b class=warn style='font-size:12px'>4h 급락: 브레이크 기록</b>" if state.get('brake_4h') else '') + "</span>")
     if fng and isinstance(fng.get('value'), int):
         v = fng['value']; old = now - fng.get('fetched', 0) > 48 * 3600

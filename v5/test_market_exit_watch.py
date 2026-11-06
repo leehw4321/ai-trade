@@ -100,3 +100,28 @@ class ExitWatch(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RegimeCompare(unittest.TestCase):
+    def test_extra_buys_are_those_made_while_24h_index_was_negative(self):
+        import regime_compare as rc
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'w.jsonl').write_text('\n'.join(json.dumps(r) for r in (
+                {'at': '2026-11-06T13:00+09:00', 'index_24h': -0.03, 'index_6h': 0.01, 'filter_hours': 6},
+                {'at': '2026-11-06T14:00+09:00', 'index_24h': 0.01, 'index_6h': 0.01, 'filter_hours': 6})), encoding='utf-8')
+            def order(m, side, t, px, vol):
+                return {'market': m, 'side': side, 'paid_fee': '0', 'trades': [{'created_at': t, 'volume': str(vol), 'funds': str(px * vol)}]}
+            orders = [order('KRW-A', 'bid', '2026-11-06T13:01:30+09:00', 100, 800), order('KRW-A', 'ask', '2026-11-06T15:00:00+09:00', 95, 800),
+                      order('KRW-B', 'bid', '2026-11-06T14:01:30+09:00', 100, 800), order('KRW-C', 'bid', '2026-11-06T13:01:40+09:00', 10, 8000),
+                      order('KRW-DOGE', 'bid', '2026-11-06T13:01:50+09:00', 100, 800)]
+            (d / 'o.json').write_text(json.dumps({'orders': orders}), encoding='utf-8')
+            done, still = rc.extra_buys(d / 'w.jsonl', d / 'o.json', lambda m: m == 'KRW-DOGE')
+            self.assertEqual([p['m'] for p in done], ['KRW-A'])            # B는 24h 양수 시간에 샀다
+            self.assertAlmostEqual(done[0]['pnl'], -4000)
+            self.assertEqual([p['m'] for p in still], ['KRW-C'])           # 보호 종목 DOGE는 제외
+            self.assertIn('-4,000원', rc.render(d / 'w.jsonl', d / 'o.json', lambda m: m == 'KRW-DOGE'))
+
+    def test_filter_note_shows_6h_decision(self):
+        page = ms.render({'index_24h': -0.05, 'index_6h': 0.004, 'filter_hours': 6, 'up': 4, 'total': 29, 'at': 'x'}, None)
+        self.assertIn('매수 필터 6h +0.40% → 매수 가능', page)

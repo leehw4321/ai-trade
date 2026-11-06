@@ -24,6 +24,7 @@ import chase_override as co
 import daily_equity
 import entry_flags
 import exit_watch
+import regime_compare
 import market_state as ms
 import entry_flags_review
 import notices
@@ -284,7 +285,9 @@ class Bot:
             ub = {m: b for m, b in bars.items() if m in uni}
             state = ms.compute(ub, st.market_index(ub, self.p.regime_bars, self.p.regime_min_markets),
                                st.market_index(ub, 4 * 60 // self.p.tf, self.p.regime_min_markets),
-                               utc(end).astimezone(KST).isoformat(timespec='minutes'), self.p.tf)
+                               utc(end).astimezone(KST).isoformat(timespec='minutes'), self.p.tf,
+                               index_6h=st.market_index(ub, 6 * 60 // self.p.tf, self.p.regime_min_markets),
+                               filter_hours=self.p.regime_bars * self.p.tf // 60)
             ms.save(DATA / 'market_state.json', state)
             if end % rotation.HOUR == 0:
                 ms.record_brake(DATA / 'regime_watch.jsonl', state)
@@ -737,7 +740,7 @@ class Bot:
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         try:
             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
-            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl')
+            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl') + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'))

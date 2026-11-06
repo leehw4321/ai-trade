@@ -123,11 +123,16 @@ def run(data, state, t0, t1, cfg):
                             log['swaps'] += 1
                             log['_swapped'] = T
                             room = (SLOTS - sum(p['cost'] for p in pos.values()))
-                    if room < 1 - 1e-9 or cash < 1:
+                    # prop: 1회 매수 = 그때 평가액 / START_CASH(자산 비례). 고정 1칸이면 손실 뒤 현금이 1칸 아래로 떨어져
+                    # 매매가 멈추고 모든 정책이 같은 바닥(−79%)에 붙는다(2026-11-06 발견). prop은 부분 교체(swap)와 함께 쓰지 않는다.
+                    u = 1.0
+                    if cfg.get('prop'):
+                        u = (cash + sum(q['qty'] * price.get(k, q['entry']) for k, q in pos.items())) / START_CASH
+                    if room < 1 - 1e-9 or cash < u * (1 - 1e-9):
                         log['missed'] += 1
                         continue
-                    cash -= 1
-                    pos[m] = {'entry': px, 'qty': (1 - FEE) / px, 'cost': 1.0, 'peak': px, 'stop': px * (1 - STOP), 'stuck_since': None}
+                    cash -= u
+                    pos[m] = {'entry': px, 'qty': u * (1 - FEE) / px, 'cost': u, 'peak': px, 'stop': px * (1 - STOP), 'stuck_since': None}
                     log['buys'] += 1
         if T % (24 * HOUR) == 0:
             val = cash + sum(p['qty'] * price.get(m, p['entry']) for m, p in pos.items())

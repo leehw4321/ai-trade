@@ -1,72 +1,136 @@
-import json, datetime as dt, statistics as S
+"""study_exit_fills.py 출력으로 손실 경로·체크포인트·정체 지정가 탈출을 계산한다(읽기 전용, 탐색용).
+
+2판(ChatGPT 2차 검산 반영):
+- 보유 경로 = 첫 매수 체결 뒤 시작한 봉부터, 매도 체결 전에 끝난 봉까지(매수 전·매도 뒤 가격 섞임 방지). 매수·매도가 걸친 봉은 버린다.
+- 지정가: 주문 시각 t0(15분 경계로 올림) 뒤에 시작해 실제 매도 전에 끝난 봉에서만 체결을 본다. 실제 매도가 일어난 봉은
+  손절과 선후를 모르므로 '미체결'(불리)로 둔다. 조건에 '현재가(직전 완료 봉 종가) < 본전'을 넣었다.
+- 체결 가정 4단계 민감도: 닿음 / 한 호가 위 통과 / 한 호가 위 + 봉 거래대금 ≥ 주문의 5배 / 두 호가 위 + 20배.
+  호가 단위는 그 종목 봉 가격들 사이의 가장 작은 간격(자료에서 추정).
+- 매도 뒤 24시간은 자료가 24시간 다 있을 때만 쓰고, 모자라면 따로 센다.
+"""
+import argparse, datetime as dt, json, math, statistics as S
 from pathlib import Path
-KST = dt.timezone(dt.timedelta(hours=9)); FEE = 0.0005
-P = json.load(open(Path(__file__).with_name('exit_study_out.json'), encoding='utf-8'))['positions']
+
+KST = dt.timezone(dt.timedelta(hours=9)); FEE = 0.0005; BAR = 900
 f = lambda t: dt.datetime.fromtimestamp(t, KST).strftime('%m-%d %H:%M')
+up = lambda t: math.ceil(t / BAR) * BAR
 
-rows = []
-for p in P:
-    e = p['entry']; be = e / (1 - FEE)              # 수수료 포함 본전 매도가
-    hold = [b for b in p['bars'] if p['open'] - 900 <= b[0] < p['close']]
-    after = [b for b in p['bars'] if b[0] >= p['close']]
-    if not hold: continue
-    hi = [(b[0], b[2]) for b in hold if b[0] + 900 > p['open']]
-    mfe_t, mfe = max(hi, key=lambda x: x[1])
-    above = [b[0] for b in hold if b[4] >= be]       # 종가가 본전 이상이었던 봉
-    r = p['pnl'] / p['invest']
-    rows.append({**{k: p[k] for k in ('m', 'open', 'close', 'pnl', 'invest')}, 'r': r, 'e': e, 'be': be, 'hold_h': (p['close'] - p['open']) / 3600,
-                 'mfe': mfe / e - 1, 'mfe_h': (mfe_t - p['open']) / 3600, 'last_be_h': ((max(above) + 900 - p['open']) / 3600) if above else 0,
-                 'post_hi': (max(b[2] for b in after) / p['exit_px'] - 1) if after else None,
-                 'post_24': (after[-1][4] / p['exit_px'] - 1) if after else None, 'hold': hold})
 
-W = [x for x in rows if x['pnl'] > 0]; L = [x for x in rows if x['pnl'] <= 0]
-print(f"포지션 {len(rows)} · 이익 {len(W)} {sum(x['pnl'] for x in W):+,.0f}원 · 손실 {len(L)} {sum(x['pnl'] for x in L):+,.0f}원 · 합 {sum(x['pnl'] for x in rows):+,.0f}원")
-md = lambda v: S.median(v) if v else float('nan')
-for name, g in (('이익', W), ('손실', L)):
-    print(f"[{name}] 보유 중앙 {md([x['hold_h'] for x in g]):.1f}h · 최고수익(MFE) 중앙 {md([x['mfe'] for x in g])*100:.2f}% · MFE 도달 중앙 {md([x['mfe_h'] for x in g]):.1f}h · 마지막 본전 위 중앙 {md([x['last_be_h'] for x in g]):.1f}h")
-print('\n손실 포지션 상세 (MFE=보유 중 최고 수익, 본전위마지막=진입 뒤 마지막으로 종가가 본전 이상이던 시각, 이후=매도 뒤 24h)')
-print(f"{'종목':10}{'진입':12}{'보유h':>6}{'손익':>8}{'수익률':>7}{'MFE':>7}{'MFE시각h':>8}{'본전위마지막h':>12}{'매도뒤최고':>9}{'24h뒤':>7}")
-for x in sorted(L, key=lambda x: x['open']):
-    print(f"{x['m'][4:]:10}{f(x['open']):12}{x['hold_h']:6.1f}{x['pnl']:8.0f}{x['r']*100:6.2f}%{x['mfe']*100:6.2f}%{x['mfe_h']:8.1f}{x['last_be_h']:12.1f}"
-          f"{(x['post_hi'] or 0)*100:8.2f}%{(x['post_24'] or 0)*100:6.2f}%")
+def tick_of(bars):
+    v = sorted({round(x, 10) for b in bars for x in b[1:5]})
+    d = [round(b - a, 10) for a, b in zip(v, v[1:]) if b - a > 1e-12]
+    return min(d) if d else 0.0
 
-# 정체 탈출 규칙: 진입 T시간 뒤까지 MFE가 m 미만이면 본전×(1+k)에 지정가 매도. 실제 매도 전에 고가가 닿으면 체결, 아니면 실제 결과
-def sim(T, m, k, rows=rows):
-    tot = 0; n = hit = 0; chg = []
+
+def build(P):
+    rows = []
+    for p in P:
+        q = sum(s['q'] for s in p['sells'])
+        e = p['sold_cost'] / q; be = e / (1 - FEE)
+        bars = p['bars']; tk = tick_of(bars)
+        hold = [b for b in bars if b[0] >= up(p['open']) and b[0] + BAR <= p['close']]
+        after = [b for b in bars if b[0] >= up(p['close'])]
+        mfe = (max(b[2] for b in hold) / e - 1) if hold else None
+        rows.append({**p, 'q': q, 'e': e, 'be': be, 'tick': tk, 'hold': hold, 'after': after, 'r': p['pnl'] / p['sold_cost'],
+                     'hold_h': (p['close'] - p['open']) / 3600, 'mfe': mfe,
+                     'ever_close_be': any(b[4] >= be for b in hold), 'ever_high_be': any(b[2] >= be for b in hold),
+                     'post_24': (after[95][4] / p['exit_px'] - 1) if len(after) >= 96 else None,
+                     'partial_before': [s['t'] for s in p['sells'][:-1]]})
+    return rows
+
+
+FILL = {'닿음': (0, 0), '한호가+통과': (1, 0), '한호가+대금5배': (1, 5), '두호가+대금20배': (2, 20)}
+
+
+def sim(rows, T, m, k, rule, deadline=None):
+    """(총손익, 해당, 체결, 개선합, 악화합)"""
+    tot = n = hit = 0; better = worse = 0.
+    ticks, mult = FILL[rule]
     for x in rows:
-        b = x['hold']; t0 = x['open'] + T * 3600
-        if t0 >= x['close']: tot += x['pnl']; continue
-        pre = [y for y in b if y[0] + 900 <= t0]
-        mf = max([y[2] for y in pre] or [x['e']]) / x['e'] - 1
-        if mf >= m: tot += x['pnl']; continue
-        n += 1; L = x['be'] * (1 + k)
-        post = [y for y in b if y[0] + 900 > t0]
-        # 걸어 두는 순간 이미 가격이 L 이상이면 그 가격 근처에서 즉시 체결로 본다(보수적으로 L)
-        if any(y[2] >= L for y in post):
-            hit += 1; v = x['invest'] * (L * (1 - FEE) / x['e'] - 1)
-        else:
-            v = x['pnl']
-        chg.append(v - x['pnl']); tot += v
-    return tot, n, hit, sum(chg), sum(c for c in chg if c < 0)
+        t0 = up(x['open'] + T * 3600)
+        if t0 >= x['close'] or any(s < t0 for s in x['partial_before']): tot += x['pnl']; continue
+        pre = [b for b in x['hold'] if b[0] + BAR <= t0]
+        if not pre: tot += x['pnl']; continue
+        if max(b[2] for b in pre) / x['e'] - 1 >= m or pre[-1][4] >= x['be']: tot += x['pnl']; continue
+        n += 1
+        tk = x['tick'] or 0
+        L = math.ceil(x['be'] * (1 + k) / tk - 1e-9) * tk if tk else x['be'] * (1 + k)
+        need = L + ticks * tk; krw = x['q'] * L
+        end = x['close'] if deadline is None else min(x['close'], t0 + deadline * 3600)
+        ok = any(b[2] >= need and b[5] >= mult * krw for b in x['hold'] if b[0] >= t0 and b[0] + BAR <= end)
+        v = x['q'] * L * (1 - FEE) - x['sold_cost'] if ok else x['pnl']
+        hit += ok; d = v - x['pnl']; tot += v
+        better += max(d, 0); worse += min(d, 0)
+    return tot, n, hit, better, worse
 
-base = sum(x['pnl'] for x in rows)
-print(f'\n정체 지정가 탈출 시뮬레이션 (실제 합 {base:+,.0f}원). 조건: 진입 T시간까지 최고수익 m 미만 → 본전(수수료 포함)×(1+k) 지정가')
-print(f"{'T(h)':>5}{'m':>6}{'k':>7}{'해당':>5}{'체결':>5}{'변화':>9}{'(그중 손해)':>11}")
-for T in (2, 4, 6, 8, 12):
-    for m in (0.01, 0.02):
-        for k in (-0.005, 0.0, 0.003, 0.005, 0.01):
-            tot, n, hit, d, neg = sim(T, m, k)
-            print(f"{T:5}{m*100:5.0f}%{k*100:6.1f}%{n:5}{hit:5}{d:+9,.0f}{neg:+11,.0f}")
 
-# 시간대 분할 안정성: 앞 절반/뒤 절반
-mid = sorted(x['open'] for x in rows)[len(rows) // 2]
-A = [x for x in rows if x['open'] < mid]; B = [x for x in rows if x['open'] >= mid]
-print('\n앞/뒤 절반 분할(변화액): T,m,k → 앞 | 뒤')
-for T, m, k in ((4, .01, 0.0), (6, .01, 0.0), (6, .01, .003), (8, .01, .003), (4, .02, .003), (6, .02, 0.0), (8, .02, 0.0)):
-    print(T, m, k, f"{sim(T,m,k,A)[3]:+,.0f} | {sim(T,m,k,B)[3]:+,.0f}")
+def main():
+    ap = argparse.ArgumentParser(); ap.add_argument('--inp', type=Path, default=Path(__file__).with_name('exit_study_out.json'))
+    D = json.load(open(ap.parse_args().inp, encoding='utf-8')); rows = build(D['positions'])
+    W = [x for x in rows if x['pnl'] > 0]; L = [x for x in rows if x['pnl'] <= 0]
+    print(f"포지션 {len(rows)} · 이익 {len(W)} {sum(x['pnl'] for x in W):+,.0f} · 손실 {len(L)} {sum(x['pnl'] for x in L):+,.0f} · 합 {sum(x['pnl'] for x in rows):+,.0f}")
+    co = [x for x in rows if x['carried_out'] > 0]; ci = [x for x in rows if x['carried_in'] > 0]
+    cut = sum(1 for x in rows for s in x['sells'] if s['cut'])
+    print(f"잔량 남기고 닫힘 {len(co)}건(이월 원가 {sum(x['carried_out'] for x in co):,.1f}원) · 이월받아 시작 {len(ci)}건 · 장부보다 많이 판 체결 {cut}건")
+    nob = [x for x in L if not x['hold']]
+    print(f"손실 {len(L)}건 중 완전한 보유 봉이 없음(30분 미만 보유 등) {len(nob)}건 → 경로 판정 불가로 따로 셈")
+    Lh = [x for x in L if x['hold']]
+    print(f"경로 판정 가능 손실 {len(Lh)}건: 보유 중 완료 봉 종가가 본전 이상인 적 없음 {sum(not x['ever_close_be'] for x in Lh)} · 고가조차 본전 미달 {sum(not x['ever_high_be'] for x in Lh)}")
+    md = lambda v: S.median(v) if v else float('nan')
+    for name, g in (('이익', W), ('손실', L)):
+        g = [x for x in g if x['mfe'] is not None]
+        print(f"[{name}] 경로 있는 {len(g)}건 · 보유 중앙 {md([x['hold_h'] for x in g]):.1f}h · MFE 중앙 {md([x['mfe'] for x in g])*100:.2f}%")
+    s = [x for x in L if x['hold_h'] >= 4 and x['mfe'] is not None and x['mfe'] < 0.01]
+    print('4h+ 보유 & MFE<1% 손실:', [x['m'][4:] for x in s], f"{sum(x['pnl'] for x in s):+,.0f}")
+    p24 = [x for x in L if x['post_24'] is not None]
+    print(f"손실 매도 뒤 24h: 자료 충분 {len(p24)}건(부족 {len(L)-len(p24)}) · +5% 초과 {sum(x['post_24']>.05 for x in p24)} · −5% 미만 {sum(x['post_24']<-.05 for x in p24)}")
 
-# 자정 전후 매도
-print('\n11-05 21:00~11-06 01:00 매도')
-for x in rows:
-    if dt.datetime(2026, 11, 5, 21, tzinfo=KST).timestamp() <= x['close'] < dt.datetime(2026, 11, 6, 1, tzinfo=KST).timestamp():
-        print(x['m'], f(x['close']), f"{x['pnl']:+.0f}원 {x['r']*100:+.2f}%", f"매도 뒤 최고 {(x['post_hi'] or 0)*100:+.2f}% · 지금(마지막 봉) {(x['post_24'] or 0)*100:+.2f}%")
+    print('\n체크포인트: 약세(그때까지 완료 봉 최고 < +1%, 직전 봉 종가 < 본전) / 나머지, 그 시점 보유 중만')
+    for mins in (30, 60, 120, 240, 360):
+        g, h = [], []
+        for x in rows:
+            t0 = x['open'] + mins * 60
+            if x['close'] <= t0: continue
+            pre = [b for b in x['hold'] if b[0] + BAR <= t0]
+            if not pre: continue
+            (g if (max(b[2] for b in pre) / x['e'] - 1 < 0.01 and pre[-1][4] < x['be']) else h).append(x)
+        w = lambda s: sum(x['pnl'] > 0 for x in s)
+        print(f"{mins:4}분 약세 {len(g):2}건 중 최종 이익 {w(g):2} ({sum(x['pnl'] for x in g):+8,.0f}) | 나머지 {len(h):2}건 중 이익 {w(h):2} ({sum(x['pnl'] for x in h):+8,.0f})")
+
+    print('\n고정 경로(청산 규칙과 무관): 체크포인트에 약세였던 포지션의 그 뒤 시장 가격. 본전 대비 종가 변화 중앙 / 그 구간 고가가 본전 이상인 비율')
+    for mins in (60, 120, 240):
+        cells = []
+        for h in (1, 4, 24):
+            ch = []; reach = []
+            for x in rows:
+                t0 = up(x['open'] + mins * 60)
+                if x['close'] <= t0: continue
+                pre = [b for b in x['hold'] if b[0] + BAR <= t0]
+                if not pre or max(b[2] for b in pre) / x['e'] - 1 >= 0.01 or pre[-1][4] >= x['be']: continue
+                win = [b for b in x['bars'] if t0 <= b[0] and b[0] + BAR <= t0 + h * 3600]
+                if len(win) < h * 4: continue               # 자료가 그 시간만큼 다 있어야 센다
+                ch.append(win[-1][4] / x['be'] - 1); reach.append(max(b[2] for b in win) >= x['be'])
+            cells.append(f"+{h}h {len(ch):2}건 {md(ch)*100:+6.2f}% / 본전 회복 {sum(reach)}/{len(reach)}" if ch else f"+{h}h 자료 없음")
+        print(f"{mins:4}분 약세 → " + ' · '.join(cells))
+
+    base = sum(x['pnl'] for x in rows)
+    print(f'\n정체 지정가 탈출 (실제 합 {base:+,.0f}). 개선=체결로 좋아진 합, 악화=나빠진 합. 기한 없음(GTC) / 2시간 기한')
+    print(f"{'T':>3}{'m':>4}{'k':>6} {'가정':12}{'해당':>4}{'체결':>4}{'개선':>8}{'악화':>8} | 2h기한 체결{'개선':>8}")
+    for T in (2, 4, 6):
+        for m in (0.01,):
+            for k in (0.0, 0.003):
+                for rule in FILL:
+                    _, n, hit, b, w_ = sim(rows, T, m, k, rule)
+                    _, _, hit2, b2, _ = sim(rows, T, m, k, rule, deadline=2)
+                    print(f"{T:3}{m*100:3.0f}%{k*100:5.1f}% {rule:12}{n:4}{hit:4}{b:+8,.0f}{w_:+8,.0f} | {hit2:4}{b2:+8,.0f}")
+
+    print('\n11-05 21:00~11-06 01:00 매도')
+    a = dt.datetime(2026, 11, 5, 21, tzinfo=KST).timestamp()
+    for x in rows:
+        if a <= x['close'] < a + 4 * 3600:
+            p24 = f"{x['post_24']*100:+.2f}%" if x['post_24'] is not None else f"자료 {len(x['after'])/4:.1f}h뿐"
+            print(x['m'], f(x['close']), f"{x['pnl']:+,.0f}원", '24h 뒤', p24)
+
+
+if __name__ == '__main__':
+    main()

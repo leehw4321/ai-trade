@@ -867,7 +867,8 @@ class Live:
         wait = float(self.cfg.get('resting_wait_seconds', 900))
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'bid', 'market': market, 'amount': krw,
                    'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r,
-                   'resting': {'price': price, 'ref_ask': ask, 'tick': tk, 'krw': krw, 'deadline': time.time() + wait}}
+                   'resting': {'price': price, 'ref_ask': ask, 'tick': tk, 'krw': krw, 'deadline': time.time() + wait,
+                               'placed': time.time(), 'anchor': (context or {}).get('anchor_close')}}
         slot = ('rest', market)
         self._set_pending(pending, slot)
         self.save()
@@ -894,16 +895,28 @@ class Live:
         p['resting']['deadline'] = 0; p['resting']['force'] = True; self.save()
         return True, f'{market[4:]} 지정가 취소 후 즉시 시장가 매수 요청'
 
-    def manage_resting(self, prices):
-        """걸어 둔 지정가 매수 관리(3초마다, 손절 감시보다 먼저). 종목마다 따로 처리하고 한 종목 오류가 다른 종목을 막지 않는다."""
+    def manage_resting(self, prices, still_ok=None):
+        """걸어 둔 지정가 매수 관리(3초마다, 손절 감시보다 먼저). 종목마다 따로 처리하고 한 종목 오류가 다른 종목을 막지 않는다.
+        still_ok(종목, resting) → 매수 조건이 무너졌으면 사유 문자열(봇의 새 15분봉 판단: 순위·상승률·과열·장세 필터·경보)."""
         errors = []
         for m in list(self.d.get('resting_orders', {})):
-            try: self._manage_one_resting(m, prices)
+            try: self._manage_one_resting(m, prices, still_ok)
             except SessionLost: raise
             except Exception as ex: errors.append(f'{m[4:]} {type(ex).__name__}: {str(ex)[:80]}')
         if errors: raise RuntimeError(' / '.join(errors))
 
-    def _manage_one_resting(self, m, prices):
+    def resting_broken(self, m, rest, px, still_ok=None):
+        """대기 중 매수 조건이 무너졌는지(2026-11-06 사용자 지시). 사유 문자열 또는 None. 무너지면 취소하고 남은 금액은 사지 않는다."""
+        if self.is_protected(m): return '사용자 보호 지정'
+        if self.d.get('halted'): return '손실 중단선 도달'
+        pos = self.d['positions'].get(m)
+        live_px = type(px) in (int, float) and math.isfinite(px) and px > 0
+        if pos and live_px and px <= self.stop_limit(pos) * 1.005: return '손절선 근접'
+        anchor = rest.get('anchor')
+        if live_px and type(anchor) in (int, float) and anchor > 0 and px <= anchor: return '18시간 상승률 0 이하'
+        return still_ok(m, rest) if still_ok else None
+
+    def _manage_one_resting(self, m, prices, still_ok=None):
         """체결분은 즉시 장부에 반영(_apply_pending). 기한 만료 → 취소 후 남은 금액은 매도호가가 기준가+1칸 이하일 때만 시장가.
         보호 지정·손절선 근접 → 취소하고 사지 않는다."""
         slot = ('rest', m)
@@ -912,13 +925,15 @@ class Live:
         rest = pending['resting']
         order = upbit.get_order(pending['uuid'])
         if order.get('state') not in ('done', 'cancel'):
-            pos = self.d['positions'].get(m)
             px = prices.get(m)
-            danger = self.is_protected(m) or bool(pos and type(px) in (int, float) and px <= self.stop_limit(pos) * 1.005)
-            if not danger and time.time() < rest['deadline']:
+            if px is None:
+                try: px = upbit.tickers([m])[m]['trade_price']
+                except Exception: px = None
+            broken = self.resting_broken(m, rest, px, still_ok)
+            if not broken and time.time() < rest['deadline']:
                 self._apply_pending(order, slot)    # 일부 체결분을 바로 장부에 넣어 손절 관리를 시작한다
                 return
-            if danger: rest['no_fallback'] = True; self.save()
+            if broken: rest['no_fallback'] = broken; self.save()
             upbit.cancel_order(pending['uuid'])
             order = self._wait(order)
         _, f0, fee0 = self._fill(order)
@@ -937,7 +952,8 @@ class Live:
             else:
                 msg += f' · 남은 {left:,.0f}원은 가격이 1칸 넘게 올라(매도호가 {ask}) 사지 않음'
         elif rest.get('no_fallback'):
-            msg += ' · 손절선 근접·보호로 취소, 남은 금액 사지 않음'
+            why = rest['no_fallback'] if isinstance(rest['no_fallback'], str) else '조건 붕괴'
+            msg += f' · 매수 조건 붕괴({why})로 취소, 남은 금액 사지 않음'
         self.record({'event': '지정가 매수 종료', 'market': m, 'filled_krw': f0, 'left_krw': max(0., left), 'note': msg})
         self.share(msg)
 

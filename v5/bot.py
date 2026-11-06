@@ -286,6 +286,9 @@ class Bot:
             if m not in uni:
                 self.rs_all[m] = (None, st.relative_strength(bars[m], self.p.L))
         entry_ok = {m for m in universe if m in bars and not self.markets.get(m, {}).get('trade_blocked', self.markets.get(m, {}).get('warning'))}
+        try: regime = st.market_index({m: b for m, b in bars.items() if m in uni}, self.p.regime_bars, self.p.regime_min_markets)
+        except Exception: regime = None
+        self.entry_view = {'end': end, 'entry_ok': entry_ok, 'regime': regime}   # 걸어 둔 지정가 매수의 조건 재확인용
         if end % rotation.HOUR == 0:  # 정시 판단마다 후보의 급변 지표를 기록만 한다(주문 무영향, 오류는 무시)
             try:
                 idx = st.market_index({m: b for m, b in bars.items() if m in uni}, self.p.regime_bars, self.p.regime_min_markets)
@@ -415,6 +418,21 @@ class Bot:
             self.real_error = f'{type(ex).__name__}: {ex}'
             self.log('실제 계좌 조회 실패 (최종 성공 자료 유지): ' + self.real_error)
         self.write_status(self.prices(), next_close)
+
+    def resting_still_ok(self, m, rest):
+        """지정가를 건 뒤 새 15분봉 판단이 나왔으면 그 판단으로 매수 후보인지 다시 본다. 아니면 사유 문자열."""
+        view = getattr(self, 'entry_view', None)
+        if not view or view['end'] <= rest.get('placed', 0): return None
+        rank, rs = self.rs_all.get(m, (None, None))
+        scan = self.p.entry_scan or self.p.entry_top
+        if m not in view['entry_ok']: return '매수 불가 경보'
+        if rank is None or rank > scan: return f'순위 {scan}위 밖'
+        if rs is None or rs <= 0: return '18시간 상승률 0 이하'
+        cap = co.cap_for(m, self.p, co.promoted(DATA), self.live.d.get('last_sell', {}).get(m))
+        if cap > 0 and rs >= cap: return f'과열 상한 {cap:.0%} 이상'
+        if getattr(self.p, 'regime_filter', False) and not (isinstance(view['regime'], (int, float)) and view['regime'] > 0):
+            return '장세 필터 차단'
+        return None
 
     def sweep_dust_request(self):
         """data/dust_sweep.json(["KRW-..."] 목록)이 있으면 한 번 자투리 정리를 하고 결과를 dust_sweep_result.jsonl에 남긴 뒤 요청을 지운다."""
@@ -906,7 +924,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     if self.can_act():  # 실행권이 없는 PC는 실거래 손절·판단을 하지 않는다(주문은 어차피 막힌다)
-                        try: self.live.manage_resting(live)   # 걸어 둔 지정가 매수: 손절선 근접이면 먼저 취소해 손절 길을 연다
+                        try: self.live.manage_resting(live, self.resting_still_ok)   # 걸어 둔 지정가 매수: 조건 붕괴·손절선 근접이면 취소
                         except SessionLost: raise
                         except Exception as ex: self.log('지정가 매수 관리 오류(다음 주기 재시도): ' + type(ex).__name__ + ': ' + str(ex)[:120])
                         self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저

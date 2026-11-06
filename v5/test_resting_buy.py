@@ -29,6 +29,7 @@ class Resting(unittest.TestCase):
         for name, value in (('entry_chase_block', None), ('is_protected', False), ('scan_manual_orders', None)):
             q = patch.object(self.lv, name, return_value=value); q.start(); self.addCleanup(q.stop)
         q = patch.object(live.upbit, 'completed_candles', return_value=[]); q.start(); self.addCleanup(q.stop)
+        q = patch.object(live.upbit, 'tickers', side_effect=RuntimeError('no network')); q.start(); self.addCleanup(q.stop)
         q = patch.object(live.st, 'wilder_atr', return_value=2.0); q.start(); self.addCleanup(q.stop)
         self.book = {'KRW-CAP': {'ask': 147.0, 'bid': 146.0}, 'KRW-BIG': {'ask': 3000.0, 'bid': 2999.0}}
         q = patch.object(live.upbit, 'orderbooks', side_effect=lambda ms: {m: self.book[m] for m in ms}); q.start(); self.addCleanup(q.stop)
@@ -54,7 +55,7 @@ class Resting(unittest.TestCase):
         self.order['paid_fee'] = str(funds * 0.0005)
 
     def place(self):
-        msg = self.lv._rest_buy('KRW-CAP', 80000, '봇 주문안 t', {'market': 'KRW-CAP'})
+        msg = self.lv._rest_buy('KRW-CAP', 80000, '봇 주문안 t', {'market': 'KRW-CAP', 'anchor_close': 130.0})
         self.assertIn('지정가 매수 대기 146', msg)
         return msg
 
@@ -116,11 +117,43 @@ class Resting(unittest.TestCase):
         self.assertIn('지정가 매수 대기 3.48', msg)
         self.assertEqual(set(self.lv.resting_info()), {'KRW-CAP', 'KRW-SOPH'})
 
+    def test_cancel_without_market_buy_when_18h_gain_turns_non_positive(self):
+        self.place()
+        self.lv.manage_resting({'KRW-CAP': 130.0})
+        self.assertEqual(self.cancelled, ['u1']); self.assertEqual(self.market_buys, [])
+
+    def test_cancel_when_loss_halt_or_new_judgment_says_no(self):
+        self.place()
+        self.lv.manage_resting({'KRW-CAP': 146.0}, lambda m, r: None)
+        self.assertEqual(self.cancelled, [])
+        self.lv.manage_resting({'KRW-CAP': 146.0}, lambda m, r: '순위 7위 밖')
+        self.assertEqual(self.cancelled, ['u1']); self.assertEqual(self.market_buys, [])
+        self.order.update(state='wait'); self.cancelled.clear()
+        self.place(); self.lv.d['halted'] = True
+        self.lv.manage_resting({'KRW-CAP': 146.0})
+        self.assertEqual(self.cancelled, ['u1']); self.assertEqual(self.market_buys, [])
+
     def test_post_only_rejected_immediately_falls_back_to_market(self):
         self.place()
         self.order['state'] = 'cancel'                     # 호가가 움직여 즉시 체결될 가격이 되면 거래소가 취소한다
         self.lv.manage_resting({})
         self.assertEqual([m for m, _ in self.market_buys], ['KRW-CAP'])
+
+
+class StillOk(unittest.TestCase):
+    def test_new_15m_judgment_rechecks_rank_gain_cap_regime_warning(self):
+        from types import SimpleNamespace
+        p = st.Params(entry_scan=7, regime_filter=True)
+        b = SimpleNamespace(p=p, live=SimpleNamespace(d={}), rs_all={'KRW-CAP': (3, .1)},
+                            entry_view={'end': 2000, 'entry_ok': {'KRW-CAP'}, 'regime': .002})
+        ok = lambda: bot.Bot.resting_still_ok(b, 'KRW-CAP', {'placed': 1000})
+        self.assertIsNone(ok())
+        self.assertIsNone(bot.Bot.resting_still_ok(b, 'KRW-CAP', {'placed': 3000}))   # 걸기 전 판단이면 보지 않는다
+        b.rs_all['KRW-CAP'] = (9, .1); self.assertIn('순위', ok())
+        b.rs_all['KRW-CAP'] = (3, -.01); self.assertIn('상승률', ok())
+        b.rs_all['KRW-CAP'] = (3, .2); self.assertIn('과열', ok())
+        b.rs_all['KRW-CAP'] = (3, .1); b.entry_view['regime'] = -.001; self.assertIn('장세', ok())
+        b.entry_view['regime'] = .002; b.entry_view['entry_ok'] = set(); self.assertIn('경보', ok())
 
 
 class Display(unittest.TestCase):

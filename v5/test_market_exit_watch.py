@@ -142,3 +142,31 @@ class BotCapitalSizing(unittest.TestCase):
         p.bot_capital_divisor = 0                                     # 끄면 예전(총자산 비례)
         text, _ = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, p, caps, 363_638.0, 0, market_index=0.01, protected={'KRW-BTC'})
         self.assertIn('매수 A 75000원', text)                         # 1,851,996 × 0.00184 / 0.045 = 75,726
+
+    def test_dust_does_not_count_as_held(self):
+        # 2026-11-06 13:01: 손절 뒤 남은 CAP 1e-08개 때문에 CAP이 '이미 보유'로 사유 없이 빠졌다.
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5)
+        ranked = [{'market': 'KRW-CAP', 'rank': 3, 'rs': 0.12, 'close': 147.0, 'atr': 2.5}]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        text, _ = shadow.proposal({'KRW-CAP': 1.46e-06}, ranked, {}, {'KRW-CAP'}, p, caps, 363_638.0, 0, market_index=0.01)
+        self.assertIn('매수 CAP 80000원', text)
+        text, _ = shadow.proposal({'KRW-CAP': 60_000.0}, ranked, {}, {'KRW-CAP'}, p, caps, 303_638.0, 0, market_index=0.01)
+        self.assertNotIn('매수 CAP', text)                            # 진짜 보유는 그대로 재매수 안 함
+
+    def test_hourly_record_keeps_6h_fields(self):
+        import tempfile, json as js
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'w.jsonl'
+            ms.record_brake(f, {'at': 'x', 'index_24h': -0.06, 'index_6h': 0.002, 'filter_hours': 6})
+            r = js.loads(f.read_text(encoding='utf-8'))
+            self.assertEqual((r['index_6h'], r['filter_hours']), (0.002, 6))
+
+    def test_compare_treats_unlabelled_records_after_switch_as_6h(self):
+        import tempfile, regime_compare as rc, json as js
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'w.jsonl'
+            f.write_text(chr(10).join(js.dumps(r) for r in (
+                {'at': '2026-11-06T12:00+09:00', 'index_24h': -0.05}, {'at': '2026-11-06T13:00+09:00', 'index_24h': -0.06})), encoding='utf-8')
+            H = rc.hours(f)
+            self.assertEqual(sorted(r['filter_hours'] for r in H.values()), [6, 24])

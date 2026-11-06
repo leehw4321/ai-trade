@@ -55,13 +55,16 @@ class SamePlanGenerator(unittest.TestCase):
         self.assertFalse(sells & buys)
         self.assertEqual(buys, {'SEVEN'})
 
-    def test_original_held_dust_is_not_relabelled_as_new_entry(self):
+    def test_dust_below_min_order_is_buyable_but_real_holding_is_not(self):
         ranked = [{'market': 'KRW-DUST', 'rank': 1, 'rs': .1},
                   {'market': 'KRW-NEW', 'rank': 2, 'rs': .09}]
         text, _ = self.plan({'KRW-DUST': 1000}, ranked, {'KRW-DUST', 'KRW-NEW'})
         self.assertNotIn('매도 DUST', text)
-        self.assertNotIn('매수 DUST', text)
+        # 2026-11-06: 5,000원 미만 자투리는 보유로 보지 않는다(손절 뒤 남은 1e-08개가 재매수를 사유 없이 막았다). 진짜 보유는 아래 검사가 지킨다.
+        self.assertIn('매수 DUST ', text)
         self.assertIn('매수 NEW ', text)
+        text, _ = self.plan({'KRW-HELD': 50_000}, [{'market': 'KRW-HELD', 'rank': 1, 'rs': .1}], {'KRW-HELD'})
+        self.assertNotIn('매수 HELD', text)
 
     def test_missing_data_holding_is_preserved_without_blocking_other_eligible(self):
         holdings = {'KRW-MISSING': 10_000}

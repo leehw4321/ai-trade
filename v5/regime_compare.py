@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 HOUR = 3600
+SWITCH = '2026-11-06T12:17+09:00'   # 6시간 필터 적용 시각. 13:00 기록에는 filter_hours가 빠져 있어(기록 결함, 13:xx 수정) 이 시각 이후는 6으로 본다.
 
 
 def _t(s):
@@ -20,6 +21,8 @@ def hours(watch_path):
     try:
         for line in Path(watch_path).read_text(encoding='utf-8').splitlines():
             r = json.loads(line)
+            if r.get('filter_hours') is None:
+                r['filter_hours'] = 6 if _t(r['at']) >= _t(SWITCH) else 24
             out[int(_t(r['at']) // HOUR * HOUR)] = r
     except (OSError, ValueError, KeyError):
         pass

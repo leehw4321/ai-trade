@@ -64,7 +64,7 @@ def load(path):
 def record_brake(path, state):
     """정시마다 단기 브레이크가 발동했을지 기록만 한다(주문 무영향)."""
     with open(path, 'a', encoding='utf-8') as f:
-        f.write(json.dumps({k: state.get(k) for k in ('at', 'index_24h', 'index_4h', 'brake_4h', 'up', 'total')}, ensure_ascii=False) + '\n')
+        f.write(json.dumps({k: state.get(k) for k in ('at', 'index_24h', 'index_6h', 'index_4h', 'brake_4h', 'up', 'total', 'filter_hours')}, ensure_ascii=False) + '\n')
 
 
 def fetch_fng(path, now=None, opener=urllib.request.urlopen):

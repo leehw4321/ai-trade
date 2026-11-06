@@ -159,7 +159,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     room = max(0.0, caps['max_total_buy_krw'] - bought)
     # Eligibility is based on the inventory at plan creation, not the inventory after
     # hypothetical sales. A queued sale must never make the same coin a fresh buy.
-    originally_held = set(holdings)
+    originally_held = {m for m, v in holdings.items() if v >= 5000}  # 팔 수 없는 자투리(5,000원 미만)는 보유로 보지 않는다(2026-11-06 CAP 1e-08개가 매수를 막음)
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top

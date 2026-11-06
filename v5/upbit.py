@@ -187,9 +187,15 @@ def market_buy(market, krw, identifier=None):
     return _post_order(params)
 
 
+def vol8(volume):
+    """수량을 소수 8자리 문자열로. 이진 소수 오차 없이(repr 기준) 내림만 한다(반올림으로 잔고를 넘지 않게)."""
+    from decimal import Decimal, ROUND_DOWN
+    return str(Decimal(repr(float(volume))).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN))
+
+
 def market_sell(market, volume, identifier=None):
     """시장가 매도: 수량 지정."""
-    params = {'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': f'{volume:.8f}'}
+    params = {'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': vol8(volume)}
     if identifier: params['identifier'] = identifier
     return _post_order(params)
 

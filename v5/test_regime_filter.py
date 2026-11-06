@@ -167,5 +167,33 @@ class ReceiverEnforcement(unittest.TestCase):
             self.run_plan(market_index=None)
 
 
+
+class NoDustOnFullSell(unittest.TestCase):
+    """2026-11-06: 전량 매도가 이진 소수 오차로 1e-08개를 남겼다(CAP 950.45500505 → 950.45500504 매도)."""
+
+    def test_vol8_never_rounds_up_or_loses_the_last_digit(self):
+        import upbit
+        self.assertEqual(upbit.vol8(950.45500505), '950.45500505')
+        self.assertEqual(upbit.vol8(254.23728813), '254.23728813')
+        self.assertEqual(upbit.vol8(1.234567899), '1.23456789')
+
+    def _sell(self, plan, balance, price):
+        import tempfile, live
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        lv = live.Live(tmp.name, {'enabled': True, 'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9,
+                                  'max_sell_krw_per_plan': 10 ** 9}, st.Params())
+        sent = []
+        with patch.object(live.upbit, 'accounts', return_value=[{'currency': 'CAP', 'balance': balance, 'locked': '0'}]),              patch.object(live.upbit, 'tickers', return_value={'KRW-CAP': {'trade_price': price}}),              patch.object(lv, '_trade', side_effect=lambda side, m, v, *a, **k: sent.append(v) or (_ for _ in ()).throw(RuntimeError('stop'))):
+            try: lv.execute(('봇 주문안 t', plan), {'KRW-CAP': {'warning': False}}, automatic=True, market_index=0.01)
+            except RuntimeError: pass
+        return sent
+
+    def test_full_sell_sends_the_exact_balance(self):
+        self.assertEqual(self._sell('매도 CAP 100%; 매수 없음', '950.45500505', 147.0), [950.45500505])
+
+    def test_partial_sell_leaving_less_than_min_order_sells_all(self):
+        self.assertEqual(self._sell('매도 CAP 97%; 매수 없음', '950.45500505', 147.0), [950.45500505])   # 남는 3% ≈ 4,190원
+        self.assertEqual(self._sell('매도 CAP 50%; 매수 없음', '950.45500505', 147.0), [475.22750252])
+
 if __name__ == '__main__':
     unittest.main()

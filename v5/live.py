@@ -774,7 +774,10 @@ class Live:
             if side != 'sell':
                 continue
             avail = float(acc.get(m[4:], {}).get('balance', 0))
-            vol = int(avail * pct / 100 * 1e8) / 1e8
+            # 전량(100%)은 잔고 그대로 판다. int(x*1e8)/1e8은 이진 소수 오차로 950.45500505를 ...504로 깎아 1e-08개 자투리를
+            # 남겼다(2026-11-06 확인: CAP·BIRB·PIEVERSE·LSK·TRUST·WLD). 일부 매도 뒤 남는 양이 최소 주문 미만이면 전량으로 바꾼다.
+            vol = avail if pct >= 100 else float(upbit.vol8(avail * pct / 100))
+            if (avail - vol) * tick[m]['trade_price'] < 5000: vol = avail
             if vol * tick[m]['trade_price'] < 5000:
                 done.append(f'{m[4:]} 매도 건너뜀(5,000원 미만)')
                 continue
@@ -1095,7 +1098,7 @@ class Live:
         for m, pos, price in parts:
             if self.market_has_uncertain_order(m) or m not in self.d['positions']: continue
             avail = float(balances.get(m[4:], {}).get('balance', 0))
-            vol = int(min(pos['qty'], avail) * float(self.cfg.get('partial_frac', 1 / 3)) * 1e8) / 1e8
+            vol = float(upbit.vol8(min(pos['qty'], avail) * float(self.cfg.get('partial_frac', 1 / 3))))
             if vol * price < 5000 or (pos['qty'] - vol) * price < 5000:
                 pos['part_done'] = True  # 너무 작아 나눠 팔 수 없다: 다시 시도하지 않는다
                 self.save()

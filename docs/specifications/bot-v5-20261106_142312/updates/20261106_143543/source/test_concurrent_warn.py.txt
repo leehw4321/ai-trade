@@ -1,0 +1,59 @@
+import tempfile
+import unittest
+from unittest import mock
+
+import live
+import strategy as st
+
+
+class ConcurrentWarn(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lv = live.Live(self.tmp.name, {'enabled': True, 'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9}, st.Params())
+        self.prices = {}
+        for i in range(8):
+            m = f'KRW-C{i}'
+            self.lv.d['positions'][m] = {'qty': 10.0, 'cost': 1000.0, 'stop': 1.0, 'time': '2026-11-04T10:00:00+09:00'}
+            self.prices[m] = 100.0   # 평가액 1,000원 → 5천원 미만이라 세지 않는다
+
+    def hold(self, n, value=100.0):
+        for i in range(8):
+            self.prices[f'KRW-C{i}'] = value if i < n else 1.0
+
+    def events(self):
+        import json
+        f = self.lv.folder / 'orders.jsonl'
+        return [json.loads(x)['event'] for x in f.read_text(encoding='utf-8').splitlines() if '"event"' in x] if f.exists() else []
+
+    def test_alert_turns_on_at_threshold_once_and_off_below(self):
+        with mock.patch.object(self.lv, 'protected_markets', return_value=frozenset()):
+            self.hold(5, 1000.0)
+            self.assertEqual(self.lv.check_concurrent(self.prices), 5)
+            self.assertFalse((self.lv.d.get('concurrent_warn') or {}).get('active'))
+            self.hold(6, 1000.0)
+            self.assertEqual(self.lv.check_concurrent(self.prices), 6)
+            self.assertTrue(self.lv.d['concurrent_warn']['active'])
+            self.lv.check_concurrent(self.prices)
+            self.assertEqual(self.events().count('동시 보유 경보'), 1)
+            self.hold(4, 1000.0)
+            self.lv.check_concurrent(self.prices)
+            self.assertFalse(self.lv.d['concurrent_warn']['active'])
+            self.assertEqual(self.events().count('동시 보유 경보 해제'), 1)
+
+    def test_protected_and_small_positions_are_not_counted_and_zero_disables(self):
+        self.hold(8, 1000.0)
+        with mock.patch.object(self.lv, 'protected_markets', return_value=frozenset({'KRW-C0', 'KRW-C1', 'KRW-C2'})):
+            self.assertEqual(self.lv.check_concurrent(self.prices), 5)
+        self.lv.cfg['concurrent_warn_at'] = 0
+        with mock.patch.object(self.lv, 'protected_markets', return_value=frozenset()):
+            self.assertEqual(self.lv.check_concurrent(self.prices), 0)
+
+    def test_never_blocks_anything_and_protection_failure_is_silent(self):
+        self.hold(8, 1000.0)
+        with mock.patch.object(self.lv, 'protected_markets', side_effect=live.ProtectedAssetError('x')):
+            self.assertEqual(self.lv.check_concurrent(self.prices), 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

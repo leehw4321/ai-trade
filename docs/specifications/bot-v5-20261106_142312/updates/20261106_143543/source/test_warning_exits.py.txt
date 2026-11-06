@@ -1,0 +1,41 @@
+"""Regression checks: warnings block buys without blocking owned-position exits. No real API calls."""
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import live
+import strategy as st
+
+
+class WarningExitTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lv = live.Live(self.tmp.name, {'enabled': True}, st.Params())
+        self.markets = {'KRW-X': {'warning': True}}
+        self.lv.d['positions']['KRW-X'] = {'qty': 10., 'cost': 10000., 'stop': 950., 'time': 't'}
+
+    def test_warning_blocks_new_buy_before_private_account_lookup(self):
+        with patch.object(live.upbit, 'accounts', side_effect=AssertionError('must not access account')):
+            self.assertIn('경보', self.lv.buy_block('KRW-X', 10000, self.markets))
+
+    def test_warning_does_not_block_rotation_sell(self):
+        with patch.object(live.upbit, 'accounts', return_value=[{'currency': 'X', 'balance': '10'}]), \
+             patch.object(live.upbit, 'tickers', return_value={'KRW-X': {'trade_price': 1000}}), \
+             patch.object(self.lv, '_trade', return_value={'state': 'done'}) as trade, \
+             patch.object(self.lv, '_fill', return_value=(10., 10000., 5.)):
+            result = self.lv.execute(('review', '매도 X 100%'), self.markets)
+        trade.assert_called_once_with('ask', 'KRW-X', 10., 'review')
+        self.assertIn('매도', result)
+
+    def test_warning_does_not_block_stop_exit(self):
+        with patch.object(live.upbit, 'accounts', return_value=[{'currency': 'X', 'balance': '10'}]), \
+             patch.object(self.lv, 'rebase_adopted_stops'), patch.object(self.lv, 'share'), \
+             patch.object(self.lv, '_trade', return_value={'state': 'done'}) as trade, \
+             patch.object(self.lv, '_fill', return_value=(10., 9000., 4.5)):
+            self.lv.stop_check({'KRW-X': 900.})
+        trade.assert_called_once_with('ask', 'KRW-X', 10., '손절', risk=True)
+
+
+if __name__ == '__main__':
+    unittest.main()

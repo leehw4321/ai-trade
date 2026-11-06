@@ -1,0 +1,222 @@
+"""Minimal Upbit client: public quotes, account lookup, and market orders used by live.py."""
+import base64
+import datetime as dt
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+import time
+import urllib.parse
+import urllib.request
+import uuid
+
+BASE = 'https://api.upbit.com'
+ROOT = Path(__file__).resolve().parent
+ENV_FILES = [ROOT / '.env', ROOT.parent / '.env']
+ORDER_GUARD = None
+
+
+class OrderRejected(RuntimeError):
+    """The exchange definitively rejected a submission before creating this order."""
+    def __init__(self, status, name, message):
+        self.status = status
+        self.name = name
+        super().__init__(f'주문 거부 {status} ({name}): {message}')
+
+
+def _get(path, params=None, headers=None, retries=3):
+    url = BASE + path + ('?' + urllib.parse.urlencode(params) if params else '')
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={'Accept': 'application/json', **(headers or {})})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < retries - 1:
+                time.sleep(1 + attempt)
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == retries - 1:
+                raise
+            time.sleep(1 + attempt)
+
+
+TRADABLE_CAUTIONS = {'TRADING_VOLUME_SOARING', 'DEPOSIT_AMOUNT_SOARING', 'PRICE_FLUCTUATIONS'}
+
+
+def market_warning_details(row):
+    """Split Upbit warning metadata; 'warning' keeps the original combined formula.
+
+    Non-dict market_event raises ValueError. Non-dict caution keeps warning=True when
+    the warning flag or legacy CAUTION is set; otherwise raises ValueError (state unknown).
+    """
+    labels = {'PRICE_FLUCTUATIONS': '가격 급등락', 'TRADING_VOLUME_SOARING': '거래량 급증',
+              'DEPOSIT_AMOUNT_SOARING': '입금량 급증', 'GLOBAL_PRICE_DIFFERENCES': '가격 차이',
+              'CONCENTRATION_OF_SMALL_ACCOUNTS': '소수 계정 집중'}
+    ev = row.get('market_event')
+    if ev is None:
+        ev = {}
+    elif not isinstance(ev, dict):
+        raise ValueError(f'market_event 형식 불명: {type(ev).__name__}')
+    investment = bool(ev.get('warning')) or row.get('market_warning') == 'CAUTION'
+    caution = ev.get('caution')
+    if caution is None:
+        caution = {}
+    elif not isinstance(caution, dict):
+        if not investment:
+            raise ValueError(f'caution 형식 불명, 경보 여부 판정 불가: {type(caution).__name__}')
+        return {'warning': True, 'investment_warning': True, 'caution_types': [], 'trade_blocked': True,
+                'warning_reasons': ['투자유의', '경보상세 형식 불명'], 'caution_severity': 'unknown'}
+    warned = bool(ev.get('warning')) or any(caution.values()) or row.get('market_warning') == 'CAUTION'
+    # Upbit API does not expose the 주의/경고/위험 stage, so severity is only unknown/none.
+    types = sorted(k for k, v in caution.items() if v)
+    reasons = (['투자유의'] if investment else []) + [labels.get(k, k) for k in types]
+    # 사용자 지시(2026-11-04): 거래량 급등·입금량 급증·가격 급등락 경보는 매매 제한에서 뺀다.
+    # 투자유의·해외 가격차·소액계좌 집중·알 수 없는 항목이 함께 있으면 그 사유로 제한한다.
+    blocked = investment or any(t not in TRADABLE_CAUTIONS for t in types)
+    return {'warning': warned, 'investment_warning': investment, 'caution_types': types, 'trade_blocked': blocked,
+            'warning_reasons': reasons, 'caution_severity': 'unknown' if types else 'none'}
+
+
+def krw_markets():
+    """KRW markets with a warning flag (투자유의 또는 주의 항목)."""
+    rows = _get('/v1/market/all', {'is_details': 'true'})
+    out = {}
+    for r in rows:
+        if not r['market'].startswith('KRW-'):
+            continue
+        out[r['market']] = {'name': r.get('korean_name', ''), **market_warning_details(r)}
+    return out
+
+
+def tickers(markets):
+    out = {}
+    markets = list(markets)
+    for i in range(0, len(markets), 100):
+        for t in _get('/v1/ticker', {'markets': ','.join(markets[i:i + 100])}):
+            out[t['market']] = t
+    return out
+
+
+def orderbooks(markets):
+    out = {}
+    for ob in _get('/v1/orderbook', {'markets': ','.join(markets)}):
+        unit = ob['orderbook_units'][0]
+        out[ob['market']] = {'ask': unit['ask_price'], 'bid': unit['bid_price']}
+    return out
+
+
+def completed_candles(market, minutes, count=200, now=None):
+    """Chronological candles whose period has fully ended. Each bar: t (UTC start), o, h, l, c."""
+    path = '/v1/candles/days' if minutes == 1440 else f'/v1/candles/minutes/{minutes}'
+    rows = _get(path, {'market': market, 'count': count})
+    now = now or dt.datetime.now(dt.timezone.utc)
+    bars = []
+    for r in reversed(rows):
+        start = dt.datetime.fromisoformat(r['candle_date_time_utc']).replace(tzinfo=dt.timezone.utc)
+        if start + dt.timedelta(minutes=minutes) > now:
+            continue
+        bars.append({'t': start.isoformat(), 'o': r['opening_price'], 'h': r['high_price'],
+                     'l': r['low_price'], 'c': r['trade_price'], 'v': r.get('candle_acc_trade_price')})
+    return bars
+
+
+def _keys():
+    keys = {k: os.getenv(k, '').strip() for k in ('UPBIT_ACCESS_KEY', 'UPBIT_SECRET_KEY')}
+    for f in ENV_FILES:
+        if all(keys.values()) or not f.exists():
+            continue
+        for line in f.read_text(encoding='utf-8-sig').splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                if k.strip() in keys and not keys[k.strip()]:
+                    keys[k.strip()] = v.strip()
+    return keys['UPBIT_ACCESS_KEY'], keys['UPBIT_SECRET_KEY']
+
+
+def _b64(data):
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
+
+
+def accounts():
+    """Read-only balance lookup (GET /v1/accounts)."""
+    access, secret = _keys()
+    if not access or not secret:
+        raise RuntimeError('업비트 API 키를 찾지 못했습니다.')
+    header = _b64(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode())
+    payload = _b64(json.dumps({'access_key': access, 'nonce': str(uuid.uuid4())}).encode())
+    sig = _b64(hmac.new(secret.encode(), f'{header}.{payload}'.encode(), hashlib.sha256).digest())
+    return _get('/v1/accounts', headers={'Authorization': f'Bearer {header}.{payload}.{sig}'})
+
+
+def _auth(params=None):
+    access, secret = _keys()
+    if not access or not secret:
+        raise RuntimeError('업비트 API 키를 찾지 못했습니다.')
+    payload = {'access_key': access, 'nonce': str(uuid.uuid4())}
+    if params:
+        q = urllib.parse.urlencode(params)
+        payload.update({'query_hash': hashlib.sha512(q.encode()).hexdigest(), 'query_hash_alg': 'SHA512'})
+    header = _b64(json.dumps({'alg': 'HS256', 'typ': 'JWT'}).encode())
+    body = _b64(json.dumps(payload).encode())
+    sig = _b64(hmac.new(secret.encode(), f'{header}.{body}'.encode(), hashlib.sha256).digest())
+    return {'Authorization': f'Bearer {header}.{body}.{sig}'}
+
+
+def get_order(order_uuid):
+    params = {'uuid': order_uuid}
+    return _get('/v1/order', params, headers=_auth(params))
+
+
+def get_order_by_identifier(identifier):
+    params = {'identifier': identifier}
+    return _get('/v1/order', params, headers=_auth(params))
+
+
+def open_orders():
+    params = {'state': 'wait'}
+    return _get('/v1/orders/open', params, headers=_auth(params))
+
+
+def market_buy(market, krw, identifier=None):
+    """시장가 매수: 원화 금액 지정."""
+    params = {'market': market, 'side': 'bid', 'ord_type': 'price', 'price': str(int(krw))}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
+
+
+def vol8(volume):
+    """수량을 소수 8자리 문자열로(repr 기준 가장 가까운 값). 거래소 잔고는 8자리라 float을 거쳐 37.430000009999998이 된 값도
+    37.43000001로 정확히 돌아온다. 내림이면 마지막 1e-08개가 남는다(2026-11-06 자투리 원인)."""
+    from decimal import Decimal, ROUND_HALF_EVEN
+    return str(Decimal(repr(float(volume))).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_EVEN))
+
+
+def market_sell(market, volume, identifier=None):
+    """시장가 매도: 수량 지정."""
+    params = {'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': vol8(volume)}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
+
+
+def _post_order(params):
+    if ORDER_GUARD is not None:
+        ORDER_GUARD(params.get('side'))
+    req = urllib.request.Request(BASE + '/v1/orders', data=json.dumps(params).encode(), method='POST',
+                                 headers={'Content-Type': 'application/json', **_auth(params)})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors='replace')[:300]
+        try:
+            detail = json.loads(body).get('error', {})
+            name = str(detail.get('name', 'unknown'))
+        except (ValueError, AttributeError):
+            name = 'unknown'
+        # Duplicate identifiers can refer to an existing accepted order; resolve by lookup.
+        if e.code in (400, 401, 403, 404, 422) and name != 'unknown' and 'duplicate' not in name.lower():
+            raise OrderRejected(e.code, name, body) from e
+        raise RuntimeError(f'주문 응답 불확정 {e.code}: {body}') from e

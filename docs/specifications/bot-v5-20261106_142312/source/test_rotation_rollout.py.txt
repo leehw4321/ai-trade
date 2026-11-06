@@ -1,0 +1,200 @@
+"""No network/orders: persistence, boundary, isolation and safety-regression tests."""
+import datetime as dt
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch, Mock
+
+import live
+import bot
+import rotation_policy as rp
+import shadow
+import strategy as st
+
+BASE=1800000000 // 3600 * 3600
+
+
+class PolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.p=st.Params(rotation_enabled=True,entry_scan=5,M=5,entry_want=3)
+
+    def test_identity_is_stable_and_per_market_direction_settings(self):
+        a=rp.intent_id(BASE,'KRW-A','bid',rp.policy_hash(self.p))
+        self.assertEqual(a,rp.intent_id(BASE,'KRW-A','bid',rp.policy_hash(self.p)))
+        self.assertNotEqual(a,rp.intent_id(BASE,'KRW-A','ask',rp.policy_hash(self.p)))
+        self.assertNotEqual(a,rp.intent_id(BASE,'KRW-B','bid',rp.policy_hash(self.p)))
+        self.p.M=7
+        self.assertNotEqual(a,rp.intent_id(BASE,'KRW-A','bid',rp.policy_hash(self.p)))
+
+    def test_envelope_rejects_late_wrong_bar_future_and_settings(self):
+        now=BASE+100
+        prop={'signal_closed_at':BASE,'signal_tf_minutes':15,'rotation':rp.envelope(self.p,BASE,now)}
+        self.assertEqual(rp.validate(prop,self.p,now,BASE-3600)['slot'],BASE)
+        for stamp in (BASE-1,BASE+19,BASE+920,BASE+3600+100):
+            with self.assertRaises(ValueError):rp.validate(prop,self.p,stamp,BASE-3600)
+        self.p.entry_scan=4
+        with self.assertRaises(ValueError):rp.validate(prop,self.p,now,BASE-3600)
+
+    def test_reentry_needs_completed_signal_after_wait_not_just_wall_time(self):
+        last={'time':BASE-6*3600+40,'profit':False}
+        self.assertIsNotNone(rp.fresh_reentry(last,self.p,BASE))
+        self.assertIsNone(rp.fresh_reentry(last,self.p,BASE+900))
+        row={'bar':dt.datetime.fromtimestamp(BASE-900,dt.timezone.utc).isoformat(),'close':100,'atr':1}
+        self.assertIsNotNone(st.reentry_block(row,last,BASE+100,self.p))
+
+    def test_rank_confirmation_counts_distinct_completed_signals_and_resets(self):
+        state={}
+        self.assertFalse(rp.rank_exit(state,'KRW-A',6,BASE,5,2))
+        self.assertFalse(rp.rank_exit(state,'KRW-A',6,BASE,5,2))
+        self.assertTrue(rp.rank_exit(state,'KRW-A',6,BASE+3600,5,2))
+        self.assertFalse(rp.rank_exit(state,'KRW-A',4,BASE+7200,5,2))
+        self.assertFalse(rp.rank_exit(state,'KRW-A',6,BASE+10800,5,2))
+
+    def test_observation_has_no_future_or_gap_backfill_and_resets_on_new_basis(self):
+        pos={'qty':10.,'cost':1000.}
+        rp.observe(pos,101.,BASE)
+        rp.observe(pos,98.,BASE+100)
+        self.assertEqual(pos['rotation_observed']['samples'],2)
+        self.assertAlmostEqual(pos['rotation_observed']['mfe_pct'],1.)
+        self.assertAlmostEqual(pos['rotation_observed']['mae_pct'],-2.)
+        pos['cost']=1100.
+        rp.observe(pos,111.,BASE+200)
+        self.assertEqual(pos['rotation_observed']['since'],BASE+200)
+        pos['rotation_observed']={'reference':'broken'}
+        self.assertTrue(rp.observe(pos,112.,BASE+300))
+
+    def test_paper_regime_guard_handles_finite_indices_after_buy_halt_is_released(self):
+        self.p.regime_filter=True;self.p.halt_new_buys=False;self.p.regime_expires=BASE+99999
+        worker=bot.Bot.__new__(bot.Bot);worker.p=self.p
+        for index in (.01,-.01):
+            ledger=Mock();ledger.d={'positions':{},'banned':{},'rotation_first_slot':BASE-3600,
+                                   'rotation_last_slot':BASE-3600,'signals':0}
+            with patch('bot.time.time',return_value=BASE+100),patch('bot.st.market_index',return_value=index):
+                worker.apply('test',ledger,[],set(),BASE,{},set())
+            self.assertEqual(ledger.d['last_4h'],BASE)
+
+    def test_optional_audit_failure_and_size_cap_do_not_raise(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'audit.jsonl'
+            for i in range(30):self.assertTrue(rp.append_audit(path,{'sample':i},max_bytes=160))
+            self.assertLessEqual(len(list(Path(folder).iterdir())),3)
+            with patch.object(Path,'open',side_effect=OSError):
+                self.assertFalse(rp.append_audit(path,{'sample':99}))
+
+    def test_submission_evidence_is_a_frozen_copy(self):
+        pos={'qty':1,'cost':100,'rotation_observed':{'last_price':99}}
+        meta={'slot':BASE,'markets':{'KRW-A':{'rank':1}}}
+        out=rp.trade_evidence(pos,'손절',BASE,meta)
+        pos['rotation_observed']['last_price']=50
+        meta['markets']['KRW-A']['rank']=9
+        self.assertEqual(out['position_at_submit']['rotation_observed']['last_price'],99)
+        self.assertEqual(out['decision']['markets']['KRW-A']['rank'],1)
+
+    def test_generator_never_picks_rank_outside_maintenance_even_if_scan_misconfigured(self):
+        self.p.entry_scan=8
+        ranked=[{'market':'KRW-A','rank':6,'rs':.1,'close':100,'atr':1,'bar':dt.datetime.fromtimestamp(BASE-900,dt.timezone.utc).isoformat()}]
+        text,_=shadow.proposal({},ranked,{}, {'KRW-A'},self.p,
+            {'max_order_krw':100000,'max_total_buy_krw':1000000,'max_sell_krw_per_plan':100000},100000,0,rotation_slot=BASE)
+        # A rank-6 row can be first in a sparse supplied list; enforce rank, not slice index.
+        self.assertNotIn('매수 A ',text)
+
+
+class DurableReceiverTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.folder=self.root/'live'
+        self.p=st.Params(rotation_enabled=True,entry_scan=5,M=5)
+        self.cfg={'enabled':True,'auto_proposal':True,'loss_stop_pct':0,'loss_stop_krw':15000}
+        with patch('live.time.time',return_value=BASE+100):self.worker=live.Live(self.folder,self.cfg,self.p)
+        self.closed=BASE+3600;self.now=self.closed+100
+
+    def proposal(self):
+        prop={'time':dt.datetime.fromtimestamp(self.now,dt.timezone.utc).isoformat(),
+              'text':'실행 주문안: 매도 없음; 매수 없음',
+              'signal_closed_at':self.closed,'signal_tf_minutes':15,'evaluated_at':self.closed+30,
+              'rotation':rp.envelope(self.p,self.closed,self.now)}
+        (self.root/'proposal.json').write_text(json.dumps(prop),encoding='utf-8')
+        return prop
+
+    def test_same_signal_with_new_timestamp_is_not_replayed_after_restart(self):
+        prop=self.proposal()
+        with patch('live.time.time',return_value=self.now),patch.object(self.worker,'execute',return_value='none') as execute:
+            self.worker.poll_proposal({});execute.assert_called_once()
+        prop['time']=dt.datetime.fromtimestamp(self.now+30,dt.timezone.utc).isoformat()
+        (self.root/'proposal.json').write_text(json.dumps(prop),encoding='utf-8')
+        with patch('live.time.time',return_value=self.now+30):
+            restarted=live.Live(self.folder,self.cfg,self.p)
+            with patch.object(restarted,'execute') as execute:
+                restarted.poll_proposal({});execute.assert_not_called()
+
+    def test_legacy_proposal_cannot_fall_back_when_new_path_enabled(self):
+        prop=self.proposal();prop.pop('rotation')
+        (self.root/'proposal.json').write_text(json.dumps(prop),encoding='utf-8')
+        with patch('live.time.time',return_value=self.now),patch.object(self.worker,'execute') as execute:
+            self.worker.poll_proposal({});execute.assert_not_called()
+
+    def test_crash_after_durable_claim_before_orders_is_never_reissued(self):
+        self.proposal();original=self.worker.save
+        class Crash(BaseException):pass
+        def crash():original();raise Crash()
+        with patch('live.time.time',return_value=self.now),patch.object(self.worker,'save',side_effect=crash):
+            with self.assertRaises(Crash):self.worker.poll_proposal({})
+        with patch('live.time.time',return_value=self.now):
+            restarted=live.Live(self.folder,self.cfg,self.p)
+            with patch.object(restarted,'execute') as execute:
+                restarted.poll_proposal({});execute.assert_not_called()
+
+    def test_pending_or_loss_pause_never_consumes_a_new_signal_or_sends_orders(self):
+        self.proposal()
+        with patch('live.time.time',return_value=self.now),patch.object(self.worker,'has_uncertain_orders',return_value=True),patch.object(self.worker,'execute') as execute:
+            self.worker.poll_proposal({});execute.assert_not_called()
+        self.assertEqual(self.worker.d['rotation_state']['last_slot'],-1)
+        self.worker.d['rotation_state']['paused']='loss budget'
+        with patch('live.time.time',return_value=self.now),patch.object(self.worker,'execute') as execute:
+            self.worker.poll_proposal({});execute.assert_not_called()
+
+    def test_receiver_rejects_rank_6_before_network_calls(self):
+        context={'market':'KRW-A','rank':6,'policy_hash':rp.policy_hash(self.p)}
+        with patch('live.upbit.accounts') as accounts:
+            self.assertIn('순위',self.worker.entry_chase_block('KRW-A',context))
+            accounts.assert_not_called()
+
+    def test_profit_reentry_dip_with_new_completed_bar_is_not_permanently_blocked(self):
+        # 재진입 1회 예외(chase_override)를 이미 쓴 매도: 기존 눌림 규칙 검사
+        self.worker.d['last_sell']={'KRW-A':{'time':BASE-3*3600,'profit':True,'price':100.,'from_reentry':True}}
+        context={'market':'KRW-A','rank':1,'policy_hash':rp.policy_hash(self.p),'signal_close':110.,
+                 'anchor_close':100.,'rs':.1,'signal_closed_at':BASE,'signal_tf_minutes':15,'evaluated_at':BASE+30}
+        bars=[{'t':dt.datetime.fromtimestamp(BASE-900,dt.timezone.utc).isoformat()}]
+        with patch('live.time.time',return_value=BASE+100),patch.object(self.worker,'is_protected',return_value=False),patch('live.upbit.accounts',return_value=[{'currency':'KRW','balance':'100000'}]),patch('live.upbit.completed_candles',return_value=bars),patch('live.st.wilder_atr',return_value=2.),patch('live.upbit.orderbooks',return_value={'KRW-A':{'ask':97.,'bid':96.99}}):
+            self.assertEqual(self.worker.buy_block('KRW-A',5000,{'KRW-A':{}},entry_context=context,validate_entry=True),'')
+        with patch('live.time.time',return_value=BASE+100),patch.object(self.worker,'is_protected',return_value=False),patch('live.upbit.accounts',return_value=[{'currency':'KRW','balance':'100000'}]),patch('live.upbit.completed_candles',return_value=bars),patch('live.st.wilder_atr',return_value=2.),patch('live.upbit.orderbooks',return_value={'KRW-A':{'ask':99.,'bid':98.99}}):
+            self.assertIn('눌려야',self.worker.buy_block('KRW-A',5000,{'KRW-A':{}},entry_context=context,validate_entry=True))
+
+    def test_rotation_fill_records_percent_and_r_and_pauses_at_existing_loss_budget(self):
+        self.worker.cfg['loss_stop_krw']=100.
+        self.worker.d['positions']={'KRW-A':{'qty':100.,'cost':10000.,'stop':96.,
+            'rotation_initial_risk':{'per_unit':4.}}}
+        pending={'identifier':'fake-local-only','side':'ask','market':'KRW-A','amount':100,
+                 'reason':'rotation','time':dt.datetime.fromtimestamp(self.now,dt.timezone.utc).isoformat(),
+                 'rotation_evidence':{'decision':{'slot':self.closed},'position_at_submit':{'rotation_initial_risk':{'per_unit':4.}}}}
+        self.worker.d['pending_order']=pending
+        order={'identifier':'fake-local-only','market':'KRW-A','side':'ask','state':'done',
+               'executed_volume':'100','paid_fee':'4.75','trades':[{'volume':'100','funds':'9500','price':'95'}]}
+        with patch.object(self.worker,'loss_limit',side_effect=AssertionError('No network/save helper inside partial fill settlement')):
+            self.assertTrue(self.worker._apply_pending(order))
+        self.assertAlmostEqual(self.worker.d['rotation_state']['net_realized'],-504.75)
+        self.assertTrue(self.worker.d['rotation_state']['paused'])
+        event=json.loads((self.folder/'rotation_audit.jsonl').read_text(encoding='utf-8').splitlines()[-1])
+        self.assertAlmostEqual(event['net_return_pct'],-5.0475)
+        self.assertAlmostEqual(event['r_multiple'],-1.261875)
+
+    def test_risk_exit_is_independent_of_hour_slot_pause_and_optional_observation_logging(self):
+        self.worker.d['rotation_state']['paused']='regular rotation loss'
+        self.worker.d['positions']={'KRW-A':{'qty':100.,'cost':10000.,'stop':99.}}
+        with patch.object(self.worker,'recover_all_pending'),patch.object(self.worker,'rebase_adopted_stops'),patch.object(self.worker,'update_profit_guard'),patch.object(self.worker,'is_protected',return_value=False),patch('live.upbit.accounts',return_value=[{'currency':'A','balance':'100'}]),patch.object(self.worker,'_trade',return_value={}) as trade,patch.object(self.worker,'_fill',return_value=(100,9800,4.9)),patch.object(self.worker,'share'):
+            self.worker.stop_check({'KRW-A':98.})
+            trade.assert_called_once_with('ask','KRW-A',100.,'손절',risk=True)
+
+
+if __name__=='__main__':unittest.main()

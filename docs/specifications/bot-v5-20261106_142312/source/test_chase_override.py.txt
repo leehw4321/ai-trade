@@ -1,0 +1,305 @@
+"""과열 상한 예외(사용자 지시 2026-11-05): 직접 지정 15~20%, 이익 청산 뒤 재진입 1회, 과열 보유는 순위 매도 제외."""
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import chase_override as co
+import live
+import shadow
+import strategy as st
+
+CAPS = {'max_order_krw': 10 ** 9, 'max_total_buy_krw': 10 ** 9, 'max_sell_krw_per_plan': 10 ** 9}
+
+
+class Rules(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.p = st.Params()
+
+    def test_promote_only_between_cap_and_20_percent_and_has_no_time_limit(self):
+        self.assertFalse(co.promote(self.dir, 'KRW-A', 0.14, self.p, now=1000)[0])
+        self.assertFalse(co.promote(self.dir, 'KRW-A', 0.20, self.p, now=1000)[0])
+        self.assertTrue(co.promote(self.dir, 'KRW-A', 0.15, self.p, now=1000)[0])
+        self.assertIn('KRW-A', co.promoted(self.dir, now=1000 + 30 * 24 * 3600))  # 24시간 만료 없음(사용자 지시 11-05)
+        self.assertTrue(co.unpromote(self.dir, 'KRW-A')[0])
+        self.assertEqual(co.promoted(self.dir, now=1000), {})
+
+    def test_grant_is_used_up_by_one_purchase(self):
+        co.promote(self.dir, 'KRW-A', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-B', 0.17, self.p, now=1000)
+        self.assertTrue(co.consume(self.dir, 'KRW-A'))
+        self.assertEqual(set(co.promoted(self.dir)), {'KRW-B'})
+        self.assertFalse(co.consume(self.dir, 'KRW-A'))
+
+    def test_grant_resets_when_overheat_lifts_so_the_original_rule_applies_again(self):
+        co.promote(self.dir, 'KRW-A', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-B', 0.17, self.p, now=1000)
+        co.promote(self.dir, 'KRW-C', 0.17, self.p, now=1000)
+        gone = co.reset_cooled(self.dir, {'KRW-A': 0.18, 'KRW-B': 0.10}, self.p)   # A 여전히 과열, B 해제, C 순위 정보 없음
+        self.assertEqual(set(gone), {'KRW-B', 'KRW-C'})
+        self.assertEqual(set(co.promoted(self.dir)), {'KRW-A'})
+        co.reset_cooled(self.dir, {'KRW-A': 0.12}, self.p)
+        self.assertEqual(co.promoted(self.dir), {})
+        # 다시 과열이 돼도 지정은 없다 → 원래 15% 규칙
+        self.assertEqual(co.cap_for('KRW-A', self.p, co.promoted(self.dir), None), 0.15)
+
+    def test_old_file_with_until_field_still_reads_as_a_grant(self):
+        (self.dir / co.PROMOTED).write_text('{"markets": {"KRW-A": {"at": 1, "until": 2, "rs": 0.17}}}', encoding='utf-8')
+        self.assertIn('KRW-A', co.promoted(self.dir))
+
+    def test_disabled_cap_means_no_exception(self):
+        p = st.Params(chase_rs_cap=0.0)
+        self.assertFalse(co.promote(self.dir, 'KRW-A', 0.17, p, now=1000)[0])
+        self.assertEqual(co.cap_for('KRW-A', p, {'KRW-A': 1e12}, None), 0.0)
+
+    def test_reentry_once_after_profit_within_24h(self):
+        now = 100000
+        last = {'time': now - 3600, 'profit': True}
+        self.assertTrue(co.reentry_ok(last, now))
+        self.assertFalse(co.reentry_ok({**last, 'profit': False}, now))
+        self.assertFalse(co.reentry_ok({**last, 'from_reentry': True}, now))
+        self.assertFalse(co.reentry_ok({**last, 'time': now - 24 * 3600}, now))
+        self.assertEqual(co.cap_for('KRW-A', self.p, {}, last, now), 0.20)
+        self.assertEqual(co.cap_for('KRW-A', self.p, {}, None, now), 0.15)
+
+    def test_hot_held_is_sticky_while_held_and_cleared_after_sale(self):
+        self.assertEqual(co.update_hot_held(self.dir, {'KRW-A', 'KRW-B'}, {'KRW-A': 0.16, 'KRW-B': 0.05}, self.p), {'KRW-A'})
+        self.assertEqual(co.update_hot_held(self.dir, {'KRW-A', 'KRW-B'}, {'KRW-A': 0.02, 'KRW-B': 0.05}, self.p), {'KRW-A'})
+        self.assertEqual(co.update_hot_held(self.dir, {'KRW-B'}, {'KRW-B': 0.05}, self.p), set())
+
+    def test_bad_files_fall_back_to_the_15_percent_rule(self):
+        (self.dir / co.PROMOTED).write_text('{broken', encoding='utf-8')
+        (self.dir / co.HOT_HELD).write_text('[1, 2]', encoding='utf-8')
+        self.assertEqual(co.promoted(self.dir), {})
+        self.assertEqual(co.hot_held(self.dir), set())
+
+
+class Proposal(unittest.TestCase):
+    def setUp(self):
+        for method in ('accounts', 'tickers', 'orderbooks', 'market_buy', 'market_sell'):
+            block = patch.object(shadow.upbit, method, side_effect=AssertionError('unexpected external call'))
+            block.start()
+            self.addCleanup(block.stop)
+        self.p = st.Params(M=9, entry_want=3, entry_scan=7, coin_cap=1., total_cap=1.)
+
+    def plan(self, ranked, holdings=None, krw=990_000, **kw):
+        return shadow.proposal(holdings or {}, ranked, {}, {r['market'] for r in ranked}, self.p, CAPS, krw, 0, **kw)
+
+    def test_hot_holding_is_not_sold_when_rank_drops(self):
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(1, 12)]
+        text, _ = self.plan(ranked, {'KRW-C11': 80000})
+        self.assertIn('매도 C11', text)
+        text, reasons = self.plan(ranked, {'KRW-C11': 80000}, hot={'KRW-C11'})
+        self.assertNotIn('매도 C11', text)
+        self.assertTrue(any('과열 보유' in r for r in reasons))
+
+    def test_rank_exit_off_keeps_every_holding_for_stop_and_profit_guard(self):
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(1, 12)] + [{'market': 'KRW-NEG', 'rank': 12, 'rs': -.03}]
+        holdings = {'KRW-C11': 80000, 'KRW-NEG': 80000, 'KRW-OUT': 80000}   # 순위 밖·상대강도 음수·상위 30 밖
+        text, _ = self.plan(ranked, holdings)
+        self.assertIn('매도 C11', text)
+        self.p.rank_exit = False
+        text, reasons = self.plan(ranked, holdings)
+        self.assertIn('매도 없음', text)
+        self.assertEqual(sum('순위 매도 안 함' in r for r in reasons), 3)
+
+    def test_protected_holdings_do_not_eat_the_bot_investment_room(self):
+        # 실제 11-05 12시 계좌: 보호 157만 + ETH 8만 + 현금 30만. 순위 매도를 끄면 보호 종목이 투입액에 남아 매수 여력이 0이 되던 결함
+        self.p.rank_exit = False
+        self.p.total_cap, self.p.size_by_risk = 0.5, False
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .05}]
+        holdings = {'KRW-BTC': 529000, 'KRW-XRP': 524000, 'KRW-DOGE': 516000, 'KRW-ETH': 80000}
+        text, reasons = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, self.p, CAPS, 302000, 0)
+        self.assertIn('매수 없음', text)
+        text, reasons = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, self.p, CAPS, 302000, 0, protected={'KRW-BTC', 'KRW-XRP', 'KRW-DOGE'})
+        self.assertIn('매수 A', text)
+        self.assertIn('매도 없음', text)
+
+    def test_four_slots_and_stuck_marking_after_rank_exit_off(self):
+        self.p.rank_exit, self.p.slots, self.p.entry_want = False, 4, 4
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(1, 12)]
+        holdings = {'KRW-C11': 70000, 'KRW-C10': 90000, 'KRW-BTC': 500000}
+        costs = {'KRW-C11': 80000, 'KRW-C10': 80000}
+        stuck = {}
+        text, reasons = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out=stuck)
+        self.assertEqual({m: s['state'] for m, s in stuck.items()}, {'KRW-C11': '손실 중', 'KRW-C10': '이익 중'})
+        self.assertEqual(text.count('매수 '), 2)                 # 봇 보유 2(보호 BTC 제외) → 4종목까지 2개 더
+        self.assertTrue(any('봇 보유 2/4종목 (묶임 2)' in r for r in reasons))
+        text, _ = self.plan(ranked, {f'KRW-C{i}': 80000 for i in range(8, 12)})
+        self.assertIn('매수 없음', text)                          # 4/4면 신규 매수 없음
+
+    def test_partial_swap_sells_only_the_shortfall_of_the_weakest_stuck_loser(self):
+        self.p.rank_exit, self.p.slots, self.p.entry_want, self.p.swap_stuck_loss = False, 4, 4, True
+        self.p.size_by_risk, self.p.entry_risk, self.p.stop_max_pct, self.p.total_cap = True, 0.0018, 0.045, 1.0
+        ranked = [{'market': 'KRW-NEW', 'rank': 1, 'rs': .05}] + [{'market': f'KRW-C{i}', 'rank': i, 'rs': .05} for i in range(2, 10)]
+        ranked += [{'market': 'KRW-L1', 'rank': 12, 'rs': .01}, {'market': 'KRW-L2', 'rank': 14, 'rs': -.02},
+                   {'market': 'KRW-W1', 'rank': 13, 'rs': .02}]
+        holdings = {'KRW-L1': 76000, 'KRW-L2': 75000, 'KRW-W1': 90000, 'KRW-BTC': 1_500_000}
+        costs = {'KRW-L1': 80000, 'KRW-L2': 80000, 'KRW-W1': 80000}
+        stuck = {}
+        # 자리는 1칸 남았지만 현금 3만 원이 1회 매수 금액(약 7.4만 원)에 모자란다
+        text, reasons = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out=stuck, krw=30000)
+        self.assertIn('매도 L2 ', text)              # 묶임(손실 중) 중 가장 약한 L2만 판다
+        self.assertNotIn('매도 L1', text)
+        self.assertNotIn('매도 W1', text)            # 묶임(이익 중)은 팔지 않는다
+        self.assertNotIn('매도 BTC', text)
+        pct = int(text.split('매도 L2 ')[1].split('%')[0])
+        self.assertLess(pct, 100)                     # 모자란 만큼만
+        self.assertIn('매수 NEW', text)
+        # 4칸이 꽉 차 있으면 자리를 비우려면 전량을 판다
+        holdings['KRW-C9'], costs['KRW-C9'] = 80000, 80000
+        text, _ = self.plan(ranked, holdings, protected={'KRW-BTC'}, costs=costs, stuck_out={}, krw=60000)
+        self.assertIn('매도 L2 100%', text)
+        self.assertIn('매수 NEW', text)
+
+    def test_promoted_17_percent_is_bought_but_21_percent_is_not(self):
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .17}, {'market': 'KRW-B', 'rank': 2, 'rs': .21}]
+        text, _ = self.plan(ranked)
+        self.assertIn('매수 없음', text)
+        text, _ = self.plan(ranked, promoted={'KRW-A': time.time() + 3600, 'KRW-B': time.time() + 3600})
+        self.assertIn('매수 A', text)
+        self.assertNotIn('매수 B', text)
+
+    def test_profit_exit_reentry_skips_wait_and_dip_once(self):
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .18, 'close': 110., 'atr': 1.}]
+        fresh = {'KRW-A': {'time': time.time() - 600, 'price': 100., 'profit': True}}
+        text, _ = self.plan(ranked, last_sells=fresh)
+        self.assertIn('매수 A', text)
+        text, _ = self.plan(ranked, last_sells={'KRW-A': {**fresh['KRW-A'], 'from_reentry': True}})
+        self.assertIn('매수 없음', text)
+        text, _ = self.plan(ranked, last_sells={'KRW-A': {**fresh['KRW-A'], 'profit': False}})
+        self.assertIn('매수 없음', text)
+
+
+class BreakevenLock(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lv = live.Live(Path(self.tmp.name) / 'live', {'enabled': True, 'profit_guard_enabled': True, 'profit_guard_arm_pct': 0.03,
+                                                           'profit_guard_giveback': 0.3, 'breakeven_lock_pct': 0.015}, st.Params())
+        self.lv.is_protected = lambda m: False
+        self.lv.d['positions'] = {'KRW-A': {'qty': 100.0, 'cost': 10000.0, 'stop': 95.5, 'entry': 100.0}}
+
+    def test_dust_below_min_order_gets_no_guard(self):
+        self.lv.d['positions']['KRW-D'] = {'qty': 1e-08, 'cost': 1e-06, 'stop': 95.5, 'entry': 100.0}
+        self.lv.update_profit_guard({'KRW-D': 150.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-D'].get('profit_guard_stop'))
+        self.assertFalse([r for r in self.lv.d.get('executed', []) if r.get('market') == 'KRW-D'])
+
+    def test_lock_to_breakeven_after_one_and_a_half_percent(self):
+        self.lv.update_profit_guard({'KRW-A': 101.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-A'].get('profit_guard_stop'))
+        self.lv.update_profit_guard({'KRW-A': 101.6})
+        g = self.lv.d['positions']['KRW-A']['profit_guard_stop']
+        self.assertGreater(g, 100.0)                                   # 본전 + 수수료·비용
+        self.assertLess(g, 101.0)
+        self.assertEqual(self.lv.stop_limit(self.lv.d['positions']['KRW-A']), g)
+        self.lv.update_profit_guard({'KRW-A': 106.0})                  # +3% 넘으면 기존 30% 반납선이 더 높다
+        self.assertAlmostEqual(self.lv.d['positions']['KRW-A']['profit_guard_stop'], 104.2)
+
+    def test_lock_off_by_default(self):
+        self.lv.cfg.pop('breakeven_lock_pct')
+        self.lv.update_profit_guard({'KRW-A': 102.0})
+        self.assertIsNone(self.lv.d['positions']['KRW-A'].get('profit_guard_stop'))
+
+
+class Receiver(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name)
+        self.worker = live.Live(self.data / 'live', {'enabled': True}, st.Params())
+        self.end, self.now = 18000, 18050
+        clock = patch.object(live.time, 'time', return_value=self.now)
+        clock.start(); self.addCleanup(clock.stop)
+        self.ctx = {'market': 'KRW-A', 'signal_close': 117., 'anchor_close': 100., 'rs': .17,
+                    'signal_closed_at': self.end, 'signal_tf_minutes': 15, 'evaluated_at': 18025}
+
+    def test_receiver_allows_promoted_up_to_20_percent_from_its_own_file(self):
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+        co.promote(self.data, 'KRW-A', .17, self.worker.p, now=self.now)
+        self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 120.))
+
+    def test_first_buy_fill_uses_up_the_grant_and_the_rule_returns_to_15_percent(self):
+        co.promote(self.data, 'KRW-A', .17, self.worker.p, now=self.now)
+        self.worker.d['positions'].clear()
+        self.worker.d['pending_order'] = {'identifier': 'i', 'side': 'bid', 'market': 'KRW-A', 'amount': 10000, 'reason': 'p',
+                                          'uuid': 'u', 'time': '2026-11-02T21:00:00+09:00', 'atr': 1.0}
+        self.worker._apply_pending({'identifier': 'i', 'side': 'bid', 'state': 'done', 'executed_volume': '100',
+                                    'trades': [{'volume': '100', 'funds': '10000'}], 'paid_fee': '5', 'uuid': 'u'}, None)
+        self.assertIn('KRW-A', self.worker.d['positions'])
+        self.assertEqual(co.promoted(self.data), {})
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+
+    def _buy(self, qty, funds, t='2026-11-06T14:01:00+09:00'):
+        self.worker.d['pending_order'] = {'identifier': 'i', 'side': 'bid', 'market': 'KRW-A', 'amount': funds, 'reason': 'p',
+                                          'uuid': 'u', 'time': t, 'atr': 1.0}
+        self.worker._apply_pending({'identifier': 'i', 'side': 'bid', 'state': 'done', 'executed_volume': str(qty),
+                                    'trades': [{'volume': str(qty), 'funds': str(funds)}], 'paid_fee': '5', 'uuid': 'u'}, None)
+        return self.worker.d['positions']['KRW-A']
+
+    def test_buy_over_dust_starts_a_fresh_position(self):
+        # 2026-11-06: 손절 뒤 남은 1e-08개 자투리의 옛 손절가(현재가보다 높음)를 새 매수가 이어받으면 사자마자 팔린다.
+        self.worker.d['positions'] = {'KRW-A': {'qty': 1e-08, 'cost': 1e-06, 'stop': 138.4, 'entry': 140.0,
+                                                'time': '2026-11-06T10:25:56+09:00', 'profit_guard_peak': 150.0}}
+        pos = self._buy(800, 80000)                                    # 100원에 매수
+        self.assertLess(pos['stop'], 100.0)
+        self.assertEqual((pos['entry'], pos['time']), (100.0, '2026-11-06T14:01:00+09:00'))
+        self.assertNotIn('profit_guard_peak', pos)
+        self.assertAlmostEqual(pos['qty'], 800 + 1e-08)
+
+    def test_buy_over_real_holding_keeps_the_old_stop(self):
+        self.worker.d['positions'] = {'KRW-A': {'qty': 500.0, 'cost': 50000.0, 'stop': 99.0, 'entry': 100.0,
+                                                'time': '2026-11-06T10:00:00+09:00'}}
+        pos = self._buy(100, 10000)
+        self.assertEqual((pos['stop'], pos['time']), (99.0, '2026-11-06T10:00:00+09:00'))
+
+    def test_sweep_dust_buys_then_sells_everything_and_keeps_last_sell(self):
+        import live
+        last = {'time': 1.0, 'price': 150.0, 'profit': False}
+        self.worker.d['last_sell'] = {'KRW-A': dict(last)}
+        self.worker.d['positions'] = {'KRW-A': {'qty': 1e-08, 'cost': 1e-06, 'stop': 138.4, 'entry': 140.0, 'time': '2026-11-06T10:25:56+09:00'}}
+        bal = {'v': '0.00000001'}
+        sent = []
+        def trade(side, m, amount, reason, risk=False, **k):
+            sent.append((side, amount, reason))
+            if side == 'bid':
+                o = {'side': 'bid', 'state': 'done', 'trades': [{'volume': '55.0', 'funds': '5500'}], 'paid_fee': '2.75', 'uuid': 'b'}
+                self.worker.d['pending_order'] = {'identifier': 'b', 'side': 'bid', 'market': m, 'amount': amount, 'reason': reason,
+                                                  'uuid': 'b', 'time': '2026-11-06T14:10:00+09:00', 'atr': 1.0}
+                self.worker._apply_pending({**o, 'identifier': 'b', 'executed_volume': '55.0'}, None); bal['v'] = '55.00000001'
+            else:
+                o = {'side': 'ask', 'state': 'done', 'trades': [{'volume': bal['v'], 'funds': '5490'}], 'paid_fee': '2.74', 'uuid': 's'}
+                self.worker.d['pending_order'] = {'identifier': 's', 'side': 'ask', 'market': m, 'amount': amount, 'reason': reason,
+                                                  'uuid': 's', 'time': '2026-11-06T14:10:01+09:00', 'atr': 1.0}
+                self.worker._apply_pending({**o, 'identifier': 's', 'executed_volume': bal['v']}, None); bal['v'] = '0'
+            return o
+        with patch.object(live.upbit, 'accounts', side_effect=lambda: [{'currency': 'A', 'balance': bal['v'], 'locked': '0'}]),              patch.object(live.upbit, 'tickers', return_value={'KRW-A': {'trade_price': 100.0}}),              patch.object(self.worker, '_trade', side_effect=trade), patch.object(self.worker, 'is_protected', return_value=False):
+            ok, msg = self.worker.sweep_dust('KRW-A', {'KRW-A': {}})
+        self.assertTrue(ok, msg)
+        self.assertEqual([s[0] for s in sent], ['bid', 'ask'])
+        self.assertEqual(sent[1][1], 55.00000001)                     # 잔고 전부
+        self.assertNotIn('KRW-A', self.worker.d['positions'])
+        self.assertEqual(self.worker.d['last_sell']['KRW-A'], last)   # 재진입 규칙용 기록은 그대로
+
+    def test_sweep_refuses_real_holdings(self):
+        import live
+        self.worker.d['positions'] = {'KRW-A': {'qty': 100.0, 'cost': 10000.0, 'stop': 90.0, 'time': 't'}}
+        with patch.object(live.upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '100', 'locked': '0'}]),              patch.object(live.upbit, 'tickers', return_value={'KRW-A': {'trade_price': 100.0}}),              patch.object(self.worker, 'is_protected', return_value=False):
+            ok, msg = self.worker.sweep_dust('KRW-A', {'KRW-A': {}})
+        self.assertFalse(ok); self.assertIn('자투리 아님', msg)
+
+    def test_receiver_allows_profit_reentry_only_once(self):
+        self.worker.d['last_sell'] = {'KRW-A': {'time': self.now - 600, 'price': 100., 'profit': True}}
+        self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+        self.worker.d['last_sell']['KRW-A']['from_reentry'] = True
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+
+
+if __name__ == '__main__':
+    unittest.main()

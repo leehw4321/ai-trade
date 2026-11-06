@@ -1,0 +1,14 @@
+{
+  "source_hashes_verified": 85,
+  "source_ast_parsed": 85,
+  "config_json_valid": true,
+  "bot_or_trading_tests_run": false,
+  "real_orders_submitted": false,
+  "runtime_source_changed_since_capture": [
+    "bot.py",
+    "live.py",
+    "manual_orders.py",
+    "upbit.py"
+  ],
+  "html_rendered_and_opened": true
+}

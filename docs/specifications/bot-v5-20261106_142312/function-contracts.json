@@ -1,0 +1,8023 @@
+[
+  {
+    "file": "account_sync.py",
+    "definitions": [
+      {
+        "name": "snapshot",
+        "line": 19,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "atomic",
+        "line": 39,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "performance",
+        "line": 45,
+        "end": 51,
+        "doc": "Unrealized return on holdings with both a price and a known positive cost."
+      },
+      {
+        "name": "render",
+        "line": 54,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "run",
+        "line": 104,
+        "end": 121,
+        "doc": ""
+      },
+      {
+        "name": "price",
+        "line": 66,
+        "end": 68,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "adopt_account.py",
+    "definitions": [
+      {
+        "name": "inventory",
+        "line": 20,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "open_orders",
+        "line": 24,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "build_state",
+        "line": 37,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "main",
+        "line": 67,
+        "end": 138,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "asset_protection.py",
+    "definitions": [
+      {
+        "name": "ProtectionError",
+        "line": 19,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "normalize",
+        "line": 23,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "validate",
+        "line": 31,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "effective",
+        "line": 76,
+        "end": 82,
+        "doc": ""
+      },
+      {
+        "name": "explicit_release",
+        "line": 85,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "merge",
+        "line": 91,
+        "end": 116,
+        "doc": "Latest explicit choice wins; equally dated/unknown conflicts favor protection."
+      },
+      {
+        "name": "_decimal",
+        "line": 119,
+        "end": 123,
+        "doc": ""
+      },
+      {
+        "name": "Policy",
+        "line": 126,
+        "end": 265,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 127,
+        "end": 131,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 133,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "locked",
+        "line": 146,
+        "end": 182,
+        "doc": ""
+      },
+      {
+        "name": "mutate",
+        "line": 184,
+        "end": 198,
+        "doc": ""
+      },
+      {
+        "name": "revision",
+        "line": 200,
+        "end": 201,
+        "doc": ""
+      },
+      {
+        "name": "_choice",
+        "line": 203,
+        "end": 207,
+        "doc": ""
+      },
+      {
+        "name": "decide",
+        "line": 209,
+        "end": 217,
+        "doc": ""
+      },
+      {
+        "name": "observe",
+        "line": 219,
+        "end": 265,
+        "doc": ""
+      },
+      {
+        "name": "change",
+        "line": 212,
+        "end": 216,
+        "doc": ""
+      },
+      {
+        "name": "change",
+        "line": 221,
+        "end": 264,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "bot.py",
+    "definitions": [
+      {
+        "name": "load_params",
+        "line": 46,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "boundary",
+        "line": 52,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "utc",
+        "line": 56,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "ranking_rows",
+        "line": 60,
+        "end": 95,
+        "doc": "순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.\n매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.\nwarned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와\n경보 이유를, 불가하면 '매수 불가(경보 이유)'를 적는다."
+      },
+      {
+        "name": "stuck_html",
+        "line": 98,
+        "end": 108,
+        "doc": "묶인 보유: 예전 규칙이면 순위로 팔았을 종목. 순위 매도 없이 손절·이익보호로만 판다(사용자 지시 2026-11-05)."
+      },
+      {
+        "name": "fmt_price",
+        "line": 111,
+        "end": 119,
+        "doc": "가격 표시: 지수 표기(1.047e+08) 없이 자릿수에 맞춰 쓴다."
+      },
+      {
+        "name": "holdings_table",
+        "line": 122,
+        "end": 152,
+        "doc": "보유 종목 한 표(실제 계좌 평가·원가 + 봇 장부 매도선 + 보호·묶임 구분). 5,000원 미만 자투리는 개수만 적는다.\nrows: pnl 요약의 unrealized_rows. sell_line(m) -> (이름, 가격) 또는 None."
+      },
+      {
+        "name": "useful_events",
+        "line": 158,
+        "end": 173,
+        "doc": "실거래 기록 중 사람이 볼 것만: 체결(매수·매도 금액), 주문안 결과, 이익보호·본전 잠금 시작. 내부 기준 기록('0원' 줄)은 뺀다."
+      },
+      {
+        "name": "promote_script",
+        "line": 179,
+        "end": 189,
+        "doc": "순위표 '매수 대상으로'/'지정 취소' 버튼. 서버가 없으면 버튼이 나오지 않는다."
+      },
+      {
+        "name": "Bot",
+        "line": 192,
+        "end": 1049,
+        "doc": ""
+      },
+      {
+        "name": "single_instance",
+        "line": 1052,
+        "end": 1062,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 193,
+        "end": 206,
+        "doc": ""
+      },
+      {
+        "name": "log",
+        "line": 208,
+        "end": 210,
+        "doc": ""
+      },
+      {
+        "name": "align_timeframe",
+        "line": 212,
+        "end": 224,
+        "doc": "Preserve holdings on a timeframe change and wait for the next new close."
+      },
+      {
+        "name": "init_t0",
+        "line": 227,
+        "end": 244,
+        "doc": ""
+      },
+      {
+        "name": "candidates",
+        "line": 247,
+        "end": 252,
+        "doc": ""
+      },
+      {
+        "name": "fetch_bars",
+        "line": 254,
+        "end": 262,
+        "doc": ""
+      },
+      {
+        "name": "rebalance",
+        "line": 264,
+        "end": 307,
+        "doc": ""
+      },
+      {
+        "name": "apply",
+        "line": 309,
+        "end": 355,
+        "doc": ""
+      },
+      {
+        "name": "stop_check",
+        "line": 357,
+        "end": 366,
+        "doc": "실시간 손절: 현재 체결가가 손절가 이하이면 최우선 매수호가로 매도 (사용자 의견으로 봉 마감 대기 폐지)."
+      },
+      {
+        "name": "prices",
+        "line": 368,
+        "end": 378,
+        "doc": "최신 체결가. 응답에 빠진 종목은 마지막 관측값을 쓰고 price_missing에 기록한다."
+      },
+      {
+        "name": "refresh_real",
+        "line": 380,
+        "end": 396,
+        "doc": "실제 업비트 계좌 조회 (주문 없음)."
+      },
+      {
+        "name": "refresh_display",
+        "line": 398,
+        "end": 405,
+        "doc": "Refresh exchange balances independently of strategy/ledger snapshots."
+      },
+      {
+        "name": "sweep_dust_request",
+        "line": 407,
+        "end": 420,
+        "doc": "data/dust_sweep.json([\"KRW-...\"] 목록)이 있으면 한 번 자투리 정리를 하고 결과를 dust_sweep_result.jsonl에 남긴 뒤 요청을 지운다."
+      },
+      {
+        "name": "can_act",
+        "line": 422,
+        "end": 425,
+        "doc": "이 PC가 실행권을 가졌나(캐시된 판단). 실제 주문 직전에는 session_guard가 GitHub에서 다시 확인한다."
+      },
+      {
+        "name": "grant_status",
+        "line": 429,
+        "end": 433,
+        "doc": ""
+      },
+      {
+        "name": "request_grant",
+        "line": 435,
+        "end": 448,
+        "doc": "화면 '이 PC에 실행권 받기' 버튼: 이전 도구(take_over)를 별도 프로세스로 시작한다. 이 봇은 도구가 멈추고 다시 켠다."
+      },
+      {
+        "name": "ownership_html",
+        "line": 450,
+        "end": 490,
+        "doc": "실행권 램프와 '이 PC에 실행권 받기' 버튼. 램프: 초록=이 PC, 빨강=다른 PC/없음, 노랑=확인 불가."
+      },
+      {
+        "name": "pnl_summary",
+        "line": 492,
+        "end": 497,
+        "doc": ""
+      },
+      {
+        "name": "holding_rows",
+        "line": 499,
+        "end": 528,
+        "doc": "보유 종목 표의 행. 수량·평가액은 5초마다 갱신되는 실제 계좌 조회(account_live.json)를 기준으로 한다.\n원가는 수량이 일치하는 것 중 손익 집계(pnl, 5분 주기) → 봇 장부 → 업비트 평균 매입가 순서로 고른다.\n계좌 조회가 없거나 2분 넘게 멈췄으면 손익 집계 행을 그대로 쓴다."
+      },
+      {
+        "name": "sell_line",
+        "line": 530,
+        "end": 540,
+        "doc": "봇 장부 종목의 지금 매도선: (이름, 가격). 손절·이익보호·본전 중 실제로 먼저 걸리는 선."
+      },
+      {
+        "name": "live_block",
+        "line": 542,
+        "end": 597,
+        "doc": ""
+      },
+      {
+        "name": "real_block",
+        "line": 599,
+        "end": 628,
+        "doc": ""
+      },
+      {
+        "name": "block",
+        "line": 631,
+        "end": 657,
+        "doc": ""
+      },
+      {
+        "name": "held_markets",
+        "line": 659,
+        "end": 663,
+        "doc": "평가 5,000원 이상 보유 종목(실제 계좌 + 봇 관리 장부)."
+      },
+      {
+        "name": "pnl_block",
+        "line": 665,
+        "end": 706,
+        "doc": "실현손익 관리(D-56). pnl.py가 거래소 체결로 계산한 data/pnl/summary.json을 보여 준다. 접기·펼치기 상태는 브라우저에 기억한다."
+      },
+      {
+        "name": "write_status",
+        "line": 708,
+        "end": 813,
+        "doc": ""
+      },
+      {
+        "name": "run_reviews",
+        "line": 815,
+        "end": 838,
+        "doc": "급변 표시 효과를 정해 둔 기준으로 판정해 화면 상단 공지로 알린다. 판정만 하고 주문·설정은 바꾸지 않는다."
+      },
+      {
+        "name": "notice_action",
+        "line": 840,
+        "end": 842,
+        "doc": ""
+      },
+      {
+        "name": "run",
+        "line": 845,
+        "end": 959,
+        "doc": ""
+      },
+      {
+        "name": "manual_action",
+        "line": 961,
+        "end": 965,
+        "doc": "화면 청산 버튼용 접속 정보. 서버가 꺼져 있으면 None이라 버튼이 나오지 않는다."
+      },
+      {
+        "name": "protection_action",
+        "line": 967,
+        "end": 969,
+        "doc": ""
+      },
+      {
+        "name": "handle_manual_requests",
+        "line": 971,
+        "end": 1035,
+        "doc": "화면에서 확인된 강제 청산 요청을 메인 루프에서 실행한다. 서버 스레드는 주문을 내지 않는다."
+      },
+      {
+        "name": "check",
+        "line": 1037,
+        "end": 1049,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "caution_study.py",
+    "definitions": [
+      {
+        "name": "caution_allowed",
+        "line": 47,
+        "end": 52,
+        "doc": "주의 항목이 가격급변·거래량급등뿐이고 투자유의가 아니면 True. 정보가 없거나 형식이 다르면 False."
+      },
+      {
+        "name": "rise_1h",
+        "line": 55,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "pilot_pnl",
+        "line": 59,
+        "end": 67,
+        "doc": "주의 종목 묶음의 실현손익 + 진행 중 평가손익(청산가치)."
+      },
+      {
+        "name": "CautionStudy",
+        "line": 70,
+        "end": 180,
+        "doc": ""
+      },
+      {
+        "name": "report",
+        "line": 183,
+        "end": 189,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 71,
+        "end": 87,
+        "doc": ""
+      },
+      {
+        "name": "decide",
+        "line": 89,
+        "end": 168,
+        "doc": ""
+      },
+      {
+        "name": "caution_report",
+        "line": 170,
+        "end": 180,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "chase_override.py",
+    "definitions": [
+      {
+        "name": "_read",
+        "line": 26,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "_write",
+        "line": 34,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "_finite",
+        "line": 41,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "ext_cap",
+        "line": 45,
+        "end": 48,
+        "doc": "예외 종목에 쓰는 상한. 과열 상한이 꺼져 있으면(0) 예외도 없다."
+      },
+      {
+        "name": "promoted",
+        "line": 51,
+        "end": 54,
+        "doc": "지금 유효한 직접 지정 종목 {종목: 지정 시각}. 시간 제한은 없다(사면 사라지고, 과열이 풀리면 지워진다)."
+      },
+      {
+        "name": "consume",
+        "line": 57,
+        "end": 65,
+        "doc": "직접 지정 종목을 샀다: 1회 권한을 쓴 것으로 지운다. 지울 게 없으면 False."
+      },
+      {
+        "name": "reset_cooled",
+        "line": 68,
+        "end": 80,
+        "doc": "상승률이 과열 상한 아래로 내려왔거나 순위 정보에서 사라진 종목의 직접 지정을 지운다(원래 규칙으로 되돌림). 지운 종목 목록."
+      },
+      {
+        "name": "promote",
+        "line": 83,
+        "end": 94,
+        "doc": "(성공 여부, 안내문). 상승률이 과열 상한 이상·EXT_CAP 미만일 때만 올린다."
+      },
+      {
+        "name": "unpromote",
+        "line": 97,
+        "end": 105,
+        "doc": ""
+      },
+      {
+        "name": "reentry_ok",
+        "line": 108,
+        "end": 113,
+        "doc": "이익 청산 뒤 한 번 허용되는 재진입인가."
+      },
+      {
+        "name": "cap_for",
+        "line": 116,
+        "end": 120,
+        "doc": "이 종목에 적용할 과열 상한."
+      },
+      {
+        "name": "hot_held",
+        "line": 123,
+        "end": 125,
+        "doc": ""
+      },
+      {
+        "name": "write_stuck",
+        "line": 128,
+        "end": 130,
+        "doc": "묶인 보유(예전 규칙이면 순위로 팔았을 종목) 표시용. 주문 판단에는 쓰지 않는다."
+      },
+      {
+        "name": "read_stuck",
+        "line": 133,
+        "end": 135,
+        "doc": ""
+      },
+      {
+        "name": "update_hot_held",
+        "line": 138,
+        "end": 147,
+        "doc": "보유 중 과열 상한 이상이 된 종목을 표시하고, 더 이상 보유하지 않는 종목은 지운다. 반환: 표시된 종목 집합."
+      }
+    ]
+  },
+  {
+    "file": "continuity.py",
+    "definitions": [
+      {
+        "name": "_epoch",
+        "line": 14,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "_num",
+        "line": 18,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "replay_bot_orders",
+        "line": 26,
+        "end": 85,
+        "doc": "거래소 주문 목록(rows)을 시간순으로 재생한다.\n\n반환 {market: {'qty','cost','last_sell','mixed','open','known_basis'}}\n- qty·cost: 봇 체결만으로 만든 평균단가 재생(매수는 체결금액+수수료, 매도는 평균단가 비례 차감)\n- last_sell: {'time','price','profit'} 마지막 봇 매도. 매도 원가를 알 수 없으면 profit=False(수익 청산으로 추정하지 않음)\n- mixed: 같은 종목에 봇이 아닌 체결이 하나라도 있음 / open: 미체결 주문이 있음 / known_basis: 모든 매도 원가가 재생으로 확인됨"
+      },
+      {
+        "name": "restorable_last_sell",
+        "line": 88,
+        "end": 97,
+        "doc": "장부에 넣을 last_sell(없으면 None): 7일 안이고 장부 기록보다 새로운 봇 매도."
+      },
+      {
+        "name": "bot_basis",
+        "line": 100,
+        "end": 115,
+        "doc": "인수받은 보유가 전부 봇이 산 물량임이 이력으로 입증되면 평균 매수가, 아니면 None.\n\n조건: 비봇 체결 없음, 미체결 없음, 모든 매도 원가 확인, 창 안 첫 봇 체결이 매수(처음부터 재생), 재생 수량이 장부 수량과 0.1% 이내로 같음.\n주문 시각은 거래소가 주는 생성 시각이다(시장가는 거의 즉시 체결). 조회 창(7일) 이전의 보유가 섞이면 첫 체결이 매도이거나 수량이 달라져 복원하지 않는다."
+      }
+    ]
+  },
+  {
+    "file": "daily_equity.py",
+    "definitions": [
+      {
+        "name": "day_of",
+        "line": 16,
+        "end": 17,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 20,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "record",
+        "line": 28,
+        "end": 54,
+        "doc": "총자산 한 번 관측. 바뀐 게 있으면 저장하고 그날 행을 돌려준다. 값이 이상하면 None."
+      },
+      {
+        "name": "recent",
+        "line": 57,
+        "end": 60,
+        "doc": "최근 n일(최신순) [(날짜, 행)]."
+      }
+    ]
+  },
+  {
+    "file": "entry_flags.py",
+    "definitions": [
+      {
+        "name": "features",
+        "line": 18,
+        "end": 35,
+        "doc": "완료봉 목록(시간순)에서 지표를 계산한다. 자료가 모자라거나 이상하면 None(결측은 기록에 남긴다)."
+      },
+      {
+        "name": "flags",
+        "line": 38,
+        "end": 45,
+        "doc": "H1·H2·H3·R8. 지표가 없으면 모두 None(통과로 세지 않는다)."
+      },
+      {
+        "name": "record",
+        "line": 48,
+        "end": 60,
+        "doc": "순위 상위 top_n개의 지표·표시를 한 줄씩 덧붙인다. market: 시장 상태(BTC 변화·장세 지수)."
+      },
+      {
+        "name": "market_state",
+        "line": 63,
+        "end": 71,
+        "doc": "BTC 4시간·12시간 등락 %와 장세 지수(없으면 None)."
+      }
+    ]
+  },
+  {
+    "file": "entry_flags_review.py",
+    "definitions": [
+      {
+        "name": "realized_by_entry",
+        "line": 17,
+        "end": 45,
+        "doc": "거래소 주문 기록에서 V5 매수별 실현손익을 평균단가법(수수료 포함)으로 구한다. {(KST 시각 'YYYY-MM-DDTHH:MM', 종목): 원}"
+      },
+      {
+        "name": "load_flags",
+        "line": 48,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "evaluate",
+        "line": 61,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "notice_text",
+        "line": 103,
+        "end": 119,
+        "doc": "판정 결과를 사용자용 공지 (제목, 본문, 수준)으로. 모으는 중이면 None."
+      }
+    ]
+  },
+  {
+    "file": "exit_study.py",
+    "definitions": [
+      {
+        "name": "now_iso",
+        "line": 64,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "risk_unit",
+        "line": 69,
+        "end": 75,
+        "doc": "G0은 k×ATR, 나머지는 R0=E−S0(유한한 양수일 때만, 아니면 k×ATR)."
+      },
+      {
+        "name": "protect",
+        "line": 78,
+        "end": 94,
+        "doc": "확정 1분봉 종가 평가. 반환: ('exit', 사유) | ('partial', None) | (None, None). 손절가는 내려가지 않는다."
+      },
+      {
+        "name": "rebuy_ok",
+        "line": 97,
+        "end": 118,
+        "doc": "재매수 권리 평가. 막으면 (사유, 0), 허용이면 (None, 금액)."
+      },
+      {
+        "name": "liquidation",
+        "line": 121,
+        "end": 122,
+        "doc": ""
+      },
+      {
+        "name": "lots",
+        "line": 125,
+        "end": 126,
+        "doc": ""
+      },
+      {
+        "name": "Book",
+        "line": 130,
+        "end": 191,
+        "doc": ""
+      },
+      {
+        "name": "Study",
+        "line": 195,
+        "end": 447,
+        "doc": ""
+      },
+      {
+        "name": "parse",
+        "line": 450,
+        "end": 452,
+        "doc": ""
+      },
+      {
+        "name": "summarize",
+        "line": 456,
+        "end": 474,
+        "doc": ""
+      },
+      {
+        "name": "report",
+        "line": 477,
+        "end": 518,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 131,
+        "end": 136,
+        "doc": ""
+      },
+      {
+        "name": "save",
+        "line": 138,
+        "end": 141,
+        "doc": ""
+      },
+      {
+        "name": "trade",
+        "line": 143,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "holdings",
+        "line": 146,
+        "end": 147,
+        "doc": ""
+      },
+      {
+        "name": "open_lot",
+        "line": 149,
+        "end": 154,
+        "doc": ""
+      },
+      {
+        "name": "buy",
+        "line": 156,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "sell_qty",
+        "line": 169,
+        "end": 178,
+        "doc": ""
+      },
+      {
+        "name": "close_all",
+        "line": 180,
+        "end": 184,
+        "doc": ""
+      },
+      {
+        "name": "finish",
+        "line": 186,
+        "end": 191,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 196,
+        "end": 214,
+        "doc": ""
+      },
+      {
+        "name": "note_gap",
+        "line": 216,
+        "end": 218,
+        "doc": ""
+      },
+      {
+        "name": "heartbeat",
+        "line": 220,
+        "end": 225,
+        "doc": ""
+      },
+      {
+        "name": "atr4",
+        "line": 227,
+        "end": 233,
+        "doc": ""
+      },
+      {
+        "name": "decide",
+        "line": 235,
+        "end": 289,
+        "doc": ""
+      },
+      {
+        "name": "realtime_stops",
+        "line": 291,
+        "end": 315,
+        "doc": "초기 손절 S0만 실시간 체결가로 확인한다."
+      },
+      {
+        "name": "minute_bars",
+        "line": 317,
+        "end": 346,
+        "doc": "확정 1분봉을 빠짐없이 순서대로 재생한다. 봉마다 전량 청산 → 일부 익절 → 재매수 순."
+      },
+      {
+        "name": "replay_bar",
+        "line": 348,
+        "end": 376,
+        "doc": ""
+      },
+      {
+        "name": "try_rebuy",
+        "line": 378,
+        "end": 404,
+        "doc": ""
+      },
+      {
+        "name": "snapshot",
+        "line": 406,
+        "end": 414,
+        "doc": ""
+      },
+      {
+        "name": "run",
+        "line": 416,
+        "end": 447,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "exit_watch.py",
+    "definitions": [
+      {
+        "name": "tick",
+        "line": 24,
+        "end": 28,
+        "doc": "업비트 원화 마켓 호가 단위(공식 표, 2025-07-31 기준)."
+      },
+      {
+        "name": "ceil_tick",
+        "line": 31,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "_ts",
+        "line": 36,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "_ok",
+        "line": 42,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "Watch",
+        "line": 46,
+        "end": 117,
+        "doc": ""
+      },
+      {
+        "name": "render",
+        "line": 120,
+        "end": 137,
+        "doc": "화면 한 줄 요약."
+      },
+      {
+        "name": "__init__",
+        "line": 47,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "_event",
+        "line": 53,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "_save",
+        "line": 57,
+        "end": 60,
+        "doc": ""
+      },
+      {
+        "name": "update",
+        "line": 62,
+        "end": 105,
+        "doc": "3초 감시마다 부른다. positions = 실거래 장부 positions, rs_all = {종목: (순위, 18h 상승률)}."
+      },
+      {
+        "name": "summary",
+        "line": 107,
+        "end": 117,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "live.py",
+    "definitions": [
+      {
+        "name": "ProtectedAssetError",
+        "line": 48,
+        "end": 49,
+        "doc": "User-managed assets must never reach automated order submission."
+      },
+      {
+        "name": "normalize_protected_market",
+        "line": 52,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "parse",
+        "line": 80,
+        "end": 97,
+        "doc": "'매도 ONG 100%; 매수 BTC 20000원' -> [('sell','KRW-ONG',100.0), ('buy','KRW-BTC',20000)]. 형식 오류는 ValueError."
+      },
+      {
+        "name": "latest_plan",
+        "line": 100,
+        "end": 109,
+        "doc": "합의 상태인 칸 중 번호가 가장 큰 실행 주문안 (번호, 원문)."
+      },
+      {
+        "name": "parse_limits",
+        "line": 112,
+        "end": 120,
+        "doc": "'1건 60000원; 누적 300000원' -> {'max_order_krw': 60000, 'max_total_buy_krw': 300000}"
+      },
+      {
+        "name": "latest_limits",
+        "line": 123,
+        "end": 131,
+        "doc": ""
+      },
+      {
+        "name": "throttle",
+        "line": 134,
+        "end": 140,
+        "doc": "올리는 값은 현재의 2배와 계좌 총평가액 중 작은 값까지. 내리는 값은 그대로."
+      },
+      {
+        "name": "Live",
+        "line": 143,
+        "end": 1247,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 144,
+        "end": 162,
+        "doc": ""
+      },
+      {
+        "name": "save",
+        "line": 164,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "protection_file",
+        "line": 170,
+        "end": 171,
+        "doc": ""
+      },
+      {
+        "name": "protected_markets",
+        "line": 173,
+        "end": 178,
+        "doc": "Reload at each decision/submission; malformed state blocks submissions."
+      },
+      {
+        "name": "is_protected",
+        "line": 180,
+        "end": 181,
+        "doc": ""
+      },
+      {
+        "name": "protection_policy",
+        "line": 184,
+        "end": 192,
+        "doc": ""
+      },
+      {
+        "name": "manual_detector",
+        "line": 195,
+        "end": 198,
+        "doc": ""
+      },
+      {
+        "name": "scan_manual_orders",
+        "line": 200,
+        "end": 205,
+        "doc": ""
+      },
+      {
+        "name": "set_user_protection",
+        "line": 207,
+        "end": 211,
+        "doc": ""
+      },
+      {
+        "name": "assert_unprotected",
+        "line": 213,
+        "end": 215,
+        "doc": ""
+      },
+      {
+        "name": "record",
+        "line": 217,
+        "end": 221,
+        "doc": ""
+      },
+      {
+        "name": "share",
+        "line": 223,
+        "end": 229,
+        "doc": "토론 AI가 다음 회차에 읽도록 근거자료에 체결 사실을 남긴다."
+      },
+      {
+        "name": "loss_excluded",
+        "line": 232,
+        "end": 238,
+        "doc": "손실 집계에서 뺄 사용자 보호 종목. 목록을 못 읽으면 마지막으로 읽은 목록을 쓴다(없으면 빈 집합)."
+      },
+      {
+        "name": "unrealized",
+        "line": 240,
+        "end": 243,
+        "doc": ""
+      },
+      {
+        "name": "missing_valuations",
+        "line": 245,
+        "end": 248,
+        "doc": ""
+      },
+      {
+        "name": "equity_total",
+        "line": 250,
+        "end": 266,
+        "doc": "계좌 총자산(원화 잔고+잠금+코인 평가). 조회 실패·가격 누락이 있으면 None."
+      },
+      {
+        "name": "loss_limit",
+        "line": 268,
+        "end": 279,
+        "doc": "신규 매수 중단선(원). loss_stop_pct>0이면 기준 총자산 × 비율(기준은 처음 한 번 저장), 아니면 loss_stop_krw."
+      },
+      {
+        "name": "raw_loss",
+        "line": 281,
+        "end": 282,
+        "doc": ""
+      },
+      {
+        "name": "migrate_loss_scope",
+        "line": 284,
+        "end": 292,
+        "doc": "보호 종목 제외 방식으로 처음 바뀔 때, 오늘 손실 값이 갑자기 달라지지 않게 기준(offset)을 맞춘다."
+      },
+      {
+        "name": "resume_buying",
+        "line": 294,
+        "end": 307,
+        "doc": "중단 해제. 지금까지의 손실을 기준(offset)으로 옮겨 손실 집계를 지금부터 다시 쌓는다(과거 손실은 장부에 남는다)."
+      },
+      {
+        "name": "check_resume_request",
+        "line": 309,
+        "end": 321,
+        "doc": "data/live/RESUME_BUY 파일이 있으면 수동 재개 요청으로 처리한다(tools/resume_trading.py가 만든다)."
+      },
+      {
+        "name": "check_concurrent",
+        "line": 323,
+        "end": 347,
+        "doc": "동시 보유 알림(주문을 막지 않는다): 관리 종목(사용자 보호·5천원 미만 제외)이 concurrent_warn_at 이상이면 경보를 켜고 기록한다."
+      },
+      {
+        "name": "check_loss",
+        "line": 349,
+        "end": 378,
+        "doc": ""
+      },
+      {
+        "name": "_wait",
+        "line": 381,
+        "end": 387,
+        "doc": ""
+      },
+      {
+        "name": "_fill",
+        "line": 390,
+        "end": 394,
+        "doc": ""
+      },
+      {
+        "name": "_pending",
+        "line": 396,
+        "end": 398,
+        "doc": ""
+      },
+      {
+        "name": "_set_pending",
+        "line": 400,
+        "end": 406,
+        "doc": ""
+      },
+      {
+        "name": "has_uncertain_orders",
+        "line": 408,
+        "end": 409,
+        "doc": ""
+      },
+      {
+        "name": "market_has_uncertain_order",
+        "line": 411,
+        "end": 414,
+        "doc": ""
+      },
+      {
+        "name": "_apply_pending",
+        "line": 416,
+        "end": 533,
+        "doc": "Apply cumulative fills once and retain partial/unknown orders durably."
+      },
+      {
+        "name": "recover_pending",
+        "line": 535,
+        "end": 539,
+        "doc": ""
+      },
+      {
+        "name": "recover_all_pending",
+        "line": 541,
+        "end": 558,
+        "doc": "Unrelated market risk exits may continue while an order is unresolved."
+      },
+      {
+        "name": "_trade",
+        "line": 560,
+        "end": 617,
+        "doc": ""
+      },
+      {
+        "name": "poll",
+        "line": 619,
+        "end": 654,
+        "doc": "봇 주문안(위임)과 토론 합의 주문안을 확인하고, 새것이면 한 번 실행한다."
+      },
+      {
+        "name": "account_value",
+        "line": 656,
+        "end": 663,
+        "doc": ""
+      },
+      {
+        "name": "apply_limits",
+        "line": 665,
+        "end": 678,
+        "doc": ""
+      },
+      {
+        "name": "poll_proposal",
+        "line": 680,
+        "end": 739,
+        "doc": ""
+      },
+      {
+        "name": "execute",
+        "line": 741,
+        "end": 818,
+        "doc": ""
+      },
+      {
+        "name": "entry_chase_block",
+        "line": 820,
+        "end": 859,
+        "doc": "Validate source identity and enforce the receiver's existing cap; no new threshold."
+      },
+      {
+        "name": "buy_block",
+        "line": 861,
+        "end": 915,
+        "doc": ""
+      },
+      {
+        "name": "restore_continuity",
+        "line": 917,
+        "end": 947,
+        "doc": "시작할 때 한 번: 거래소 체결 이력에서 봇(v5-)의 마지막 매도(재진입 기록)와, 인수 보유의 원래 평단(손절 기준)을 복원한다.\n이력 조회가 실패하거나 확인이 부족하면 아무것도 바꾸지 않는다. 사용자 보호·주문 경로는 건드리지 않는다."
+      },
+      {
+        "name": "rebase_adopted_stops",
+        "line": 949,
+        "end": 980,
+        "doc": "인수 보유분의 손절가가 현재가보다 stop_max_pct 넘게 멀면 현재가 기준 상한으로 한 번 올린다(내리지 않음).\n실시간 보호 기준인 stop0에도 같은 상한을 한 번 적용한다(stop0_rebased)."
+      },
+      {
+        "name": "stop_limit",
+        "line": 982,
+        "end": 987,
+        "doc": "실시간 가격으로 평가할 매도선. 사용자 지시(2026-11-04) \"손절 기준을 넘어서면 인식 즉시 손절 실행\"에 따라\n추적으로 올라간 손절가도 1분봉 마감을 기다리지 않고 실시간 가격으로 평가한다. 이익 보호선도 함께 본다."
+      },
+      {
+        "name": "update_profit_guard",
+        "line": 989,
+        "end": 1039,
+        "doc": "도입 후 관측한 고점이 평단 대비 arm_pct 이상이면 고점 이익의 (1-giveback)를 보존하는 보호선을 올린다(내리지 않음).\n수수료 바닥은 전략 수수료 추정치이며 실제 체결가를 보장하지 않는다."
+      },
+      {
+        "name": "adopt_trail_init",
+        "line": 1041,
+        "end": 1063,
+        "doc": "인수 보유분(entry 없음)에 추적 기준을 한 번 만든다. E=거래소 평균 매수가(cost/qty), A=현재 15분 ATR, 고점=편입 이후 확정 15분봉 고점.\n초기 고정 손절 stop0는 현재 손절가 그대로 쓴다. 진입 시점을 모르므로 편입 시각 이후 봉만 쓰고 R은 3×ATR15로 정의한다(D-22)."
+      },
+      {
+        "name": "trail_check",
+        "line": 1065,
+        "end": 1120,
+        "doc": "EXIT-T1(실거래, 기본 꺼짐). 확정 1분봉 종가로 봉마다 한 번 평가. 봇이 새로 산 포지션만 대상."
+      },
+      {
+        "name": "liquidate_position",
+        "line": 1122,
+        "end": 1154,
+        "doc": "사용자가 화면에서 확인한 종목 한 개를 전량 시장가 매도한다. (성공 여부, 안내문)을 돌려준다.\n\n봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.\n그래서 주문 식별자 선기록·실행권 검사·미확정 주문 대사·장부 반영이 손절과 동일하다."
+      },
+      {
+        "name": "sweep_dust",
+        "line": 1156,
+        "end": 1182,
+        "doc": "팔 수 없는 자투리(평가 5,000원 미만)를 없앤다(사용자 지시 2026-11-06). krw만큼 사서 자투리와 합친 뒤 잔고 전부를 판다.\n비용은 수수료 2회와 호가 차이(종목당 수~수십 원). 손절과 같은 주문 경로(_trade)를 쓰고, 보호 종목·장부 밖 잔고·잠긴 수량은 하지 않는다."
+      },
+      {
+        "name": "add_to_position",
+        "line": 1184,
+        "end": 1212,
+        "doc": "사용자가 화면에서 확인한 금액만큼 이미 관리 중인 종목을 시장가로 더 산다. (성공 여부, 안내문)을 돌려준다.\n\n자동 매수와 같은 검사(buy_block: 손실 중단·미확정 주문·한도·가용 원화·호가 차이)를 모두 통과해야 한다.\n기존 규칙상 추가 매수한 종목은 추적 손절·이익 보호 대상에서 빠진다(_apply_pending, 안건 27 미합의)."
+      },
+      {
+        "name": "stop_check",
+        "line": 1214,
+        "end": 1247,
+        "doc": "Manage explicitly delegated positions, retaining partial fills and unresolved orders."
+      },
+      {
+        "name": "balance",
+        "line": 1165,
+        "end": 1167,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "manual_orders.py",
+    "definitions": [
+      {
+        "name": "_ExclusiveServer",
+        "line": 27,
+        "end": 35,
+        "doc": "같은 포트를 다른 프로세스가 함께 열지 못하게 한다. Windows의 SO_REUSEADDR은 중복 바인딩을 허용해 요청(토큰 포함)을 가로챌 수 있다."
+      },
+      {
+        "name": "Request",
+        "line": 38,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "ManualOrderServer",
+        "line": 51,
+        "end": 193,
+        "doc": ""
+      },
+      {
+        "name": "server_bind",
+        "line": 32,
+        "end": 35,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 39,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "finish",
+        "line": 46,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 52,
+        "end": 61,
+        "doc": ""
+      },
+      {
+        "name": "check",
+        "line": 64,
+        "end": 106,
+        "doc": "(상태코드, (종목, 금액) 또는 오류문). 통과하면 (200, (market, krw)). 청산은 금액이 None이다."
+      },
+      {
+        "name": "submit",
+        "line": 108,
+        "end": 123,
+        "doc": "검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"
+      },
+      {
+        "name": "drain",
+        "line": 125,
+        "end": 131,
+        "doc": ""
+      },
+      {
+        "name": "start",
+        "line": 134,
+        "end": 187,
+        "doc": ""
+      },
+      {
+        "name": "stop",
+        "line": 189,
+        "end": 193,
+        "doc": ""
+      },
+      {
+        "name": "Handler",
+        "line": 137,
+        "end": 178,
+        "doc": ""
+      },
+      {
+        "name": "log_message",
+        "line": 138,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "_send",
+        "line": 141,
+        "end": 150,
+        "doc": ""
+      },
+      {
+        "name": "do_OPTIONS",
+        "line": 152,
+        "end": 158,
+        "doc": ""
+      },
+      {
+        "name": "do_GET",
+        "line": 160,
+        "end": 161,
+        "doc": ""
+      },
+      {
+        "name": "do_POST",
+        "line": 163,
+        "end": 178,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "manual_protection.py",
+    "definitions": [
+      {
+        "name": "HistoryClient",
+        "line": 14,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "user_identifiers",
+        "line": 49,
+        "end": 59,
+        "doc": "Bot-screen direct orders retain v5 IDs, so their local reason identifies them."
+      },
+      {
+        "name": "Detector",
+        "line": 62,
+        "end": 195,
+        "doc": ""
+      },
+      {
+        "name": "get",
+        "line": 15,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "accounts",
+        "line": 22,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "orders",
+        "line": 26,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 63,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "_inventory",
+        "line": 71,
+        "end": 80,
+        "doc": ""
+      },
+      {
+        "name": "_owned",
+        "line": 83,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "_bot_explained",
+        "line": 90,
+        "end": 112,
+        "doc": "계좌 인수는 모든 보유를 inherited로 표시하므로, 봇이 산 물량도 '출처 미확인'으로 보호될 수 있다.\n거래소 주문 이력에서 이 종목의 체결이 전부 봇(v5-) 식별자이고 순수량이 현재 잔고와 같으면 봇 물량으로 본다.\n하나라도 확인이 안 되면(조회 실패·미체결 주문·비봇 체결·수량 불일치·이력 밖 물량) False: 기존대로 보호한다(실패 시 보호 쪽)."
+      },
+      {
+        "name": "_bootstrap",
+        "line": 114,
+        "end": 132,
+        "doc": ""
+      },
+      {
+        "name": "_record_balance_evidence",
+        "line": 134,
+        "end": 145,
+        "doc": ""
+      },
+      {
+        "name": "scan",
+        "line": 147,
+        "end": 195,
+        "doc": ""
+      },
+      {
+        "name": "change",
+        "line": 135,
+        "end": 144,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "market_state.py",
+    "definitions": [
+      {
+        "name": "zone",
+        "line": 24,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "_ret",
+        "line": 31,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "compute",
+        "line": 40,
+        "end": 48,
+        "doc": "15분 판단마다 부른다. bars_uni = 거래대금 상위 종목 봉."
+      },
+      {
+        "name": "save",
+        "line": 51,
+        "end": 54,
+        "doc": ""
+      },
+      {
+        "name": "load",
+        "line": 57,
+        "end": 61,
+        "doc": ""
+      },
+      {
+        "name": "record_brake",
+        "line": 64,
+        "end": 67,
+        "doc": "정시마다 단기 브레이크가 발동했을지 기록만 한다(주문 무영향)."
+      },
+      {
+        "name": "fetch_fng",
+        "line": 70,
+        "end": 79,
+        "doc": "공포·탐욕을 받아 저장한다. 실패하면 이전 값을 그대로 둔다."
+      },
+      {
+        "name": "fng_background",
+        "line": 82,
+        "end": 88,
+        "doc": "마지막 수신 뒤 FNG_EVERY가 지났으면 별도 스레드로 받는다. 화면·거래 루프를 기다리게 하지 않는다."
+      },
+      {
+        "name": "_quiet",
+        "line": 91,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "_filter_note",
+        "line": 96,
+        "end": 103,
+        "doc": "봇이 실제로 쓰는 매수 필터 기간과 그 값(24시간이 아닐 때만 따로 보인다)."
+      },
+      {
+        "name": "_pos",
+        "line": 106,
+        "end": 107,
+        "doc": ""
+      },
+      {
+        "name": "render",
+        "line": 110,
+        "end": 146,
+        "doc": "머리글의 새로고침 버튼 옆에 들어가는 한 줄짜리 자세 바와 공포·탐욕."
+      }
+    ]
+  },
+  {
+    "file": "missed_ledger.py",
+    "definitions": [
+      {
+        "name": "blocks_for",
+        "line": 20,
+        "end": 40,
+        "doc": "이 종목에 걸린 차단 사유 전부(순서 무관). 빈 목록이면 규칙상 매수 후보."
+      },
+      {
+        "name": "record",
+        "line": 43,
+        "end": 65,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "notices.py",
+    "definitions": [
+      {
+        "name": "_read",
+        "line": 14,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "_write",
+        "line": 22,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "add",
+        "line": 30,
+        "end": 38,
+        "doc": "같은 id가 이미 있으면 다시 만들지 않는다(확인한 공지가 되살아나지 않는다). 새로 만들면 True."
+      },
+      {
+        "name": "ack",
+        "line": 41,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "active",
+        "line": 52,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "take_popups",
+        "line": 56,
+        "end": 65,
+        "doc": "알림창을 아직 안 띄운 공지를 돌려주고 띄운 것으로 표시한다."
+      },
+      {
+        "name": "banner",
+        "line": 68,
+        "end": 93,
+        "doc": "맨 위 배너 HTML. action={'port','token'}이 있으면 '확인했습니다' 버튼이 동작한다."
+      }
+    ]
+  },
+  {
+    "file": "observations.py",
+    "definitions": [
+      {
+        "name": "_item",
+        "line": 22,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "_now",
+        "line": 51,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "load",
+        "line": 55,
+        "end": 66,
+        "doc": ""
+      },
+      {
+        "name": "save",
+        "line": 69,
+        "end": 75,
+        "doc": ""
+      },
+      {
+        "name": "apply",
+        "line": 78,
+        "end": 100,
+        "doc": "화면 버튼·CLI 공통 처리. payload: {'action': done|hold|open|note, 'note': 글(선택)}. (성공 여부, 안내)"
+      },
+      {
+        "name": "add",
+        "line": 103,
+        "end": 113,
+        "doc": ""
+      },
+      {
+        "name": "_due_info",
+        "line": 116,
+        "end": 133,
+        "doc": "(정렬 키, 표시 문구, 등급 'over'|'soon'|'later'|'none')"
+      },
+      {
+        "name": "summary",
+        "line": 136,
+        "end": 142,
+        "doc": "(진행 중 건수, 기한 지남, 24시간 이내)"
+      },
+      {
+        "name": "render",
+        "line": 145,
+        "end": 189,
+        "doc": "접어 둘 수 있는 창 HTML. action = {'port':…, 'token':…} 또는 None(버튼 비활성)."
+      }
+    ]
+  },
+  {
+    "file": "open_page.py",
+    "definitions": [
+      {
+        "name": "find_chrome",
+        "line": 17,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "open_page",
+        "line": 26,
+        "end": 40,
+        "doc": "파일 경로 또는 URL을 연다. 반환: 'skipped' | 'chrome' | 'default'."
+      }
+    ]
+  },
+  {
+    "file": "paper.py",
+    "definitions": [
+      {
+        "name": "now_iso",
+        "line": 11,
+        "end": 12,
+        "doc": ""
+      },
+      {
+        "name": "Ledger",
+        "line": 15,
+        "end": 104,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 16,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "ready",
+        "line": 26,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "start",
+        "line": 29,
+        "end": 37,
+        "doc": "T0 확정. basket: {종목: 수량} 가격 있는 실제 보유, unpriced: 미평가 자산 목록."
+      },
+      {
+        "name": "save",
+        "line": 39,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "_append",
+        "line": 44,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "event",
+        "line": 48,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "invested",
+        "line": 51,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "equity",
+        "line": 54,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "h_value",
+        "line": 57,
+        "end": 62,
+        "doc": "T0 보유 바구니 평가. 가격이 하나라도 없으면 None (비교 보류)."
+      },
+      {
+        "name": "buy",
+        "line": 64,
+        "end": 78,
+        "doc": "P=ask×(1+c), S=P−k×ATR 고정. qty_fn(P, S) -> 수량."
+      },
+      {
+        "name": "sell",
+        "line": 80,
+        "end": 92,
+        "doc": ""
+      },
+      {
+        "name": "snapshot",
+        "line": 94,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "read_jsonl",
+        "line": 100,
+        "end": 104,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "pnl.py",
+    "definitions": [
+      {
+        "name": "kst",
+        "line": 43,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "now",
+        "line": 47,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "_get",
+        "line": 52,
+        "end": 69,
+        "doc": ""
+      },
+      {
+        "name": "closed_between",
+        "line": 72,
+        "end": 86,
+        "doc": "[start, end) 종료 주문 전부. 1000건이 차면 가장 이른 생성 시각으로 끝을 당겨 이어 받는다."
+      },
+      {
+        "name": "Store",
+        "line": 89,
+        "end": 150,
+        "doc": ""
+      },
+      {
+        "name": "fills",
+        "line": 154,
+        "end": 173,
+        "doc": "주문 → 체결 이벤트. 주문 수수료는 체결대금 비율로 나눈다."
+      },
+      {
+        "name": "rebuild",
+        "line": 176,
+        "end": 206,
+        "doc": "이동평균 원가로 재구성. 반환: (종목 상태, 매도 체결 결과 목록)."
+      },
+      {
+        "name": "period_starts",
+        "line": 209,
+        "end": 211,
+        "doc": ""
+      },
+      {
+        "name": "aggregate",
+        "line": 214,
+        "end": 237,
+        "doc": ""
+      },
+      {
+        "name": "unrealized",
+        "line": 240,
+        "end": 261,
+        "doc": ""
+      },
+      {
+        "name": "compute",
+        "line": 264,
+        "end": 282,
+        "doc": ""
+      },
+      {
+        "name": "run_once",
+        "line": 285,
+        "end": 297,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 90,
+        "end": 94,
+        "doc": ""
+      },
+      {
+        "name": "save",
+        "line": 96,
+        "end": 99,
+        "doc": ""
+      },
+      {
+        "name": "sync",
+        "line": 101,
+        "end": 123,
+        "doc": "기초 시각부터(이미 받은 구간은 1시간 겹쳐서) 지금까지 7일 창으로 받는다. 체결 있는 주문은 체결 내역을 받는다."
+      },
+      {
+        "name": "detail",
+        "line": 125,
+        "end": 137,
+        "doc": ""
+      },
+      {
+        "name": "open_orders",
+        "line": 140,
+        "end": 150,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "pnl_service.py",
+    "definitions": [
+      {
+        "name": "worker_environment",
+        "line": 11,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "pnl_pids",
+        "line": 26,
+        "end": 40,
+        "doc": "Inspect Python only; never count the PowerShell query itself as a worker."
+      },
+      {
+        "name": "running_pids",
+        "line": 43,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "startup_lock",
+        "line": 55,
+        "end": 70,
+        "doc": ""
+      },
+      {
+        "name": "ensure_running",
+        "line": 73,
+        "end": 87,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "position_popup.py",
+    "definitions": [
+      {
+        "name": "_num",
+        "line": 11,
+        "end": 12,
+        "doc": ""
+      },
+      {
+        "name": "detail",
+        "line": 15,
+        "end": 47,
+        "doc": "한 종목의 상세 값. 가격이 없으면 가격 의존 값은 None으로 두고 0으로 꾸미지 않는다."
+      },
+      {
+        "name": "_json_tag",
+        "line": 50,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "data_script",
+        "line": 55,
+        "end": 62,
+        "doc": "종목별 상세(와 청산 서버 접속 정보)를 담은 JSON 스크립트 태그. '<' 를 이스케이프해 태그가 깨지지 않게 한다.\n\naction은 {'port': 포트, 'token': 토큰} 또는 None. None이면 화면에 청산 버튼이 나오지 않는다."
+      },
+      {
+        "name": "row_attrs",
+        "line": 65,
+        "end": 67,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "protection_panel.py",
+    "definitions": [
+      {
+        "name": "render",
+        "line": 6,
+        "end": 46,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "reconcile.py",
+    "definitions": [
+      {
+        "name": "ReconciliationError",
+        "line": 14,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "canonical_sha256",
+        "line": 18,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "preserved_basis",
+        "line": 22,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "number",
+        "line": 27,
+        "end": 35,
+        "doc": ""
+      },
+      {
+        "name": "timestamp",
+        "line": 38,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "totals",
+        "line": 47,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "reconcile",
+        "line": 52,
+        "end": 256,
+        "doc": "Return provisional candidate/report; caller separately validates ownership and coverage.\n\naccounted_by_identifier MUST be sums from the SAME source snapshot's local fill journal.\nOrder details are terminal cumulative fills. New inventory is never invented from balances.\nUnknown transient protection is allowed only if that new position closes in this replay."
+      }
+    ]
+  },
+  {
+    "file": "reconciliation_guard.py",
+    "definitions": [
+      {
+        "name": "ProofInvalid",
+        "line": 23,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "canonical_bytes",
+        "line": 27,
+        "end": 29,
+        "doc": "Same sorted compact default-ASCII JSON as SessionGuard.checkpoint_hash."
+      },
+      {
+        "name": "canonical_sha256",
+        "line": 32,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "preserved_basis",
+        "line": 36,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "financial_projection",
+        "line": 41,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "require",
+        "line": 46,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "load_json",
+        "line": 51,
+        "end": 54,
+        "doc": ""
+      },
+      {
+        "name": "safe_file",
+        "line": 57,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "_independent_replay",
+        "line": 67,
+        "end": 93,
+        "doc": "Bound to the peer-reviewed sibling replay module; no caller-supplied calculator."
+      },
+      {
+        "name": "validate_or_raise",
+        "line": 96,
+        "end": 211,
+        "doc": "Validate a preserved-basis reconciliation bridge while the remote lease is idle.\n\nSource snapshot hash is raw-file SHA256. Orders/account/applied-local artifacts\nmust be canonical JSON bytes and are hashed as stored. Preserved-basis hash is\nnormalized canonical JSON and must match source, separate artifact and target.\nAll input paths are derived from the safe proof id; optional files mapping may\nonly repeat those exact relative paths, never redirect them."
+      },
+      {
+        "name": "validate",
+        "line": 214,
+        "end": 219,
+        "doc": "Return False on any malformed/missing proof, independent replay or file error."
+      },
+      {
+        "name": "reject_nonfinite",
+        "line": 52,
+        "end": 53,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "regime_compare.py",
+    "definitions": [
+      {
+        "name": "_t",
+        "line": 15,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "hours",
+        "line": 19,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "positions",
+        "line": 32,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "extra_buys",
+        "line": 58,
+        "end": 68,
+        "doc": "(닫힌 추가 매수 목록, 보유 중 추가 매수 목록)."
+      },
+      {
+        "name": "render",
+        "line": 71,
+        "end": 82,
+        "doc": ""
+      },
+      {
+        "name": "extra",
+        "line": 63,
+        "end": 66,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "rotation_policy.py",
+    "definitions": [
+      {
+        "name": "finite",
+        "line": 22,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "enabled",
+        "line": 26,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "saved_loss_budget",
+        "line": 30,
+        "end": 37,
+        "doc": "Pure read: never fetch/save inside partially applied fill accounting."
+      },
+      {
+        "name": "slot",
+        "line": 40,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "policy_hash",
+        "line": 46,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "decision_id",
+        "line": 51,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "intent_id",
+        "line": 55,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "envelope",
+        "line": 61,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "validate",
+        "line": 70,
+        "end": 80,
+        "doc": ""
+      },
+      {
+        "name": "fresh_reentry",
+        "line": 83,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "row_close",
+        "line": 96,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "rank_exit",
+        "line": 106,
+        "end": 120,
+        "doc": "Research knob only: production patch uses 1, not an invented 2-bar delay."
+      },
+      {
+        "name": "observe",
+        "line": 123,
+        "end": 144,
+        "doc": "Observed ticks only, bounded by entry/basis revision; never backfill history."
+      },
+      {
+        "name": "trade_evidence",
+        "line": 147,
+        "end": 155,
+        "doc": ""
+      },
+      {
+        "name": "append_audit",
+        "line": 158,
+        "end": 177,
+        "doc": "Optional diagnostics must not block risk orders; <=3 bounded log segments."
+      }
+    ]
+  },
+  {
+    "file": "session_guard.py",
+    "definitions": [
+      {
+        "name": "SessionLost",
+        "line": 16,
+        "end": 17,
+        "doc": ""
+      },
+      {
+        "name": "SessionUnverified",
+        "line": 20,
+        "end": 21,
+        "doc": "GitHub could not be reached, so ownership could not be checked. Not proof that ownership changed."
+      },
+      {
+        "name": "NotOwner",
+        "line": 24,
+        "end": 25,
+        "doc": "다른 PC가 실행권을 갖고 있어 이 PC는 주문하지 않는다. 오류가 아니라 정상적인 대기 상태."
+      },
+      {
+        "name": "GitStore",
+        "line": 34,
+        "end": 133,
+        "doc": ""
+      },
+      {
+        "name": "confirm_takeover",
+        "line": 136,
+        "end": 148,
+        "doc": ""
+      },
+      {
+        "name": "notify",
+        "line": 151,
+        "end": 158,
+        "doc": ""
+      },
+      {
+        "name": "pc_identity",
+        "line": 161,
+        "end": 176,
+        "doc": "이 설치(PC)의 고정 식별자. 봇을 다시 켜도 같은 PC임을 알아보는 데 쓴다(실행권 기록의 owner는 '식별자:프로세스')."
+      },
+      {
+        "name": "SessionGuard",
+        "line": 179,
+        "end": 425,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 37,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "diagnostic",
+        "line": 46,
+        "end": 56,
+        "doc": "Fixed metadata only: never persist command arguments, URLs, stderr or state."
+      },
+      {
+        "name": "failure_category",
+        "line": 59,
+        "end": 71,
+        "doc": ""
+      },
+      {
+        "name": "git",
+        "line": 73,
+        "end": 107,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 109,
+        "end": 116,
+        "doc": ""
+      },
+      {
+        "name": "cas",
+        "line": 118,
+        "end": 133,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 180,
+        "end": 199,
+        "doc": ""
+      },
+      {
+        "name": "lease_valid",
+        "line": 201,
+        "end": 202,
+        "doc": ""
+      },
+      {
+        "name": "checkpoint_hash",
+        "line": 204,
+        "end": 208,
+        "doc": ""
+      },
+      {
+        "name": "assert_transition_clear",
+        "line": 210,
+        "end": 214,
+        "doc": ""
+      },
+      {
+        "name": "record",
+        "line": 216,
+        "end": 220,
+        "doc": ""
+      },
+      {
+        "name": "acquire",
+        "line": 222,
+        "end": 289,
+        "doc": ""
+      },
+      {
+        "name": "_landed",
+        "line": 291,
+        "end": 296,
+        "doc": ""
+      },
+      {
+        "name": "_same_pc",
+        "line": 298,
+        "end": 299,
+        "doc": ""
+      },
+      {
+        "name": "_note_state",
+        "line": 301,
+        "end": 310,
+        "doc": "읽은 기록으로 램프 상태를 갱신한다(내가 소유자인지, 다른 PC인지, 아무도 아닌지)."
+      },
+      {
+        "name": "_mark_unverified",
+        "line": 312,
+        "end": 317,
+        "doc": ""
+      },
+      {
+        "name": "_give_up",
+        "line": 319,
+        "end": 332,
+        "doc": "실행권을 잃었거나 양도 요청을 받았다: 주문을 멈추고 대기 상태로 둔다(봇은 종료하지 않는다). 요청이 있으면 비워 준다."
+      },
+      {
+        "name": "assert_owner",
+        "line": 334,
+        "end": 358,
+        "doc": "주문 직전 확인. 실행권자가 아니면 NotOwner. 확인 자체를 못 하면 매수는 막고, 매도(손절)는 마지막 확인이 실행권자였을 때만 허용한다."
+      },
+      {
+        "name": "_renew",
+        "line": 360,
+        "end": 368,
+        "doc": ""
+      },
+      {
+        "name": "check_now",
+        "line": 370,
+        "end": 390,
+        "doc": "주기 확인(감시 스레드). 어떤 실패도 봇을 끄지 않는다."
+      },
+      {
+        "name": "start",
+        "line": 392,
+        "end": 400,
+        "doc": ""
+      },
+      {
+        "name": "snapshot",
+        "line": 402,
+        "end": 407,
+        "doc": "화면 램프용 요약."
+      },
+      {
+        "name": "release",
+        "line": 409,
+        "end": 425,
+        "doc": ""
+      },
+      {
+        "name": "watch",
+        "line": 393,
+        "end": 398,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "shadow.py",
+    "definitions": [
+      {
+        "name": "current_slot",
+        "line": 48,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "slot_due",
+        "line": 52,
+        "end": 57,
+        "doc": "지금 만들어야 할 슬롯 시작 시각. 이미 처리했거나 시작 전·허용 지연 밖이면 None."
+      },
+      {
+        "name": "load_last_slot",
+        "line": 60,
+        "end": 72,
+        "doc": "영속 기록된 마지막 슬롯. 파일이 없거나 손상·비정각·미래 값이면 현재 슬롯을 처리한 것으로 간주한다(중복 주문안보다 한 슬롯 건너뛰는 쪽이 안전).\n\n가동 시작에는 항상 현재 슬롯도 처리한 것으로 본다: 재시작이 허용 지연창 안에 있어도 새 판단을 만들지 않고 다음 정규 슬롯을 기다린다."
+      },
+      {
+        "name": "plan_tick",
+        "line": 75,
+        "end": 88,
+        "doc": "한 번의 반복에서 할 일. (새 last_slot, 상태). 신호가 아직 최신이 아니면 기록하지 않고 허용 지연 안에서 다시 시도한다."
+      },
+      {
+        "name": "claim_slot",
+        "line": 91,
+        "end": 96,
+        "doc": "주문안을 만들기 전에 슬롯을 먼저 기록한다. 기록 뒤 장애가 나도 같은 슬롯의 주문안이 두 번 만들어지지 않는다."
+      },
+      {
+        "name": "proposal",
+        "line": 102,
+        "end": 276,
+        "doc": "C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).\n\nholdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)\npromoted: 사용자 직접 지정 종목, hot: 과열 보유 종목(순위 매도 제외). chase_override 참고."
+      },
+      {
+        "name": "variants",
+        "line": 282,
+        "end": 291,
+        "doc": ""
+      },
+      {
+        "name": "metrics",
+        "line": 295,
+        "end": 315,
+        "doc": ""
+      },
+      {
+        "name": "fmt",
+        "line": 318,
+        "end": 325,
+        "doc": ""
+      },
+      {
+        "name": "report",
+        "line": 328,
+        "end": 360,
+        "doc": ""
+      },
+      {
+        "name": "_md_to_html",
+        "line": 363,
+        "end": 375,
+        "doc": ""
+      },
+      {
+        "name": "share",
+        "line": 378,
+        "end": 389,
+        "doc": "근거자료의 성과 구역만 최신 내용으로 바꾼다(파일이 계속 커지지 않게)."
+      },
+      {
+        "name": "Shadow",
+        "line": 393,
+        "end": 667,
+        "doc": ""
+      },
+      {
+        "name": "rows",
+        "line": 296,
+        "end": 298,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 394,
+        "end": 402,
+        "doc": ""
+      },
+      {
+        "name": "proposal_signal",
+        "line": 404,
+        "end": 426,
+        "doc": "Return provenance only for the current completed signal, never a relabelled cache."
+      },
+      {
+        "name": "protected_markets",
+        "line": 428,
+        "end": 436,
+        "doc": "사용자 보호 종목(봇 매매 대상 아님). 읽기 실패면 빈 집합: 보호 종목이 투입액에 남아 매수 여력이 줄어드는 보수적인 쪽이다.\n실제 주문의 보호 강제는 live가 따로 한다."
+      },
+      {
+        "name": "make_proposal",
+        "line": 438,
+        "end": 498,
+        "doc": ""
+      },
+      {
+        "name": "init",
+        "line": 500,
+        "end": 507,
+        "doc": ""
+      },
+      {
+        "name": "decide",
+        "line": 509,
+        "end": 562,
+        "doc": ""
+      },
+      {
+        "name": "stops",
+        "line": 564,
+        "end": 609,
+        "doc": ""
+      },
+      {
+        "name": "snapshot",
+        "line": 611,
+        "end": 615,
+        "doc": ""
+      },
+      {
+        "name": "run",
+        "line": 617,
+        "end": 667,
+        "doc": ""
+      },
+      {
+        "name": "ready",
+        "line": 641,
+        "end": 646,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "strategy.py",
+    "definitions": [
+      {
+        "name": "Params",
+        "line": 13,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "cost",
+        "line": 71,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "wilder_atr",
+        "line": 75,
+        "end": 83,
+        "doc": "Wilder ATR: 첫 n개 TR 평균으로 시작해 (이전×(n−1)+TR)/n."
+      },
+      {
+        "name": "relative_strength",
+        "line": 86,
+        "end": 89,
+        "doc": ""
+      },
+      {
+        "name": "market_index",
+        "line": 92,
+        "end": 117,
+        "doc": "종목들의 최근 n개 봉 상승률의 단순 평균(균등지수 수익률). 자료가 부족·불일치하면 None.\n\n비정상 값(NaN·무한대·0 이하)은 제외한다. 대다수 종목과 마지막 봉 시각 또는 n봉 전 봉 시각이 다른 종목(결측·정지)도 제외한다."
+      },
+      {
+        "name": "rank",
+        "line": 120,
+        "end": 131,
+        "doc": "적격 종목을 상대강도 내림차순(동률은 코드순)으로 정렬. 자료 부족 종목은 제외."
+      },
+      {
+        "name": "chase_block",
+        "line": 134,
+        "end": 140,
+        "doc": "과열 추격 매수 보류 사유. 후보 r(rs 포함)가 기간 상승률 상한 이상이면 문자열, 아니면 None.\ncap: 종목별 상한(직접 지정·이익 청산 뒤 재진입은 chase_override.cap_for). 없으면 p.chase_rs_cap."
+      },
+      {
+        "name": "cap_stop",
+        "line": 143,
+        "end": 147,
+        "doc": "손절가가 기준가에서 stop_max_pct보다 멀면 그 거리로 당긴다(올리기만 함)."
+      },
+      {
+        "name": "reentry_block",
+        "line": 150,
+        "end": 172,
+        "doc": "직전 매도 기록 last={'time','price','profit'}가 있으면 재진입을 더 까다롭게 본다. 막으면 사유 문자열, 아니면 None.\n수익 청산: reentry_profit_hours 뒤부터, 그리고 reentry_window_hours 안에서는 현재가가 매도가보다 reentry_dip_atr×ATR 이상 낮을 때만(고점에서 팔고 눌리면 다시 잡기).\n손실 청산: reentry_loss_hours 뒤부터."
+      },
+      {
+        "name": "plan",
+        "line": 175,
+        "end": 205,
+        "doc": "15번 교체 규칙. held: 보유 종목, banned: 재진입 금지, entry_ok: 신규 진입 가능한 종목 집합.\n\n반환: (매도 [(종목, 사유)], 매수 후보 [종목], 판단 보류 [종목])"
+      },
+      {
+        "name": "size",
+        "line": 208,
+        "end": 217,
+        "doc": "16·27번 수량: min(계획위험/(P−S), 종목 상한, 잔여 총투입, 수수료 포함 가용현금). 최소주문 미달은 0."
+      },
+      {
+        "name": "ratchet",
+        "line": 220,
+        "end": 245,
+        "doc": "EXIT-T1. 고점·손절가를 갱신하고 청산 사유('수익 반납'|'추적 손절'|'손절')를 반환한다. 손절가는 내려가지 않는다.\n\npos: entry, stop, atr 필요. 갱신값 peak, stop0(초기 손절가), stop을 pos에 기록한다.\ntrail_enabled=False이면 기존 규칙(고정 손절)과 동일하다."
+      },
+      {
+        "name": "bar_after_entry",
+        "line": 248,
+        "end": 252,
+        "doc": "1분봉이 진입 시각 이후에 마감됐는지. 체결 이전·같은 봉 정보를 쓰지 않기 위한 검사."
+      },
+      {
+        "name": "from_dict",
+        "line": 66,
+        "end": 68,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_account_sync.py",
+    "definitions": [
+      {
+        "name": "AccountSyncTests",
+        "line": 7,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "DustHiding",
+        "line": 47,
+        "end": 69,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_and_return_exclude_cash_and_unknown_cost",
+        "line": 8,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_render_shows_price_cost_profit_and_weight",
+        "line": 18,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "test_locked_funds_and_unpriced_assets_are_preserved",
+        "line": 25,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "page",
+        "line": 48,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "test_small_and_unpriced_rows_flagged_big_not",
+        "line": 55,
+        "end": 61,
+        "doc": ""
+      },
+      {
+        "name": "test_toggle_default_hidden_and_remembered",
+        "line": 63,
+        "end": 69,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_auto_protection.py",
+    "definitions": [
+      {
+        "name": "order",
+        "line": 18,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "PolicyTests",
+        "line": 23,
+        "end": 128,
+        "doc": ""
+      },
+      {
+        "name": "FakeClient",
+        "line": 131,
+        "end": 140,
+        "doc": ""
+      },
+      {
+        "name": "DetectionTests",
+        "line": 143,
+        "end": 240,
+        "doc": ""
+      },
+      {
+        "name": "EndpointAndPanelTests",
+        "line": 243,
+        "end": 299,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 24,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "test_manual_defaults_protected_and_release_survives_same_old_event",
+        "line": 31,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_new_manual_fill_after_release_reprotects_and_invalidates_stale_page",
+        "line": 39,
+        "end": 45,
+        "doc": ""
+      },
+      {
+        "name": "test_unseen_order_created_before_release_protects_and_asks",
+        "line": 47,
+        "end": 60,
+        "doc": ""
+      },
+      {
+        "name": "test_manual_open_and_zero_fill_cancel_both_protect",
+        "line": 62,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "test_bot_identifier_excluded_except_explicit_user_ui_order",
+        "line": 66,
+        "end": 70,
+        "doc": ""
+      },
+      {
+        "name": "test_release_overrides_legacy_config_and_keep_resolves_question",
+        "line": 72,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "test_malformed_policy_is_never_interpreted_as_release",
+        "line": 80,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_writer_contention_times_out_and_stale_unheld_file_is_harmless",
+        "line": 85,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "_attempt",
+        "line": 96,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_concurrent_writers_keep_both_protections",
+        "line": 100,
+        "end": 104,
+        "doc": ""
+      },
+      {
+        "name": "test_handoff_honors_newer_release_and_preserves_other_protection",
+        "line": 106,
+        "end": 111,
+        "doc": ""
+      },
+      {
+        "name": "test_os_lock_contends_across_processes_and_recovers_after_crash",
+        "line": 113,
+        "end": 128,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 132,
+        "end": 134,
+        "doc": ""
+      },
+      {
+        "name": "accounts",
+        "line": 135,
+        "end": 137,
+        "doc": ""
+      },
+      {
+        "name": "orders",
+        "line": 138,
+        "end": 140,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 144,
+        "end": 150,
+        "doc": ""
+      },
+      {
+        "name": "test_unknown_external_quantity_and_mixed_holding_protect_whole_market",
+        "line": 152,
+        "end": 155,
+        "doc": ""
+      },
+      {
+        "name": "test_direct_sell_even_with_unchanged_balance_is_seen_from_orders",
+        "line": 157,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "test_release_persists_for_same_external_balance_new_deposit_reprotects",
+        "line": 161,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "test_own_pending_fill_does_not_become_unknown_manual_inventory",
+        "line": 169,
+        "end": 173,
+        "doc": ""
+      },
+      {
+        "name": "test_history_failure_blocks_buy_and_keeps_proven_unchanged_risk_exit_only",
+        "line": 175,
+        "end": 181,
+        "doc": ""
+      },
+      {
+        "name": "test_accounts_failure_blocks_protective_submission",
+        "line": 183,
+        "end": 185,
+        "doc": ""
+      },
+      {
+        "name": "test_deposit_while_already_protected_invalidates_old_release_revision",
+        "line": 187,
+        "end": 192,
+        "doc": ""
+      },
+      {
+        "name": "test_other_market_scan_cannot_consume_unseen_deposit_baseline",
+        "line": 194,
+        "end": 199,
+        "doc": ""
+      },
+      {
+        "name": "test_own_buy_does_not_reprotect_but_new_deposit_does",
+        "line": 201,
+        "end": 208,
+        "doc": ""
+      },
+      {
+        "name": "test_withdrawal_deficit_reprotects_and_signed_baseline_validates",
+        "line": 210,
+        "end": 215,
+        "doc": ""
+      },
+      {
+        "name": "test_released_inherited_lot_becoming_known_does_not_false_reprotect",
+        "line": 217,
+        "end": 222,
+        "doc": ""
+      },
+      {
+        "name": "test_pending_own_fill_does_not_consume_external_residual_baseline",
+        "line": 224,
+        "end": 232,
+        "doc": ""
+      },
+      {
+        "name": "test_full_withdrawal_with_missing_account_row_resets_residual",
+        "line": 234,
+        "end": 240,
+        "doc": ""
+      },
+      {
+        "name": "test_null_origin_and_action_allowlist_and_revision_validation",
+        "line": 244,
+        "end": 251,
+        "doc": ""
+      },
+      {
+        "name": "test_protection_panel_has_default_question_and_explicit_release_confirmation",
+        "line": 253,
+        "end": 264,
+        "doc": ""
+      },
+      {
+        "name": "test_release_buttons_are_inside_the_folded_window_and_closed_by_default",
+        "line": 266,
+        "end": 280,
+        "doc": ""
+      },
+      {
+        "name": "test_stale_release_fails_without_order_submission",
+        "line": 282,
+        "end": 290,
+        "doc": ""
+      },
+      {
+        "name": "test_order_boundary_provenance_blocks_before_durable_intent_or_post",
+        "line": 292,
+        "end": 299,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_bot_explained_inherited.py",
+    "definitions": [
+      {
+        "name": "bot",
+        "line": 11,
+        "end": 12,
+        "doc": ""
+      },
+      {
+        "name": "InheritedBotHoldings",
+        "line": 15,
+        "end": 92,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 16,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "protected",
+        "line": 31,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "test_all_bot_orders_explaining_the_balance_are_not_protected",
+        "line": 34,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_a_single_non_bot_execution_keeps_the_whole_market_protected",
+        "line": 39,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_quantity_not_fully_explained_is_protected",
+        "line": 44,
+        "end": 47,
+        "doc": ""
+      },
+      {
+        "name": "test_history_failure_or_open_order_fails_closed_to_protection",
+        "line": 49,
+        "end": 60,
+        "doc": ""
+      },
+      {
+        "name": "test_unknown_side_or_missing_identifier_is_not_treated_as_bot",
+        "line": 62,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_verification_is_cached_for_the_same_quantity_and_expires",
+        "line": 67,
+        "end": 82,
+        "doc": ""
+      },
+      {
+        "name": "test_non_inherited_or_quantity_mismatch_paths_are_unchanged",
+        "line": 84,
+        "end": 92,
+        "doc": ""
+      },
+      {
+        "name": "counting",
+        "line": 71,
+        "end": 73,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_caution_study.py",
+    "definitions": [
+      {
+        "name": "Allowed",
+        "line": 18,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "bars",
+        "line": 37,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "Decide",
+        "line": 43,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "Halt",
+        "line": 84,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "test_only_price_and_volume_caution",
+        "line": 19,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_rise_1h",
+        "line": 30,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "run_decide",
+        "line": 44,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "test_c1_buys_allowed_caution_at_half_and_c0_does_not",
+        "line": 70,
+        "end": 76,
+        "doc": ""
+      },
+      {
+        "name": "test_excluded_types_wide_spread_and_open_limit",
+        "line": 78,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "test_pilot_loss_counts_realized_and_open",
+        "line": 85,
+        "end": 93,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_chase_override.py",
+    "definitions": [
+      {
+        "name": "Rules",
+        "line": 16,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "Proposal",
+        "line": 81,
+        "end": 175,
+        "doc": ""
+      },
+      {
+        "name": "BreakevenLock",
+        "line": 178,
+        "end": 207,
+        "doc": ""
+      },
+      {
+        "name": "Receiver",
+        "line": 210,
+        "end": 301,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 17,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "test_promote_only_between_cap_and_20_percent_and_has_no_time_limit",
+        "line": 23,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "test_grant_is_used_up_by_one_purchase",
+        "line": 31,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_grant_resets_when_overheat_lifts_so_the_original_rule_applies_again",
+        "line": 38,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "test_old_file_with_until_field_still_reads_as_a_grant",
+        "line": 50,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_cap_means_no_exception",
+        "line": 54,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "test_reentry_once_after_profit_within_24h",
+        "line": 59,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "test_hot_held_is_sticky_while_held_and_cleared_after_sale",
+        "line": 69,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_files_fall_back_to_the_15_percent_rule",
+        "line": 74,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 82,
+        "end": 87,
+        "doc": ""
+      },
+      {
+        "name": "plan",
+        "line": 89,
+        "end": 90,
+        "doc": ""
+      },
+      {
+        "name": "test_hot_holding_is_not_sold_when_rank_drops",
+        "line": 92,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_rank_exit_off_keeps_every_holding_for_stop_and_profit_guard",
+        "line": 100,
+        "end": 108,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_holdings_do_not_eat_the_bot_investment_room",
+        "line": 110,
+        "end": 120,
+        "doc": ""
+      },
+      {
+        "name": "test_four_slots_and_stuck_marking_after_rank_exit_off",
+        "line": 122,
+        "end": 133,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_swap_sells_only_the_shortfall_of_the_weakest_stuck_loser",
+        "line": 135,
+        "end": 157,
+        "doc": ""
+      },
+      {
+        "name": "test_promoted_17_percent_is_bought_but_21_percent_is_not",
+        "line": 159,
+        "end": 165,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_exit_reentry_skips_wait_and_dip_once",
+        "line": 167,
+        "end": 175,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 179,
+        "end": 185,
+        "doc": ""
+      },
+      {
+        "name": "test_dust_below_min_order_gets_no_guard",
+        "line": 187,
+        "end": 191,
+        "doc": ""
+      },
+      {
+        "name": "test_lock_to_breakeven_after_one_and_a_half_percent",
+        "line": 193,
+        "end": 202,
+        "doc": ""
+      },
+      {
+        "name": "test_lock_off_by_default",
+        "line": 204,
+        "end": 207,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 211,
+        "end": 220,
+        "doc": ""
+      },
+      {
+        "name": "test_receiver_allows_promoted_up_to_20_percent_from_its_own_file",
+        "line": 222,
+        "end": 226,
+        "doc": ""
+      },
+      {
+        "name": "test_first_buy_fill_uses_up_the_grant_and_the_rule_returns_to_15_percent",
+        "line": 228,
+        "end": 237,
+        "doc": ""
+      },
+      {
+        "name": "_buy",
+        "line": 239,
+        "end": 244,
+        "doc": ""
+      },
+      {
+        "name": "test_buy_over_dust_starts_a_fresh_position",
+        "line": 246,
+        "end": 254,
+        "doc": ""
+      },
+      {
+        "name": "test_buy_over_real_holding_keeps_the_old_stop",
+        "line": 256,
+        "end": 260,
+        "doc": ""
+      },
+      {
+        "name": "test_sweep_dust_buys_then_sells_everything_and_keeps_last_sell",
+        "line": 262,
+        "end": 288,
+        "doc": ""
+      },
+      {
+        "name": "test_sweep_refuses_real_holdings",
+        "line": 290,
+        "end": 295,
+        "doc": ""
+      },
+      {
+        "name": "test_receiver_allows_profit_reentry_only_once",
+        "line": 297,
+        "end": 301,
+        "doc": ""
+      },
+      {
+        "name": "trade",
+        "line": 269,
+        "end": 281,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_concurrent_warn.py",
+    "definitions": [
+      {
+        "name": "ConcurrentWarn",
+        "line": 9,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 10,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "hold",
+        "line": 20,
+        "end": 22,
+        "doc": ""
+      },
+      {
+        "name": "events",
+        "line": 24,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_alert_turns_on_at_threshold_once_and_off_below",
+        "line": 29,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_and_small_positions_are_not_counted_and_zero_disables",
+        "line": 44,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_never_blocks_anything_and_protection_failure_is_silent",
+        "line": 52,
+        "end": 55,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_continuity.py",
+    "definitions": [
+      {
+        "name": "row",
+        "line": 12,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "Replay",
+        "line": 17,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "Restorable",
+        "line": 51,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "LiveRestore",
+        "line": 75,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "RFrom15m",
+        "line": 130,
+        "end": 146,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_and_loss_flags_follow_average_cost_with_fees",
+        "line": 18,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_order_of_rows_does_not_matter_only_time",
+        "line": 29,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "test_sell_without_known_cost_is_not_assumed_profitable",
+        "line": 33,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_non_bot_fills_and_open_orders_are_flagged",
+        "line": 38,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "test_garbage_rows_are_ignored",
+        "line": 45,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "entry",
+        "line": 54,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "test_recent_newer_sells_only",
+        "line": 57,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_bot_basis_requires_full_proof",
+        "line": 64,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 76,
+        "end": 84,
+        "doc": ""
+      },
+      {
+        "name": "test_restores_last_sell_for_sold_markets_and_basis_for_bot_holdings",
+        "line": 86,
+        "end": 94,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_flag_and_history_failure_change_nothing",
+        "line": 96,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_sell_first_in_the_window_means_older_holdings_and_no_basis",
+        "line": 105,
+        "end": 109,
+        "doc": ""
+      },
+      {
+        "name": "test_markets_with_open_or_pending_orders_are_skipped_for_last_sell",
+        "line": 111,
+        "end": 116,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_market_is_not_touched",
+        "line": 118,
+        "end": 121,
+        "doc": ""
+      },
+      {
+        "name": "test_rebase_uses_the_original_average_cost_for_proven_bot_holdings",
+        "line": 123,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "test_ratchet_uses_atr_r_when_present",
+        "line": 131,
+        "end": 140,
+        "doc": ""
+      },
+      {
+        "name": "test_without_atr_r_behaviour_is_unchanged",
+        "line": 142,
+        "end": 146,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_daily_equity.py",
+    "definitions": [
+      {
+        "name": "t",
+        "line": 11,
+        "end": 12,
+        "doc": ""
+      },
+      {
+        "name": "DailyEquity",
+        "line": 15,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 16,
+        "end": 17,
+        "doc": ""
+      },
+      {
+        "name": "test_first_observation_is_open",
+        "line": 19,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "test_pnl_high_low",
+        "line": 23,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "test_new_day_opens_at_previous_last",
+        "line": 27,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "test_gap_day_uses_first_observation",
+        "line": 33,
+        "end": 35,
+        "doc": ""
+      },
+      {
+        "name": "test_midnight_boundary_is_kst_not_utc",
+        "line": 37,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_values_ignored",
+        "line": 41,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "test_recent_newest_first",
+        "line": 46,
+        "end": 49,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_entry_context.py",
+    "definitions": [
+      {
+        "name": "module",
+        "line": 16,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "EntryContext",
+        "line": 27,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 28,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_existing_cap_is_enforced_at_actual_ask_including_exact_boundary",
+        "line": 43,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "test_receiver_cap_wins_over_any_sender_claim",
+        "line": 51,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_cap_still_requires_valid_context_for_automatic_buy",
+        "line": 57,
+        "end": 61,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_stale_future_nonfinite_and_mismatched_context_fail_closed",
+        "line": 63,
+        "end": 77,
+        "doc": ""
+      },
+      {
+        "name": "test_final_check_after_atr_blocks_new_price_spike_before_journal_or_post",
+        "line": 79,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "test_boundary_crossed_during_atr_lookup_blocks_submission",
+        "line": 95,
+        "end": 107,
+        "doc": ""
+      },
+      {
+        "name": "test_valid_pre_submit_context_still_reaches_existing_trade_accounting",
+        "line": 109,
+        "end": 121,
+        "doc": ""
+      },
+      {
+        "name": "test_auto_execute_without_context_never_falls_back_to_manual_path",
+        "line": 123,
+        "end": 128,
+        "doc": ""
+      },
+      {
+        "name": "test_manual_without_context_explicitly_skips_when_cap_enabled",
+        "line": 130,
+        "end": 135,
+        "doc": ""
+      },
+      {
+        "name": "test_loss_reentry_after_six_hours_does_not_require_atr_dip",
+        "line": 137,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "test_future_or_nonfinite_last_sale_blocks_before_account_access",
+        "line": 146,
+        "end": 150,
+        "doc": ""
+      },
+      {
+        "name": "test_sender_emits_same_source_anchor_instead_of_current_account_price",
+        "line": 152,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "atr_fetch",
+        "line": 96,
+        "end": 98,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_entry_flags.py",
+    "definitions": [
+      {
+        "name": "bars",
+        "line": 9,
+        "end": 10,
+        "doc": ""
+      },
+      {
+        "name": "Features",
+        "line": 13,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "Record",
+        "line": 53,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "test_flat_market_passes",
+        "line": 14,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "test_uses_last_completed_close_not_fill_price",
+        "line": 20,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "test_falling_four_hours_flags_h2",
+        "line": 25,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_volume_burst_flags_h1",
+        "line": 30,
+        "end": 35,
+        "doc": ""
+      },
+      {
+        "name": "test_one_hour_swing_flags_h3",
+        "line": 37,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_data_is_not_counted_as_pass",
+        "line": 43,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_appends_rows_for_top_candidates",
+        "line": 54,
+        "end": 64,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_exit_study.py",
+    "definitions": [
+      {
+        "name": "lot",
+        "line": 15,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "RiskUnit",
+        "line": 21,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "Protect",
+        "line": 37,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "Rebuy",
+        "line": 61,
+        "end": 87,
+        "doc": ""
+      },
+      {
+        "name": "BookFlow",
+        "line": 90,
+        "end": 113,
+        "doc": ""
+      },
+      {
+        "name": "Frozen",
+        "line": 116,
+        "end": 124,
+        "doc": ""
+      },
+      {
+        "name": "Replay",
+        "line": 127,
+        "end": 145,
+        "doc": ""
+      },
+      {
+        "name": "test_r0_is_initial_stop_distance_and_g0_uses_atr",
+        "line": 22,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "test_non_positive_r0_falls_back",
+        "line": 27,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_r0_not_recomputed_after_stop_raise",
+        "line": 30,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_at_1r0_for_g2_but_not_for_g1",
+        "line": 38,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_g0_protection_late_with_wide_atr",
+        "line": 43,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_full_exit_has_priority_over_partial",
+        "line": 48,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "test_stop_never_lowered",
+        "line": 53,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "check",
+        "line": 64,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "test_window_price_and_signal",
+        "line": 69,
+        "end": 74,
+        "doc": ""
+      },
+      {
+        "name": "test_all_new_buy_limits_apply",
+        "line": 76,
+        "end": 82,
+        "doc": ""
+      },
+      {
+        "name": "test_allowed_and_budget_capped",
+        "line": 84,
+        "end": 87,
+        "doc": ""
+      },
+      {
+        "name": "test_bundle_counts_partial_rebuy_and_rotation_once_and_records_are_atomic",
+        "line": 91,
+        "end": 105,
+        "doc": ""
+      },
+      {
+        "name": "test_summary_dedupes_bundles_and_skips_incomplete_equity",
+        "line": 107,
+        "end": 113,
+        "doc": ""
+      },
+      {
+        "name": "test_restart_uses_frozen_params_not_current_config",
+        "line": 117,
+        "end": 124,
+        "doc": ""
+      },
+      {
+        "name": "test_missed_minute_bars_are_replayed_in_order",
+        "line": 128,
+        "end": 145,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_exit_t1.py",
+    "definitions": [
+      {
+        "name": "make",
+        "line": 12,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "bar",
+        "line": 22,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "ExitT1",
+        "line": 27,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_arms_fixed_and_baseline_is_existing_rule",
+        "line": 28,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "test_trail_uses_confirmed_bar_and_exits_while_baseline_holds",
+        "line": 35,
+        "end": 54,
+        "doc": ""
+      },
+      {
+        "name": "test_bar_before_entry_is_ignored",
+        "line": 56,
+        "end": 59,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_live.py",
+    "definitions": [
+      {
+        "name": "Parse",
+        "line": 10,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "LatestPlan",
+        "line": 27,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "Limits",
+        "line": 39,
+        "end": 74,
+        "doc": ""
+      },
+      {
+        "name": "Delegated",
+        "line": 77,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "Limits2",
+        "line": 91,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "TrailLive",
+        "line": 108,
+        "end": 178,
+        "doc": "EXIT-T1 실거래 연결: 기본 꺼짐, 새 포지션만 대상, 확정 1분봉 종가로 평가, 상향 손절가는 실시간 평가 제외."
+      },
+      {
+        "name": "AdoptedStopRebase",
+        "line": 181,
+        "end": 192,
+        "doc": ""
+      },
+      {
+        "name": "AdoptedTrail",
+        "line": 195,
+        "end": 232,
+        "doc": ""
+      },
+      {
+        "name": "PartialProfit",
+        "line": 235,
+        "end": 270,
+        "doc": ""
+      },
+      {
+        "name": "LossStopPercent",
+        "line": 273,
+        "end": 307,
+        "doc": ""
+      },
+      {
+        "name": "LastSellRecord",
+        "line": 310,
+        "end": 324,
+        "doc": ""
+      },
+      {
+        "name": "EquityTotal",
+        "line": 327,
+        "end": 337,
+        "doc": ""
+      },
+      {
+        "name": "ManualResume",
+        "line": 340,
+        "end": 355,
+        "doc": ""
+      },
+      {
+        "name": "DailyLoss",
+        "line": 358,
+        "end": 373,
+        "doc": ""
+      },
+      {
+        "name": "test_orders",
+        "line": 11,
+        "end": 13,
+        "doc": ""
+      },
+      {
+        "name": "test_nothing",
+        "line": 15,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_conditional_is_rejected",
+        "line": 18,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_format",
+        "line": 22,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_only_agreed_newest",
+        "line": 32,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "test_quote_is_trimmed",
+        "line": 35,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 40,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 45,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "block",
+        "line": 48,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "test_limits",
+        "line": 53,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "test_loss_stop_halts_buys",
+        "line": 60,
+        "end": 63,
+        "doc": ""
+      },
+      {
+        "name": "test_same_plan_runs_once",
+        "line": 65,
+        "end": 74,
+        "doc": ""
+      },
+      {
+        "name": "test_bot_proposal_runs_once_per_proposal",
+        "line": 78,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "test_parse_and_throttle",
+        "line": 92,
+        "end": 97,
+        "doc": ""
+      },
+      {
+        "name": "test_only_agreed_limits",
+        "line": 99,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 111,
+        "end": 119,
+        "doc": ""
+      },
+      {
+        "name": "bar",
+        "line": 122,
+        "end": 125,
+        "doc": ""
+      },
+      {
+        "name": "run_trail",
+        "line": 127,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "test_default_off_never_sells_on_trail",
+        "line": 141,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "test_on_exits_new_position_only",
+        "line": 146,
+        "end": 151,
+        "doc": ""
+      },
+      {
+        "name": "test_raised_stop_is_not_checked_by_live_price",
+        "line": 153,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "test_new_buy_fixes_entry_and_addon_disables_trail",
+        "line": 161,
+        "end": 178,
+        "doc": ""
+      },
+      {
+        "name": "test_far_stop_is_raised_once_to_cap_and_never_lowered",
+        "line": 182,
+        "end": 192,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 196,
+        "end": 201,
+        "doc": ""
+      },
+      {
+        "name": "bars",
+        "line": 204,
+        "end": 210,
+        "doc": ""
+      },
+      {
+        "name": "test_off_by_default_leaves_adopted_alone",
+        "line": 212,
+        "end": 216,
+        "doc": ""
+      },
+      {
+        "name": "test_adopted_gets_entry_from_account_average_and_trails_from_1r",
+        "line": 218,
+        "end": 232,
+        "doc": ""
+      },
+      {
+        "name": "trade_log",
+        "line": 236,
+        "end": 251,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_sells_once_at_2r_not_before",
+        "line": 253,
+        "end": 261,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_off_by_default",
+        "line": 263,
+        "end": 270,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 274,
+        "end": 279,
+        "doc": ""
+      },
+      {
+        "name": "test_amount_mode_unchanged_when_pct_zero",
+        "line": 281,
+        "end": 286,
+        "doc": ""
+      },
+      {
+        "name": "test_pct_uses_base_equity_once_and_halts_at_limit",
+        "line": 288,
+        "end": 301,
+        "doc": ""
+      },
+      {
+        "name": "test_falls_back_to_amount_when_equity_unavailable",
+        "line": 303,
+        "end": 307,
+        "doc": ""
+      },
+      {
+        "name": "test_full_close_records_last_sell_with_profit_flag",
+        "line": 311,
+        "end": 324,
+        "doc": ""
+      },
+      {
+        "name": "test_ignores_assets_without_krw_market",
+        "line": 328,
+        "end": 337,
+        "doc": ""
+      },
+      {
+        "name": "test_resume_clears_halt_and_restarts_loss_count",
+        "line": 341,
+        "end": 355,
+        "doc": ""
+      },
+      {
+        "name": "test_new_day_restarts_count_and_resumes",
+        "line": 359,
+        "end": 373,
+        "doc": ""
+      },
+      {
+        "name": "fake_trade",
+        "line": 130,
+        "end": 133,
+        "doc": ""
+      },
+      {
+        "name": "fake",
+        "line": 240,
+        "end": 244,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_live_adoption.py",
+    "definitions": [
+      {
+        "name": "Adoption",
+        "line": 14,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "OrderRecovery",
+        "line": 53,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "test_explicit_snapshot_replaces_only_matching_previous_checkpoint",
+        "line": 15,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_unmatched_authorization_does_not_replace_checkpoint",
+        "line": 29,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "test_snapshot_preserves_all_assets_without_fabricating_unsupported_prices",
+        "line": 41,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 54,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 61,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_cancelled_partial_sale_keeps_remaining_owned_quantity",
+        "line": 64,
+        "end": 70,
+        "doc": ""
+      },
+      {
+        "name": "test_duplicate_partial_events_are_not_accounted_twice",
+        "line": 72,
+        "end": 76,
+        "doc": ""
+      },
+      {
+        "name": "test_transmission_failure_is_durable_and_not_resubmitted",
+        "line": 78,
+        "end": 85,
+        "doc": ""
+      },
+      {
+        "name": "test_older_proposal_is_not_replayed_after_adoption",
+        "line": 87,
+        "end": 96,
+        "doc": ""
+      },
+      {
+        "name": "test_inherited_past_losses_do_not_count_as_new_baseline_losses",
+        "line": 98,
+        "end": 101,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_live_reliability.py",
+    "definitions": [
+      {
+        "name": "Rejection",
+        "line": 17,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "Reliability",
+        "line": 51,
+        "end": 183,
+        "doc": ""
+      },
+      {
+        "name": "MonitorOrder",
+        "line": 186,
+        "end": 209,
+        "doc": ""
+      },
+      {
+        "name": "test_definitive_exchange_rejection_is_typed",
+        "line": 18,
+        "end": 26,
+        "doc": ""
+      },
+      {
+        "name": "test_duplicate_identifier_is_not_treated_as_definite_nonacceptance",
+        "line": 28,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_server_and_rate_limit_errors_remain_uncertain",
+        "line": 38,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 52,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 57,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "pending",
+        "line": 60,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_definite_rejection_releases_intent_but_does_not_replay",
+        "line": 64,
+        "end": 71,
+        "doc": ""
+      },
+      {
+        "name": "test_nan_atr_rejects_before_intent_or_order_transmission",
+        "line": 73,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "test_invalid_risk_prices_do_not_trigger_exchange_calls",
+        "line": 83,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "test_timeout_remains_durable_and_blocks_all_new_buys",
+        "line": 90,
+        "end": 97,
+        "doc": ""
+      },
+      {
+        "name": "test_unresolved_primary_does_not_block_other_market_stop",
+        "line": 99,
+        "end": 115,
+        "doc": ""
+      },
+      {
+        "name": "test_uncertain_risk_order_is_not_reposted",
+        "line": 117,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "test_risk_partial_cancel_preserves_remaining_cost_and_quantity",
+        "line": 129,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_mark_freezes_loss_evaluation_and_new_entries",
+        "line": 141,
+        "end": 150,
+        "doc": ""
+      },
+      {
+        "name": "test_cumulative_cap_reserves_fee",
+        "line": 152,
+        "end": 154,
+        "doc": ""
+      },
+      {
+        "name": "test_terminal_missing_details_does_not_mutate_before_validation",
+        "line": 156,
+        "end": 164,
+        "doc": ""
+      },
+      {
+        "name": "test_receiver_rejects_relabelled_old_source_signal",
+        "line": 166,
+        "end": 183,
+        "doc": ""
+      },
+      {
+        "name": "test_risk_checks_precede_optional_account_display",
+        "line": 187,
+        "end": 209,
+        "doc": ""
+      },
+      {
+        "name": "EndLoop",
+        "line": 189,
+        "end": 190,
+        "doc": ""
+      },
+      {
+        "name": "display",
+        "line": 199,
+        "end": 201,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_loss_excludes_protected.py",
+    "definitions": [
+      {
+        "name": "make",
+        "line": 12,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "px",
+        "line": 19,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "LossExcludesProtected",
+        "line": 24,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 25,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_price_drop_does_not_count",
+        "line": 33,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_bot_position_loss_still_counts",
+        "line": 38,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_first_run_keeps_todays_loss_unchanged",
+        "line": 43,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_resume_before_first_check_is_consistent",
+        "line": 52,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "test_unreadable_protection_list_uses_last_known",
+        "line": 59,
+        "end": 62,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_manual_buy.py",
+    "definitions": [
+      {
+        "name": "free_port",
+        "line": 16,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "AddToPosition",
+        "line": 22,
+        "end": 96,
+        "doc": ""
+      },
+      {
+        "name": "BuyThroughServer",
+        "line": 99,
+        "end": 157,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 23,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 31,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "fake_trade",
+        "line": 34,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "add",
+        "line": 38,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_buys_through_the_same_checks_as_automatic_buys",
+        "line": 44,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "test_rejections_never_place_an_order",
+        "line": 51,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_loss_halt_really_blocks_a_manual_add",
+        "line": 67,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_cap_never_exceeds_the_order_limit",
+        "line": 75,
+        "end": 80,
+        "doc": ""
+      },
+      {
+        "name": "test_live_off_failure_and_lost_lease",
+        "line": 82,
+        "end": 90,
+        "doc": ""
+      },
+      {
+        "name": "test_unfilled_buy_is_reported",
+        "line": 92,
+        "end": 96,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 100,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 105,
+        "end": 106,
+        "doc": ""
+      },
+      {
+        "name": "post",
+        "line": 108,
+        "end": 115,
+        "doc": ""
+      },
+      {
+        "name": "test_amount_must_be_an_integer_in_range",
+        "line": 117,
+        "end": 123,
+        "doc": ""
+      },
+      {
+        "name": "test_confirmed_buy_reaches_the_bot_with_its_amount",
+        "line": 125,
+        "end": 140,
+        "doc": ""
+      },
+      {
+        "name": "test_repeat_guard_is_per_kind",
+        "line": 142,
+        "end": 157,
+        "doc": ""
+      },
+      {
+        "name": "bot",
+        "line": 128,
+        "end": 134,
+        "doc": ""
+      },
+      {
+        "name": "bot",
+        "line": 143,
+        "end": 151,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_manual_liquidate.py",
+    "definitions": [
+      {
+        "name": "free_port",
+        "line": 16,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "LiquidatePosition",
+        "line": 22,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "Server",
+        "line": 96,
+        "end": 180,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 23,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 29,
+        "end": 30,
+        "doc": ""
+      },
+      {
+        "name": "run_it",
+        "line": 32,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "fake_trade",
+        "line": 38,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "test_sells_whole_position_through_the_risk_path",
+        "line": 42,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_only_sells_what_the_exchange_really_holds",
+        "line": 48,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "test_rejections_never_place_an_order",
+        "line": 54,
+        "end": 66,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_live_and_uncertain_order_block",
+        "line": 68,
+        "end": 77,
+        "doc": ""
+      },
+      {
+        "name": "test_failure_is_reported_and_recorded_not_raised",
+        "line": 79,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_lost_execution_right_propagates",
+        "line": 85,
+        "end": 87,
+        "doc": ""
+      },
+      {
+        "name": "test_unfilled_order_keeps_the_position",
+        "line": 89,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 97,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 102,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "post",
+        "line": 105,
+        "end": 117,
+        "doc": ""
+      },
+      {
+        "name": "good",
+        "line": 119,
+        "end": 120,
+        "doc": ""
+      },
+      {
+        "name": "bot",
+        "line": 122,
+        "end": 131,
+        "doc": ""
+      },
+      {
+        "name": "test_confirmed_request_is_executed_by_the_bot_loop_and_answered",
+        "line": 133,
+        "end": 137,
+        "doc": ""
+      },
+      {
+        "name": "test_bot_refusal_is_passed_back",
+        "line": 139,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "test_wrong_or_missing_token_is_rejected_and_nothing_is_queued",
+        "line": 145,
+        "end": 148,
+        "doc": ""
+      },
+      {
+        "name": "test_foreign_origin_and_host_are_rejected",
+        "line": 150,
+        "end": 153,
+        "doc": ""
+      },
+      {
+        "name": "test_unconfirmed_or_malformed_requests_are_rejected",
+        "line": 155,
+        "end": 162,
+        "doc": ""
+      },
+      {
+        "name": "test_same_market_cannot_be_requested_twice_within_30_seconds",
+        "line": 164,
+        "end": 169,
+        "doc": ""
+      },
+      {
+        "name": "test_only_loopback_liquidate_path_exists",
+        "line": 171,
+        "end": 176,
+        "doc": ""
+      },
+      {
+        "name": "test_port_in_use_returns_false_without_raising",
+        "line": 178,
+        "end": 180,
+        "doc": ""
+      },
+      {
+        "name": "work",
+        "line": 123,
+        "end": 128,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_market_exit_watch.py",
+    "definitions": [
+      {
+        "name": "bars",
+        "line": 13,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "MarketState",
+        "line": 17,
+        "end": 45,
+        "doc": ""
+      },
+      {
+        "name": "ExitWatch",
+        "line": 48,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "RegimeCompare",
+        "line": 105,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "BotCapitalSizing",
+        "line": 130,
+        "end": 185,
+        "doc": ""
+      },
+      {
+        "name": "test_zones_and_compute",
+        "line": 18,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_render_with_and_without_data",
+        "line": 29,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_fng_fetch_saves_and_rejects_bad_value",
+        "line": 36,
+        "end": 45,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 49,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "events",
+        "line": 57,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "test_tick_table",
+        "line": 60,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_weak_position_arms_then_virtual_fill",
+        "line": 64,
+        "end": 74,
+        "doc": ""
+      },
+      {
+        "name": "test_strong_position_passes_and_sale_first_is_recorded",
+        "line": 76,
+        "end": 86,
+        "doc": ""
+      },
+      {
+        "name": "test_deadline_stage2_or_cancel",
+        "line": 88,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_extra_buys_are_those_made_while_24h_index_was_negative",
+        "line": 106,
+        "end": 123,
+        "doc": ""
+      },
+      {
+        "name": "test_filter_note_shows_6h_decision",
+        "line": 125,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "test_unit_is_bot_capital_over_divisor_ignoring_protected",
+        "line": 131,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "test_dust_does_not_count_as_held",
+        "line": 146,
+        "end": 155,
+        "doc": ""
+      },
+      {
+        "name": "test_dust_anywhere_never_changes_the_plan",
+        "line": 157,
+        "end": 168,
+        "doc": ""
+      },
+      {
+        "name": "test_hourly_record_keeps_6h_fields",
+        "line": 170,
+        "end": 176,
+        "doc": ""
+      },
+      {
+        "name": "test_compare_treats_unlabelled_records_after_switch_as_6h",
+        "line": 178,
+        "end": 185,
+        "doc": ""
+      },
+      {
+        "name": "order",
+        "line": 113,
+        "end": 114,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_missed_ledger.py",
+    "definitions": [
+      {
+        "name": "MissedLedger",
+        "line": 10,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 11,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_all_reasons_are_kept_not_just_the_first",
+        "line": 18,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "test_outcomes_and_file",
+        "line": 25,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_regime_pass_message_is_not_a_block",
+        "line": 36,
+        "end": 42,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_notices_review.py",
+    "definitions": [
+      {
+        "name": "Notices",
+        "line": 14,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "ServerAck",
+        "line": 41,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 53,
+        "end": 76,
+        "doc": "합성 기록: 매일 per_day건 R8 발동(손익 hit_loss) + 통과 1건(keep_pnl)."
+      },
+      {
+        "name": "Review",
+        "line": 79,
+        "end": 102,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 15,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_add_is_idempotent_and_ack_sticks",
+        "line": 18,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_popup_once",
+        "line": 26,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "test_banner_escapes_and_has_button_only_with_action",
+        "line": 31,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "test_notice_ack_validation",
+        "line": 42,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_collecting_when_small",
+        "line": 80,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_extend_when_old_but_small",
+        "line": 85,
+        "end": 86,
+        "doc": ""
+      },
+      {
+        "name": "test_propose_when_hits_lose_and_keeps_win",
+        "line": 88,
+        "end": 94,
+        "doc": ""
+      },
+      {
+        "name": "test_reject_when_hits_do_not_lose_more",
+        "line": 96,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_unflagged_or_late_buys_are_ignored",
+        "line": 100,
+        "end": 102,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_observations.py",
+    "definitions": [
+      {
+        "name": "Store",
+        "line": 13,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "Render",
+        "line": 59,
+        "end": 90,
+        "doc": ""
+      },
+      {
+        "name": "ServerCheck",
+        "line": 93,
+        "end": 115,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 14,
+        "end": 17,
+        "doc": ""
+      },
+      {
+        "name": "test_first_load_seeds_the_known_deadlines_and_persists",
+        "line": 19,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_actions_change_status_and_leave_a_note",
+        "line": 26,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_input_is_rejected",
+        "line": 36,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "test_add_validates_id_kind_and_due_and_rejects_duplicates",
+        "line": 42,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "test_corrupt_file_is_reseeded_not_fatal",
+        "line": 53,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 60,
+        "end": 63,
+        "doc": ""
+      },
+      {
+        "name": "test_overdue_item_turns_the_collapsed_title_red",
+        "line": 65,
+        "end": 70,
+        "doc": ""
+      },
+      {
+        "name": "test_soon_and_quiet_states",
+        "line": 72,
+        "end": 77,
+        "doc": ""
+      },
+      {
+        "name": "test_done_items_do_not_raise_the_alarm",
+        "line": 79,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_text_is_escaped_and_token_not_leaked_when_disabled",
+        "line": 85,
+        "end": 90,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 94,
+        "end": 95,
+        "doc": ""
+      },
+      {
+        "name": "call",
+        "line": 97,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_valid_request_passes_with_id_and_payload",
+        "line": 100,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_rejects_bad_token_action_id_and_unconfirmed",
+        "line": 105,
+        "end": 110,
+        "doc": ""
+      },
+      {
+        "name": "test_kind_must_be_allowed",
+        "line": 112,
+        "end": 115,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_open_page.py",
+    "definitions": [
+      {
+        "name": "OpenPage",
+        "line": 8,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_prefers_chrome_when_found",
+        "line": 9,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "test_falls_back_to_default_browser",
+        "line": 17,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "test_chrome_launch_failure_falls_back",
+        "line": 23,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_no_browser_env_skips",
+        "line": 29,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "test_finds_chrome_via_env_path",
+        "line": 35,
+        "end": 37,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_ownership_ui.py",
+    "definitions": [
+      {
+        "name": "fake",
+        "line": 8,
+        "end": 11,
+        "doc": ""
+      },
+      {
+        "name": "render",
+        "line": 14,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "Lamp",
+        "line": 18,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "GrantRequest",
+        "line": 49,
+        "end": 63,
+        "doc": ""
+      },
+      {
+        "name": "test_green_when_this_pc_owns_and_button_is_disabled",
+        "line": 21,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_red_when_another_pc_owns_and_button_is_enabled",
+        "line": 26,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "test_red_when_nobody_owns",
+        "line": 31,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "test_yellow_when_owner_but_unverifiable",
+        "line": 34,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_transfer_result_indicator",
+        "line": 38,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_without_control_server_button_is_inert",
+        "line": 44,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_grant_needs_token_and_confirm_but_no_market",
+        "line": 50,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_grant_when_already_owner_is_a_noop",
+        "line": 61,
+        "end": 63,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_plan_slot.py",
+    "definitions": [
+      {
+        "name": "SlotDue",
+        "line": 12,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "SlotPersistence",
+        "line": 35,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "Hardening",
+        "line": 76,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "RealProcesses",
+        "line": 142,
+        "end": 196,
+        "doc": "메모리를 공유하지 않는 실제 파이썬 프로세스로 영속 기록만을 통해 검증한다(강제 종료 포함)."
+      },
+      {
+        "name": "test_waits_for_delay_after_the_top_of_the_hour",
+        "line": 13,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_same_slot_is_never_due_twice",
+        "line": 18,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "test_late_slot_is_skipped_not_replayed",
+        "line": 21,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "test_restart_in_the_middle_of_an_hour_creates_no_plan",
+        "line": 27,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 36,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_or_corrupt_file_counts_as_current_slot_done",
+        "line": 41,
+        "end": 47,
+        "doc": ""
+      },
+      {
+        "name": "test_claim_is_durable_and_blocks_a_second_plan_after_restart",
+        "line": 49,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_claim_happens_before_generation_so_a_crash_cannot_duplicate",
+        "line": 61,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 77,
+        "end": 80,
+        "doc": ""
+      },
+      {
+        "name": "test_restart_inside_the_late_window_waits_for_the_next_slot",
+        "line": 82,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "test_hostile_values_never_block_or_replay",
+        "line": 90,
+        "end": 95,
+        "doc": ""
+      },
+      {
+        "name": "test_stale_signal_is_retried_without_claiming_then_made_once",
+        "line": 97,
+        "end": 108,
+        "doc": ""
+      },
+      {
+        "name": "test_crash_during_generation_loses_the_slot_but_never_duplicates_it",
+        "line": 110,
+        "end": 119,
+        "doc": ""
+      },
+      {
+        "name": "test_many_restarts_across_a_day_make_at_most_one_plan_per_slot",
+        "line": 121,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 145,
+        "end": 149,
+        "doc": ""
+      },
+      {
+        "name": "run_driver",
+        "line": 151,
+        "end": 169,
+        "doc": "start에 가동한 프로세스가 now에 한 번 반복한다(start 시점에 현재 슬롯은 처리된 것으로 본다)."
+      },
+      {
+        "name": "made",
+        "line": 171,
+        "end": 172,
+        "doc": ""
+      },
+      {
+        "name": "test_restart_in_late_window_then_exactly_one_plan_at_the_next_slot",
+        "line": 174,
+        "end": 184,
+        "doc": ""
+      },
+      {
+        "name": "test_force_kill_right_after_claim_never_recreates_the_slot",
+        "line": 186,
+        "end": 196,
+        "doc": ""
+      },
+      {
+        "name": "claim",
+        "line": 99,
+        "end": 99,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 100,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "boom",
+        "line": 112,
+        "end": 112,
+        "doc": ""
+      },
+      {
+        "name": "make",
+        "line": 131,
+        "end": 134,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_pnl.py",
+    "definitions": [
+      {
+        "name": "order",
+        "line": 12,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "realize",
+        "line": 18,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "Cost",
+        "line": 22,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "Periods",
+        "line": 49,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "Reconcile",
+        "line": 75,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "Paging",
+        "line": 84,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "ReviewFixes",
+        "line": 94,
+        "end": 151,
+        "doc": "ChatGPT 구현 검토(D-56/05) 반영."
+      },
+      {
+        "name": "test_independent_example_fee_counted_once",
+        "line": 23,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_moving_average_partial_sell",
+        "line": 29,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_cancel_state_market_buy_uses_trades_and_fee_split",
+        "line": 36,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "test_baseline_unknown_cost_and_shortage_are_unconfirmed",
+        "line": 41,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_fill_time_not_order_time_and_week_month",
+        "line": 50,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_source_split_by_sell_order_identifier",
+        "line": 64,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "test_mismatch_detected_and_dust_hidden",
+        "line": 76,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "test_full_page_continues_and_dedupes",
+        "line": 85,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_mismatch_coin_moves_to_unconfirmed",
+        "line": 97,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_baseline_cost_is_estimated_not_confirmed",
+        "line": 105,
+        "end": 111,
+        "doc": ""
+      },
+      {
+        "name": "test_incomplete_detail_makes_later_sells_unconfirmed",
+        "line": 113,
+        "end": 117,
+        "doc": ""
+      },
+      {
+        "name": "test_detail_dedupes_trades_and_checks_volume",
+        "line": 119,
+        "end": 127,
+        "doc": ""
+      },
+      {
+        "name": "test_month_marked_partial_before_baseline",
+        "line": 129,
+        "end": 134,
+        "doc": ""
+      },
+      {
+        "name": "test_empty_trade_detail_sell_is_counted_unconfirmed",
+        "line": 137,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "test_incomplete_cost_excluded_from_unrealized_total",
+        "line": 146,
+        "end": 151,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_pnl_service.py",
+    "definitions": [
+      {
+        "name": "PnlServiceTests",
+        "line": 13,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "test_powershell_query_is_not_a_worker",
+        "line": 14,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "test_another_absolute_checkout_is_not_this_worker",
+        "line": 20,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_workspace_credentials_reach_only_child_environment",
+        "line": 26,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_existing_worker_does_not_start_or_read_credentials",
+        "line": 39,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "test_start_uses_absolute_script_and_retains_baseline",
+        "line": 46,
+        "end": 55,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_position_popup.py",
+    "definitions": [
+      {
+        "name": "PositionPopupTest",
+        "line": 11,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_detail_values",
+        "line": 12,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_price_is_not_faked_as_zero",
+        "line": 23,
+        "end": 30,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_position_fields_do_not_raise",
+        "line": 32,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_last_sell",
+        "line": 38,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_data_script_cannot_break_out_of_the_tag",
+        "line": 44,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_row_attrs_escape_and_dust_class",
+        "line": 52,
+        "end": 55,
+        "doc": ""
+      },
+      {
+        "name": "test_modal_only_talks_to_the_local_server_and_never_injects_html",
+        "line": 57,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_liquidation_needs_a_separate_yes_click",
+        "line": 67,
+        "end": 72,
+        "doc": ""
+      },
+      {
+        "name": "test_action_tag_only_when_server_is_on",
+        "line": 74,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "test_sellable_follows_minimum_order_value",
+        "line": 80,
+        "end": 83,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_profit_guard.py",
+    "definitions": [
+      {
+        "name": "ProfitGuard",
+        "line": 11,
+        "end": 113,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 12,
+        "end": 19,
+        "doc": ""
+      },
+      {
+        "name": "test_old_peak_is_not_retroactively_armed",
+        "line": 21,
+        "end": 24,
+        "doc": ""
+      },
+      {
+        "name": "test_arm_below_atr_threshold_preserves_sixty_percent_gain",
+        "line": 26,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_peak_and_stop_never_decline_and_survive_reload",
+        "line": 30,
+        "end": 36,
+        "doc": ""
+      },
+      {
+        "name": "test_cost_floor_uses_market_specific_cost",
+        "line": 38,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_does_not_activate_or_use_saved_guard",
+        "line": 44,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "test_raised_trail_stop_is_checked_in_real_time",
+        "line": 51,
+        "end": 54,
+        "doc": ""
+      },
+      {
+        "name": "test_invalid_quotes_do_not_arm",
+        "line": 56,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_invalid_config_cannot_break_fixed_stop_protection",
+        "line": 61,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_rebased_stop0_never_decreases_and_runs_only_once",
+        "line": 67,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_gap_exit_reuses_risk_order_path",
+        "line": 75,
+        "end": 82,
+        "doc": ""
+      },
+      {
+        "name": "test_uncertain_order_suppresses_duplicate_exit",
+        "line": 84,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_additional_fill_keeps_guard_and_uses_remaining_average_cost",
+        "line": 93,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_exit_preserves_guard_for_remaining_quantity",
+        "line": 105,
+        "end": 113,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_proposal.py",
+    "definitions": [
+      {
+        "name": "r",
+        "line": 9,
+        "end": 10,
+        "doc": ""
+      },
+      {
+        "name": "Proposal",
+        "line": 13,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "RatioCaps",
+        "line": 39,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "ReentryInProposal",
+        "line": 59,
+        "end": 69,
+        "doc": ""
+      },
+      {
+        "name": "CandidateRuleConfig",
+        "line": 72,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "RiskSizing",
+        "line": 96,
+        "end": 109,
+        "doc": ""
+      },
+      {
+        "name": "EntryRisk",
+        "line": 112,
+        "end": 117,
+        "doc": ""
+      },
+      {
+        "name": "test_weak_holdings_sold_and_strong_bought",
+        "line": 16,
+        "end": 22,
+        "doc": ""
+      },
+      {
+        "name": "test_sell_cap_keeps_strongest_of_the_weak",
+        "line": 24,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_nothing_to_do",
+        "line": 30,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "test_fixed_caps_released_but_ratio_caps_hold",
+        "line": 40,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "test_existing_holding_counts_toward_coin_cap",
+        "line": 50,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "test_recent_loss_exit_blocks_buy_and_explains",
+        "line": 60,
+        "end": 69,
+        "doc": ""
+      },
+      {
+        "name": "ranked",
+        "line": 75,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "text",
+        "line": 80,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_default_looks_only_at_top3_slots",
+        "line": 85,
+        "end": 88,
+        "doc": ""
+      },
+      {
+        "name": "test_fill_mode_takes_next_eligible_and_respects_want",
+        "line": 90,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "amount",
+        "line": 99,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_default_keeps_ratio_caps",
+        "line": 105,
+        "end": 106,
+        "doc": ""
+      },
+      {
+        "name": "test_risk_sizing_limits_to_risk_over_stop",
+        "line": 108,
+        "end": 109,
+        "doc": ""
+      },
+      {
+        "name": "test_entry_risk_overrides_risk_for_live_size",
+        "line": 113,
+        "end": 117,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_protected_assets.py",
+    "definitions": [
+      {
+        "name": "ProtectedAssets",
+        "line": 12,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 13,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_direct_buy_sell_and_risk_exit_block_before_transport",
+        "line": 22,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_plan_skips_before_account_lookup",
+        "line": 30,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_activation_after_intent_save_still_prevents_transmission",
+        "line": 36,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "test_stop_profit_trail_do_not_mutate_or_sell_protected_position",
+        "line": 45,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "test_ui_actions_also_respect_user_protection",
+        "line": 55,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_protection_changes_are_reloaded_without_restart",
+        "line": 61,
+        "end": 66,
+        "doc": ""
+      },
+      {
+        "name": "test_malformed_or_required_missing_protection_fails_closed",
+        "line": 68,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_unprotected_owned_asset_keeps_normal_risk_exit",
+        "line": 75,
+        "end": 81,
+        "doc": ""
+      },
+      {
+        "name": "activate",
+        "line": 37,
+        "end": 38,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_ranking_view.py",
+    "definitions": [
+      {
+        "name": "RankingView",
+        "line": 7,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "rows",
+        "line": 10,
+        "end": 11,
+        "doc": ""
+      },
+      {
+        "name": "test_held_is_blue_and_warning_is_red_and_tagged",
+        "line": 13,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "test_candidate_and_overheat_tags_follow_buy_rule",
+        "line": 25,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "test_warning_wins_when_held_and_warned",
+        "line": 33,
+        "end": 35,
+        "doc": ""
+      },
+      {
+        "name": "test_warned_shows_buy_candidate_or_blocked_reason",
+        "line": 37,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "test_empty",
+        "line": 45,
+        "end": 46,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_reconcile.py",
+    "definitions": [
+      {
+        "name": "order",
+        "line": 7,
+        "end": 12,
+        "doc": ""
+      },
+      {
+        "name": "Reconcile",
+        "line": 15,
+        "end": 112,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 16,
+        "end": 26,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_and_final_sales_preserve_basis_and_use_actual_fill_time",
+        "line": 28,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_transient_new_position_needs_no_invented_stop_if_fully_closed",
+        "line": 39,
+        "end": 45,
+        "doc": ""
+      },
+      {
+        "name": "test_repeated_terminal_order_is_idempotent",
+        "line": 47,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "test_new_open_position_without_proven_stop_remains_unresolved",
+        "line": 54,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "test_stronger_known_stop_and_internal_peak_are_never_lowered",
+        "line": 60,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_protected_manual_inventory_is_not_adopted_or_sold",
+        "line": 67,
+        "end": 71,
+        "doc": ""
+      },
+      {
+        "name": "test_unknown_manual_activity_and_balance_difference_block_completion",
+        "line": 73,
+        "end": 77,
+        "doc": ""
+      },
+      {
+        "name": "test_oversell_or_revised_cumulative_data_fails_without_mutating_input",
+        "line": 79,
+        "end": 86,
+        "doc": ""
+      },
+      {
+        "name": "test_explicit_external_btc_fill_import_preserves_risk_and_excludes_bot_buy_budget",
+        "line": 88,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_external_adoption_cannot_override_protected_doge_or_omit_stop",
+        "line": 105,
+        "end": 112,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_reconciliation_guard.py",
+    "definitions": [
+      {
+        "name": "module",
+        "line": 14,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "ProofGate",
+        "line": 25,
+        "end": 209,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 26,
+        "end": 69,
+        "doc": ""
+      },
+      {
+        "name": "write_json",
+        "line": 72,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "publish",
+        "line": 75,
+        "end": 86,
+        "doc": ""
+      },
+      {
+        "name": "valid",
+        "line": 88,
+        "end": 89,
+        "doc": ""
+      },
+      {
+        "name": "test_distinct_home_source_and_company_remote_require_explicit_source_pin",
+        "line": 91,
+        "end": 95,
+        "doc": ""
+      },
+      {
+        "name": "test_replay_source_epoch_must_match_proof_artifact_and_config_pin",
+        "line": 97,
+        "end": 108,
+        "doc": ""
+      },
+      {
+        "name": "test_forged_correct_target_hash_cannot_change_replayed_realized",
+        "line": 110,
+        "end": 113,
+        "doc": ""
+      },
+      {
+        "name": "test_forged_idempotency_pointer_is_rejected_even_with_matching_hash",
+        "line": 115,
+        "end": 118,
+        "doc": ""
+      },
+      {
+        "name": "test_previous_checkpoint_and_authorization_id_are_both_bound",
+        "line": 120,
+        "end": 125,
+        "doc": ""
+      },
+      {
+        "name": "test_nonidle_lease_is_never_forcibly_taken",
+        "line": 127,
+        "end": 132,
+        "doc": ""
+      },
+      {
+        "name": "test_proof_and_account_observation_both_must_be_fresh",
+        "line": 134,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "test_false_or_integer_fact_does_not_count_as_true",
+        "line": 145,
+        "end": 152,
+        "doc": ""
+      },
+      {
+        "name": "test_current_DOGE_protection_and_required_flag_are_enforced",
+        "line": 154,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "test_artifact_tamper_and_traversal_are_rejected",
+        "line": 161,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "test_pending_target_or_changed_historical_basis_is_rejected",
+        "line": 169,
+        "end": 178,
+        "doc": ""
+      },
+      {
+        "name": "test_old_processed_plan_cannot_be_deleted",
+        "line": 180,
+        "end": 183,
+        "doc": ""
+      },
+      {
+        "name": "test_quantity_disagreement_is_not_hidden_by_proof_booleans",
+        "line": 185,
+        "end": 188,
+        "doc": ""
+      },
+      {
+        "name": "test_explicit_manual_BTC_import_requires_verified_floor_and_preserves_bot_buy_counter",
+        "line": 190,
+        "end": 209,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_reconciliation_session.py",
+    "definitions": [
+      {
+        "name": "Store",
+        "line": 13,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "ReconciliationSession",
+        "line": 24,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 14,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 16,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "cas",
+        "line": 17,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 25,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "test_verified_bridge_uses_normal_cas_and_preserves_source_basis",
+        "line": 34,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "test_forged_financial_result_does_not_reach_cas",
+        "line": 42,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_transition_and_incomplete_restore_markers_block_even_before_read",
+        "line": 48,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "test_marker_after_acquire_blocks_order_before_http",
+        "line": 59,
+        "end": 65,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_refresh_request.py",
+    "definitions": [
+      {
+        "name": "RefreshRequest",
+        "line": 7,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "test_refresh_needs_token_and_confirm_but_no_market",
+        "line": 8,
+        "end": 14,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_regime_filter.py",
+    "definitions": [
+      {
+        "name": "bars",
+        "line": 8,
+        "end": 11,
+        "doc": ""
+      },
+      {
+        "name": "MarketIndex",
+        "line": 14,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "RegimeGate",
+        "line": 28,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "MarketIndexIntegrity",
+        "line": 94,
+        "end": 125,
+        "doc": ""
+      },
+      {
+        "name": "ReceiverEnforcement",
+        "line": 128,
+        "end": 167,
+        "doc": "생성기와 별개로 실행 쪽에서도 필터를 강제한다."
+      },
+      {
+        "name": "NoDustOnFullSell",
+        "line": 171,
+        "end": 197,
+        "doc": "2026-11-06: 전량 매도가 이진 소수 오차로 1e-08개를 남겼다(CAP 950.45500505 → 950.45500504 매도)."
+      },
+      {
+        "name": "test_equal_weight_mean_of_period_returns",
+        "line": 15,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_too_few_markets_or_bars_is_unknown_not_zero",
+        "line": 22,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 31,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "plan",
+        "line": 39,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_rising_market_allows_normal_buys",
+        "line": 44,
+        "end": 47,
+        "doc": ""
+      },
+      {
+        "name": "test_flat_or_falling_market_blocks_new_buys_only",
+        "line": 49,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "test_unknown_index_fails_closed_for_entries",
+        "line": 55,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "test_sells_and_holds_are_never_blocked_by_the_filter",
+        "line": 60,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "test_expiry_closes_new_buys_in_the_generator_too",
+        "line": 69,
+        "end": 75,
+        "doc": ""
+      },
+      {
+        "name": "test_halt_keeps_sells_and_holds_but_creates_no_buys",
+        "line": 77,
+        "end": 85,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_filter_changes_nothing",
+        "line": 87,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_non_finite_and_non_positive_prices_are_excluded",
+        "line": 95,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "test_markets_with_misaligned_bars_are_excluded_not_averaged_in",
+        "line": 103,
+        "end": 111,
+        "doc": ""
+      },
+      {
+        "name": "test_invalid_arguments_raise",
+        "line": 113,
+        "end": 116,
+        "doc": ""
+      },
+      {
+        "name": "test_proposal_rejects_nan_index",
+        "line": 118,
+        "end": 125,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 131,
+        "end": 141,
+        "doc": ""
+      },
+      {
+        "name": "run_plan",
+        "line": 143,
+        "end": 144,
+        "doc": ""
+      },
+      {
+        "name": "test_buys_without_a_positive_index_are_dropped_before_any_account_or_order_call",
+        "line": 146,
+        "end": 148,
+        "doc": ""
+      },
+      {
+        "name": "test_expired_temporary_filter_blocks_all_buys_even_with_a_rising_market",
+        "line": 150,
+        "end": 156,
+        "doc": ""
+      },
+      {
+        "name": "test_halt_new_buys_blocks_all_automatic_buys_even_in_a_rising_market",
+        "line": 158,
+        "end": 162,
+        "doc": ""
+      },
+      {
+        "name": "test_filter_off_does_not_block",
+        "line": 164,
+        "end": 167,
+        "doc": ""
+      },
+      {
+        "name": "test_vol8_never_rounds_up_or_loses_the_last_digit",
+        "line": 174,
+        "end": 179,
+        "doc": ""
+      },
+      {
+        "name": "_sell",
+        "line": 181,
+        "end": 190,
+        "doc": ""
+      },
+      {
+        "name": "test_full_sell_sends_the_exact_balance",
+        "line": 192,
+        "end": 193,
+        "doc": ""
+      },
+      {
+        "name": "test_partial_sell_leaving_less_than_min_order_sells_all",
+        "line": 195,
+        "end": 197,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_review_fixes.py",
+    "definitions": [
+      {
+        "name": "bars",
+        "line": 12,
+        "end": 13,
+        "doc": ""
+      },
+      {
+        "name": "PriceMissing",
+        "line": 16,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "Retry",
+        "line": 26,
+        "end": 76,
+        "doc": ""
+      },
+      {
+        "name": "PartialInit",
+        "line": 79,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "test_h_value_is_withheld_when_a_price_is_missing",
+        "line": 17,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 27,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 40,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_failed_ledger_is_retried_alone",
+        "line": 43,
+        "end": 59,
+        "doc": ""
+      },
+      {
+        "name": "test_holding_outside_universe_does_not_take_rank",
+        "line": 61,
+        "end": 76,
+        "doc": ""
+      },
+      {
+        "name": "test_existing_ledger_is_not_overwritten",
+        "line": 80,
+        "end": 93,
+        "doc": ""
+      },
+      {
+        "name": "apply",
+        "line": 46,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "apply",
+        "line": 65,
+        "end": 67,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_rotation_rollout.py",
+    "definitions": [
+      {
+        "name": "PolicyTests",
+        "line": 18,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "DurableReceiverTests",
+        "line": 103,
+        "end": 197,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 19,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_identity_is_stable_and_per_market_direction_settings",
+        "line": 22,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_envelope_rejects_late_wrong_bar_future_and_settings",
+        "line": 30,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_reentry_needs_completed_signal_after_wait_not_just_wall_time",
+        "line": 39,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "test_rank_confirmation_counts_distinct_completed_signals_and_resets",
+        "line": 46,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "test_observation_has_no_future_or_gap_backfill_and_resets_on_new_basis",
+        "line": 54,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_paper_regime_guard_handles_finite_indices_after_buy_halt_is_released",
+        "line": 67,
+        "end": 75,
+        "doc": ""
+      },
+      {
+        "name": "test_optional_audit_failure_and_size_cap_do_not_raise",
+        "line": 77,
+        "end": 83,
+        "doc": ""
+      },
+      {
+        "name": "test_submission_evidence_is_a_frozen_copy",
+        "line": 85,
+        "end": 92,
+        "doc": ""
+      },
+      {
+        "name": "test_generator_never_picks_rank_outside_maintenance_even_if_scan_misconfigured",
+        "line": 94,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 104,
+        "end": 110,
+        "doc": ""
+      },
+      {
+        "name": "proposal",
+        "line": 112,
+        "end": 118,
+        "doc": ""
+      },
+      {
+        "name": "test_same_signal_with_new_timestamp_is_not_replayed_after_restart",
+        "line": 120,
+        "end": 129,
+        "doc": ""
+      },
+      {
+        "name": "test_legacy_proposal_cannot_fall_back_when_new_path_enabled",
+        "line": 131,
+        "end": 135,
+        "doc": ""
+      },
+      {
+        "name": "test_crash_after_durable_claim_before_orders_is_never_reissued",
+        "line": 137,
+        "end": 146,
+        "doc": ""
+      },
+      {
+        "name": "test_pending_or_loss_pause_never_consumes_a_new_signal_or_sends_orders",
+        "line": 148,
+        "end": 155,
+        "doc": ""
+      },
+      {
+        "name": "test_receiver_rejects_rank_6_before_network_calls",
+        "line": 157,
+        "end": 161,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_reentry_dip_with_new_completed_bar_is_not_permanently_blocked",
+        "line": 163,
+        "end": 172,
+        "doc": ""
+      },
+      {
+        "name": "test_rotation_fill_records_percent_and_r_and_pauses_at_existing_loss_budget",
+        "line": 174,
+        "end": 190,
+        "doc": ""
+      },
+      {
+        "name": "test_risk_exit_is_independent_of_hour_slot_pause_and_optional_observation_logging",
+        "line": 192,
+        "end": 197,
+        "doc": ""
+      },
+      {
+        "name": "Crash",
+        "line": 139,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "crash",
+        "line": 140,
+        "end": 140,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_same_plan_generator.py",
+    "definitions": [
+      {
+        "name": "SamePlanGenerator",
+        "line": 18,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 22,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "plan",
+        "line": 36,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "test_rank_six_queued_sale_does_not_reenter_same_scan_eight_plan",
+        "line": 41,
+        "end": 48,
+        "doc": ""
+      },
+      {
+        "name": "test_multiple_queued_sales_have_no_buy_side_intersection",
+        "line": 50,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "test_dust_below_min_order_is_buyable_but_real_holding_is_not",
+        "line": 58,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_data_holding_is_preserved_without_blocking_other_eligible",
+        "line": 69,
+        "end": 78,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_same_plan_receiver.py",
+    "definitions": [
+      {
+        "name": "SamePlanReceiver",
+        "line": 15,
+        "end": 45,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 16,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_conflicting_old_plan_is_rejected_before_any_account_or_order_call",
+        "line": 22,
+        "end": 27,
+        "doc": ""
+      },
+      {
+        "name": "test_actual_recent_sale_blocks_old_producer_snapshot",
+        "line": 29,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_sale_after_wait_still_requires_existing_dip_rule_at_actual_ask",
+        "line": 36,
+        "end": 45,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_session_diagnostics.py",
+    "definitions": [
+      {
+        "name": "DiagnosticsTests",
+        "line": 12,
+        "end": 97,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 13,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "record",
+        "line": 22,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "test_auth_failure_records_only_fixed_metadata",
+        "line": 25,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_failed_cas_command_still_returns_nonzero_without_raising",
+        "line": 39,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "test_timeout_is_recorded_and_still_blocks",
+        "line": 45,
+        "end": 49,
+        "doc": ""
+      },
+      {
+        "name": "test_timeout_and_oserror_do_not_expose_original_exception_chain",
+        "line": 51,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "test_log_write_failure_preserves_cas_false",
+        "line": 66,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_git_is_recorded_and_blocks",
+        "line": 75,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "test_network_failure_is_classified",
+        "line": 80,
+        "end": 86,
+        "doc": ""
+      },
+      {
+        "name": "test_success_does_not_create_error_log",
+        "line": 88,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_log_write_error_does_not_allow_failed_command",
+        "line": 93,
+        "end": 97,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_session_guard.py",
+    "definitions": [
+      {
+        "name": "Store",
+        "line": 12,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "SessionTests",
+        "line": 26,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "GitStoreTests",
+        "line": 146,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 13,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 16,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "cas",
+        "line": 20,
+        "end": 23,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 27,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 31,
+        "end": 32,
+        "doc": ""
+      },
+      {
+        "name": "guard",
+        "line": 36,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "test_decline_keeps_existing_session",
+        "line": 40,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "test_handoff_blocks_old_orders_before_new_owner",
+        "line": 45,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_checkpoint_blocks_live_and_releases_reservation",
+        "line": 58,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "test_network_failure_blocks_buy_before_http_but_keeps_running",
+        "line": 66,
+        "end": 74,
+        "doc": ""
+      },
+      {
+        "name": "test_unverifiable_sell_is_allowed_for_the_last_verified_owner",
+        "line": 76,
+        "end": 85,
+        "doc": ""
+      },
+      {
+        "name": "test_same_pc_restart_reclaims_without_asking_or_checkpoint",
+        "line": 87,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_claim_that_looks_failed_but_landed_is_still_ours",
+        "line": 93,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "test_passive_guard_adopts_a_record_that_is_already_its_own",
+        "line": 103,
+        "end": 108,
+        "doc": ""
+      },
+      {
+        "name": "test_other_pc_request_makes_owner_yield_without_exiting",
+        "line": 110,
+        "end": 118,
+        "doc": ""
+      },
+      {
+        "name": "test_paper_session_preserves_unmigrated_live_checkpoint",
+        "line": 120,
+        "end": 126,
+        "doc": ""
+      },
+      {
+        "name": "test_expired_live_session_requires_shutdown_ack",
+        "line": 128,
+        "end": 134,
+        "doc": ""
+      },
+      {
+        "name": "test_cas_prevents_overwriting_other_owner",
+        "line": 136,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "test_real_git_compare_and_swap",
+        "line": 147,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "release_on_request",
+        "line": 47,
+        "end": 51,
+        "doc": ""
+      },
+      {
+        "name": "lands_then_times_out",
+        "line": 96,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "competing",
+        "line": 138,
+        "end": 140,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_session_outage.py",
+    "definitions": [
+      {
+        "name": "Store",
+        "line": 11,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "completed",
+        "line": 32,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "GitRetry",
+        "line": 36,
+        "end": 89,
+        "doc": ""
+      },
+      {
+        "name": "OutageTolerance",
+        "line": 92,
+        "end": 171,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 12,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "read",
+        "line": 17,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "cas",
+        "line": 22,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 37,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 43,
+        "end": 44,
+        "doc": ""
+      },
+      {
+        "name": "test_read_retries_quick_network_errors_then_succeeds",
+        "line": 46,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_read_gives_up_as_unverified_not_as_ownership_change",
+        "line": 52,
+        "end": 56,
+        "doc": ""
+      },
+      {
+        "name": "test_auth_and_conflict_errors_are_not_retried_or_softened",
+        "line": 58,
+        "end": 63,
+        "doc": ""
+      },
+      {
+        "name": "test_push_is_never_retried_and_only_network_failure_is_unverified",
+        "line": 65,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_unrecognised_push_failure_is_unverified_not_lost",
+        "line": 75,
+        "end": 84,
+        "doc": ""
+      },
+      {
+        "name": "test_timeout_is_unverified",
+        "line": 86,
+        "end": 89,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 93,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "tearDown",
+        "line": 100,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "test_short_outage_blocks_buy_but_keeps_the_session",
+        "line": 103,
+        "end": 112,
+        "doc": ""
+      },
+      {
+        "name": "test_long_outage_never_ends_the_bot_buys_stay_blocked_sells_allowed_until_the_cap",
+        "line": 114,
+        "end": 133,
+        "doc": ""
+      },
+      {
+        "name": "test_expired_record_that_is_still_ours_is_renewed_on_the_next_check",
+        "line": 135,
+        "end": 139,
+        "doc": ""
+      },
+      {
+        "name": "test_background_check_interval_is_unchanged",
+        "line": 141,
+        "end": 142,
+        "doc": ""
+      },
+      {
+        "name": "test_real_ownership_change_stops_orders_but_not_the_bot",
+        "line": 144,
+        "end": 153,
+        "doc": ""
+      },
+      {
+        "name": "test_watcher_survives_a_blip_and_renews_afterwards",
+        "line": 155,
+        "end": 171,
+        "doc": ""
+      },
+      {
+        "name": "wait",
+        "line": 160,
+        "end": 165,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_signal_freshness.py",
+    "definitions": [
+      {
+        "name": "SignalFreshness",
+        "line": 13,
+        "end": 101,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 14,
+        "end": 31,
+        "doc": ""
+      },
+      {
+        "name": "test_current_signal_metadata_is_written_without_relabelling_source",
+        "line": 33,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "test_stale_cache_cannot_gain_fresh_generation_timestamp_or_read_account",
+        "line": 43,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_nonfinite_future_and_mismatched_metadata_are_rejected",
+        "line": 52,
+        "end": 61,
+        "doc": ""
+      },
+      {
+        "name": "test_settle_boundary_switches_expected_source_after_twenty_seconds",
+        "line": 63,
+        "end": 67,
+        "doc": ""
+      },
+      {
+        "name": "test_boundary_crossed_during_account_lookup_does_not_overwrite_existing_plan",
+        "line": 69,
+        "end": 77,
+        "doc": ""
+      },
+      {
+        "name": "test_failed_decide_invalidates_old_cache_provenance",
+        "line": 79,
+        "end": 84,
+        "doc": ""
+      },
+      {
+        "name": "test_successful_decide_commits_provenance_only_when_all_work_finishes",
+        "line": 86,
+        "end": 96,
+        "doc": ""
+      },
+      {
+        "name": "test_ranked_bar_must_match_source_close",
+        "line": 98,
+        "end": 101,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_strategy.py",
+    "definitions": [
+      {
+        "name": "bars_from",
+        "line": 6,
+        "end": 7,
+        "doc": ""
+      },
+      {
+        "name": "Indicators",
+        "line": 10,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "Rotation",
+        "line": 24,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "Sizing",
+        "line": 53,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "Ratchet",
+        "line": 75,
+        "end": 122,
+        "doc": ""
+      },
+      {
+        "name": "ChaseAndStopCap",
+        "line": 125,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "ReentryRule",
+        "line": 146,
+        "end": 168,
+        "doc": ""
+      },
+      {
+        "name": "test_atr_needs_n_true_ranges",
+        "line": 11,
+        "end": 13,
+        "doc": ""
+      },
+      {
+        "name": "test_atr_wilder_smoothing",
+        "line": 15,
+        "end": 17,
+        "doc": ""
+      },
+      {
+        "name": "test_relative_strength",
+        "line": 19,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "ranked",
+        "line": 27,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_held_inside_keep_rank_is_not_replaced",
+        "line": 30,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "test_held_outside_keep_rank_is_sold_and_slot_filled_from_top3_only",
+        "line": 35,
+        "end": 38,
+        "doc": ""
+      },
+      {
+        "name": "test_no_fill_below_top3",
+        "line": 40,
+        "end": 42,
+        "doc": ""
+      },
+      {
+        "name": "test_missing_data_keeps_holding",
+        "line": 44,
+        "end": 46,
+        "doc": ""
+      },
+      {
+        "name": "test_negative_strength_not_bought",
+        "line": 48,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "test_risk_limited",
+        "line": 56,
+        "end": 58,
+        "doc": ""
+      },
+      {
+        "name": "test_coin_cap",
+        "line": 60,
+        "end": 62,
+        "doc": ""
+      },
+      {
+        "name": "test_min_order_skip",
+        "line": 64,
+        "end": 65,
+        "doc": ""
+      },
+      {
+        "name": "test_bad_stop",
+        "line": 67,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "pos",
+        "line": 76,
+        "end": 78,
+        "doc": ""
+      },
+      {
+        "name": "test_disabled_matches_fixed_stop",
+        "line": 80,
+        "end": 85,
+        "doc": ""
+      },
+      {
+        "name": "test_breakeven_lock_then_trailing_stop_never_decreases",
+        "line": 87,
+        "end": 96,
+        "doc": ""
+      },
+      {
+        "name": "test_giveback_exit",
+        "line": 98,
+        "end": 103,
+        "doc": ""
+      },
+      {
+        "name": "test_no_trailing_before_start_r",
+        "line": 105,
+        "end": 110,
+        "doc": ""
+      },
+      {
+        "name": "test_metaplex_like_path_exits_before_giving_back_to_plus_4_percent",
+        "line": 112,
+        "end": 122,
+        "doc": ""
+      },
+      {
+        "name": "test_chase_block_at_cap_and_disabled",
+        "line": 126,
+        "end": 130,
+        "doc": ""
+      },
+      {
+        "name": "test_plan_skips_overheated_but_keeps_next_candidate",
+        "line": 132,
+        "end": 137,
+        "doc": ""
+      },
+      {
+        "name": "test_cap_stop_only_raises",
+        "line": 139,
+        "end": 143,
+        "doc": ""
+      },
+      {
+        "name": "row",
+        "line": 148,
+        "end": 149,
+        "doc": ""
+      },
+      {
+        "name": "test_no_record_no_block",
+        "line": 151,
+        "end": 152,
+        "doc": ""
+      },
+      {
+        "name": "test_profit_exit_waits_then_needs_pullback",
+        "line": 154,
+        "end": 159,
+        "doc": ""
+      },
+      {
+        "name": "test_loss_exit_waits_6h_only",
+        "line": 161,
+        "end": 164,
+        "doc": ""
+      },
+      {
+        "name": "test_after_window_normal_rules_only",
+        "line": 166,
+        "end": 168,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_timeframes.py",
+    "definitions": [
+      {
+        "name": "TimeframeChanges",
+        "line": 10,
+        "end": 53,
+        "doc": ""
+      },
+      {
+        "name": "test_default_and_config_are_shorter",
+        "line": 11,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "test_timeframe_change_preserves_position_and_waits_for_new_close",
+        "line": 16,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_signal_fetch_uses_fifteen_minute_close",
+        "line": 30,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "test_stop_does_not_wait_for_candle_close",
+        "line": 39,
+        "end": 47,
+        "doc": ""
+      },
+      {
+        "name": "test_unsupported_timeframe_is_rejected",
+        "line": 49,
+        "end": 53,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_trade_history.py",
+    "definitions": [
+      {
+        "name": "order",
+        "line": 11,
+        "end": 14,
+        "doc": ""
+      },
+      {
+        "name": "History",
+        "line": 17,
+        "end": 41,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 18,
+        "end": 21,
+        "doc": ""
+      },
+      {
+        "name": "test_saves_only_executed_and_dedupes",
+        "line": 23,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_source_classification",
+        "line": 30,
+        "end": 33,
+        "doc": ""
+      },
+      {
+        "name": "test_summary_lists_sells_and_old_rows_excluded",
+        "line": 35,
+        "end": 41,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_volume_caution_tradable.py",
+    "definitions": [
+      {
+        "name": "row",
+        "line": 7,
+        "end": 8,
+        "doc": ""
+      },
+      {
+        "name": "VolumeCaution",
+        "line": 11,
+        "end": 28,
+        "doc": ""
+      },
+      {
+        "name": "test_volume_only_is_tradable_but_still_shown_as_warning",
+        "line": 12,
+        "end": 15,
+        "doc": ""
+      },
+      {
+        "name": "test_deposit_and_volume_together_tradable",
+        "line": 17,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_other_reasons_still_block",
+        "line": 22,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "test_clean_market_not_blocked",
+        "line": 27,
+        "end": 28,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_warning_details.py",
+    "definitions": [
+      {
+        "name": "legacy",
+        "line": 16,
+        "end": 18,
+        "doc": ""
+      },
+      {
+        "name": "MarketWarningDetailsTest",
+        "line": 21,
+        "end": 98,
+        "doc": ""
+      },
+      {
+        "name": "test_both_true",
+        "line": 22,
+        "end": 25,
+        "doc": ""
+      },
+      {
+        "name": "test_legacy_caution_only",
+        "line": 27,
+        "end": 34,
+        "doc": ""
+      },
+      {
+        "name": "test_all_false_and_missing_fields",
+        "line": 36,
+        "end": 40,
+        "doc": ""
+      },
+      {
+        "name": "test_caution_only_is_not_investment_warning",
+        "line": 42,
+        "end": 47,
+        "doc": ""
+      },
+      {
+        "name": "test_unknown_key_preserved_and_sorted",
+        "line": 49,
+        "end": 52,
+        "doc": ""
+      },
+      {
+        "name": "test_mapping_all_five",
+        "line": 54,
+        "end": 57,
+        "doc": ""
+      },
+      {
+        "name": "test_input_not_mutated",
+        "line": 59,
+        "end": 64,
+        "doc": ""
+      },
+      {
+        "name": "test_warning_parity_with_original_formula",
+        "line": 66,
+        "end": 73,
+        "doc": ""
+      },
+      {
+        "name": "test_malformed_caution_warning_true_preserved",
+        "line": 75,
+        "end": 84,
+        "doc": ""
+      },
+      {
+        "name": "test_malformed_caution_warning_false_raises",
+        "line": 86,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "test_malformed_market_event_raises",
+        "line": 93,
+        "end": 98,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "test_warning_exits.py",
+    "definitions": [
+      {
+        "name": "WarningExitTests",
+        "line": 10,
+        "end": 37,
+        "doc": ""
+      },
+      {
+        "name": "setUp",
+        "line": 11,
+        "end": 16,
+        "doc": ""
+      },
+      {
+        "name": "test_warning_blocks_new_buy_before_private_account_lookup",
+        "line": 18,
+        "end": 20,
+        "doc": ""
+      },
+      {
+        "name": "test_warning_does_not_block_rotation_sell",
+        "line": 22,
+        "end": 29,
+        "doc": ""
+      },
+      {
+        "name": "test_warning_does_not_block_stop_exit",
+        "line": 31,
+        "end": 37,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "trade_history.py",
+    "definitions": [
+      {
+        "name": "fetch_closed",
+        "line": 25,
+        "end": 31,
+        "doc": "종료 주문(done, cancel)을 최근순으로 받는다."
+      },
+      {
+        "name": "normalize",
+        "line": 34,
+        "end": 39,
+        "doc": ""
+      },
+      {
+        "name": "load",
+        "line": 42,
+        "end": 50,
+        "doc": ""
+      },
+      {
+        "name": "sync",
+        "line": 53,
+        "end": 64,
+        "doc": "새 체결 주문만 덧붙인다(uuid 중복 제거). 반환: 새로 저장한 건수."
+      },
+      {
+        "name": "when",
+        "line": 67,
+        "end": 68,
+        "doc": ""
+      },
+      {
+        "name": "summary",
+        "line": 71,
+        "end": 91,
+        "doc": ""
+      },
+      {
+        "name": "find_keys",
+        "line": 94,
+        "end": 99,
+        "doc": "프로젝트 상위 폴더들의 .env를 키 검색 경로에 추가한다(실행 위치와 무관하게 동작)."
+      },
+      {
+        "name": "main",
+        "line": 102,
+        "end": 125,
+        "doc": ""
+      }
+    ]
+  },
+  {
+    "file": "upbit.py",
+    "definitions": [
+      {
+        "name": "OrderRejected",
+        "line": 20,
+        "end": 25,
+        "doc": "The exchange definitively rejected a submission before creating this order."
+      },
+      {
+        "name": "_get",
+        "line": 28,
+        "end": 43,
+        "doc": ""
+      },
+      {
+        "name": "market_warning_details",
+        "line": 49,
+        "end": 80,
+        "doc": "Split Upbit warning metadata; 'warning' keeps the original combined formula.\n\nNon-dict market_event raises ValueError. Non-dict caution keeps warning=True when\nthe warning flag or legacy CAUTION is set; otherwise raises ValueError (state unknown)."
+      },
+      {
+        "name": "krw_markets",
+        "line": 83,
+        "end": 91,
+        "doc": "KRW markets with a warning flag (투자유의 또는 주의 항목)."
+      },
+      {
+        "name": "tickers",
+        "line": 94,
+        "end": 100,
+        "doc": ""
+      },
+      {
+        "name": "orderbooks",
+        "line": 103,
+        "end": 108,
+        "doc": ""
+      },
+      {
+        "name": "completed_candles",
+        "line": 111,
+        "end": 123,
+        "doc": "Chronological candles whose period has fully ended. Each bar: t (UTC start), o, h, l, c."
+      },
+      {
+        "name": "_keys",
+        "line": 126,
+        "end": 136,
+        "doc": ""
+      },
+      {
+        "name": "_b64",
+        "line": 139,
+        "end": 140,
+        "doc": ""
+      },
+      {
+        "name": "accounts",
+        "line": 143,
+        "end": 151,
+        "doc": "Read-only balance lookup (GET /v1/accounts)."
+      },
+      {
+        "name": "_auth",
+        "line": 154,
+        "end": 165,
+        "doc": ""
+      },
+      {
+        "name": "get_order",
+        "line": 168,
+        "end": 170,
+        "doc": ""
+      },
+      {
+        "name": "get_order_by_identifier",
+        "line": 173,
+        "end": 175,
+        "doc": ""
+      },
+      {
+        "name": "open_orders",
+        "line": 178,
+        "end": 180,
+        "doc": ""
+      },
+      {
+        "name": "market_buy",
+        "line": 183,
+        "end": 187,
+        "doc": "시장가 매수: 원화 금액 지정."
+      },
+      {
+        "name": "vol8",
+        "line": 190,
+        "end": 194,
+        "doc": "수량을 소수 8자리 문자열로(repr 기준 가장 가까운 값). 거래소 잔고는 8자리라 float을 거쳐 37.430000009999998이 된 값도\n37.43000001로 정확히 돌아온다. 내림이면 마지막 1e-08개가 남는다(2026-11-06 자투리 원인)."
+      },
+      {
+        "name": "market_sell",
+        "line": 197,
+        "end": 201,
+        "doc": "시장가 매도: 수량 지정."
+      },
+      {
+        "name": "_post_order",
+        "line": 204,
+        "end": 222,
+        "doc": ""
+      },
+      {
+        "name": "__init__",
+        "line": 22,
+        "end": 25,
+        "doc": ""
+      }
+    ]
+  }
+]

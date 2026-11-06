@@ -1,0 +1,39 @@
+{
+  "schema": "bot-reproduction-spec/v1",
+  "version": "2026-11-06T14:23:12+09:00",
+  "basis": "runtime disk source snapshot",
+  "document": "bot-specification.md",
+  "effective_settings": "effective-settings.json",
+  "dynamic_limit_overrides": "runtime-limit-overrides.snapshot.json",
+  "protection_symbols": "protection-markets.snapshot.json",
+  "source_manifest": "source-manifest.json",
+  "source_archive": "runtime-source.zip",
+  "contracts": "function-contracts.json",
+  "acceptance": "acceptance-cases.json",
+  "review": "review-record.json",
+  "not_included": [
+    "API credentials",
+    "account adoption ID",
+    "actual order UUIDs",
+    "private trade ledger",
+    "lease token",
+    "complete initial account state"
+  ],
+  "unimplemented_live": [
+    "stagnation limit exit orders"
+  ],
+  "observation_only": [
+    "exit_watch",
+    "missed_ledger"
+  ],
+  "safety_invariants": [
+    "DOGE remains protected until explicit user release",
+    "one trading owner per account",
+    "persist intent before submit",
+    "resolve uncertain orders before resubmission",
+    "do not restore retired automatic AI debate caller"
+  ],
+  "latest_revision": "updates/20261106_143543",
+  "latest_revision_contract": "updates/20261106_143543/change-contract.md",
+  "latest_revision_review": "DOCUMENTED_NOT_FULLY_AUDITED"
+}

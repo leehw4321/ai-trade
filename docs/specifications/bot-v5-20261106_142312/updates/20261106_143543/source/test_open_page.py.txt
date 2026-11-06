@@ -1,0 +1,41 @@
+import os
+import unittest
+from unittest import mock
+
+import open_page as op
+
+
+class OpenPage(unittest.TestCase):
+    def test_prefers_chrome_when_found(self):
+        with mock.patch.object(op, 'find_chrome', return_value='C:/chrome.exe'), mock.patch.object(op.subprocess, 'Popen') as p, \
+                mock.patch.object(op.webbrowser, 'open') as w, mock.patch.dict(os.environ, {'V5_NO_BROWSER': ''}):
+            self.assertEqual(op.open_page('C:/x/status.html'), 'chrome')
+        self.assertEqual(p.call_args.args[0][0], 'C:/chrome.exe')
+        self.assertTrue(p.call_args.args[0][1].startswith('file:'))
+        w.assert_not_called()
+
+    def test_falls_back_to_default_browser(self):
+        with mock.patch.object(op, 'find_chrome', return_value=None), mock.patch.object(op.webbrowser, 'open') as w, \
+                mock.patch.dict(os.environ, {'V5_NO_BROWSER': ''}):
+            self.assertEqual(op.open_page('http://127.0.0.1:1/'), 'default')
+        w.assert_called_once_with('http://127.0.0.1:1/')
+
+    def test_chrome_launch_failure_falls_back(self):
+        with mock.patch.object(op, 'find_chrome', return_value='C:/chrome.exe'), mock.patch.object(op.subprocess, 'Popen', side_effect=OSError), \
+                mock.patch.object(op.webbrowser, 'open') as w, mock.patch.dict(os.environ, {'V5_NO_BROWSER': ''}):
+            self.assertEqual(op.open_page('https://example.com'), 'default')
+        w.assert_called_once()
+
+    def test_no_browser_env_skips(self):
+        with mock.patch.object(op.subprocess, 'Popen') as p, mock.patch.object(op.webbrowser, 'open') as w, \
+                mock.patch.dict(os.environ, {'V5_NO_BROWSER': '1'}):
+            self.assertEqual(op.open_page('C:/x/status.html'), 'skipped')
+        p.assert_not_called(); w.assert_not_called()
+
+    def test_finds_chrome_via_env_path(self):
+        with mock.patch.dict(os.environ, {'CHROME_PATH': __file__}):
+            self.assertEqual(op.find_chrome(), __file__)
+
+
+if __name__ == '__main__':
+    unittest.main()

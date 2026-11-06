@@ -1,0 +1,425 @@
+"""Cross-PC trading ownership via an atomic Git ref; no keys/balances are uploaded."""
+import hashlib
+import json
+import os
+import socket
+from pathlib import Path
+import subprocess
+import threading
+import time
+import uuid
+
+REF = 'refs/heads/bot-session'
+DEFAULT_REMOTE = 'https://github.com/leehw4321/ai-trade.git'
+
+
+class SessionLost(RuntimeError):
+    pass
+
+
+class SessionUnverified(SessionLost):
+    """GitHub could not be reached, so ownership could not be checked. Not proof that ownership changed."""
+
+
+class NotOwner(SessionLost):
+    """다른 PC가 실행권을 갖고 있어 이 PC는 주문하지 않는다. 오류가 아니라 정상적인 대기 상태."""
+
+
+SELL_BLIND_MAX = 3 * 3600  # GitHub를 확인하지 못해도 마지막으로 확인된 실행권자는 이 시간까지 매도(손절)만 허용한다
+READ_RETRY_DELAYS = (1, 3)  # quick network errors on read-only calls are retried before giving up
+LEASE_MARGIN = 20  # stop trusting our own lease this many seconds before it expires
+CHECK_SECONDS = 30  # background ownership check; every order is still checked right before it is sent
+
+
+class GitStore:
+    sleep = staticmethod(time.sleep)
+
+    def __init__(self, folder, remote=DEFAULT_REMOTE, sleep=None):
+        self.folder = Path(folder)
+        self.remote = remote
+        if sleep:
+            self.sleep = sleep
+        self.folder.mkdir(parents=True, exist_ok=True)
+        if not (self.folder / 'HEAD').exists():
+            self.git('init', '--bare', str(self.folder), outside=True)
+
+    def diagnostic(self, operation, category, duration, returncode=None):
+        """Fixed metadata only: never persist command arguments, URLs, stderr or state."""
+        verbs = {'init', 'ls-remote', 'fetch', 'rev-parse', 'show', 'hash-object', 'mktree', 'commit-tree', 'push'}
+        record = {'epoch': time.time(), 'operation': operation if operation in verbs else 'other',
+                  'category': category, 'duration_ms': max(0, round(duration * 1000)),
+                  'returncode': returncode}
+        try:
+            with (self.folder.parent / 'session_diagnostics.jsonl').open('a', encoding='utf-8') as f:
+                f.write(json.dumps(record) + '\n')
+        except Exception:
+            pass  # Diagnostic storage failure never changes execution ownership rules.
+
+    @staticmethod
+    def failure_category(stderr):
+        text = stderr.lower()
+        if any(s in text for s in ('authentication failed', 'could not read username', 'permission denied',
+                                   'repository not found', 'error: 403', 'error: 401')):
+            return 'authentication_or_permission'
+        if any(s in text for s in ('stale info', 'fetch first', 'non-fast-forward', 'cannot lock ref')):
+            return 'reference_conflict'
+        if any(s in text for s in ('could not resolve', 'failed to connect', 'connection timed out',
+                                   'connection reset', 'unable to access', 'ssl certificate',
+                                   'rpc failed', 'hung up', 'schannel', 'openssl', 'gnutls', 'early eof',
+                                   'timed out', 'returned error: 5', 'http 5')):
+            return 'network_or_tls'
+        return 'git_failure'
+
+    def git(self, *args, input=None, outside=False, check=True):
+        env = os.environ.copy()
+        env.update(GIT_TERMINAL_PROMPT='0', GCM_INTERACTIVE='Never',
+                   LC_ALL='C', LANGUAGE='C',
+                   GIT_AUTHOR_NAME='Bot Session', GIT_AUTHOR_EMAIL='bot@localhost',
+                   GIT_COMMITTER_NAME='Bot Session', GIT_COMMITTER_EMAIL='bot@localhost')
+        cmd = ['git'] + ([] if outside else ['--git-dir', str(self.folder)]) + list(args)
+        operation = args[0] if args else 'other'
+        delays = iter(READ_RETRY_DELAYS if operation in ('ls-remote', 'fetch') else ())
+        while True:
+            started = time.monotonic()
+            try:
+                result = subprocess.run(cmd, input=input.encode('utf-8') if input is not None else None,
+                                        capture_output=True, env=env, timeout=25,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            except subprocess.TimeoutExpired as ex:
+                self.diagnostic(operation, 'timeout', time.monotonic() - started)
+                raise SessionUnverified('GitHub 실행권 조회 시간 초과(timeout). 주문을 중단합니다.') from None
+            except OSError as ex:
+                self.diagnostic(operation, 'git_process_unavailable', time.monotonic() - started)
+                raise SessionLost('Git 실행 불가(git_process_unavailable). 주문을 중단합니다.') from None
+            result.stdout = result.stdout.decode('utf-8', errors='replace')
+            result.stderr = result.stderr.decode('utf-8', errors='replace')
+            if not result.returncode:
+                return result
+            category = self.failure_category(result.stderr)
+            self.diagnostic(operation, category, time.monotonic() - started, result.returncode)
+            delay = next(delays, None) if category == 'network_or_tls' else None
+            if delay is not None:
+                self.sleep(delay)
+                continue
+            if check:
+                error = SessionUnverified if category == 'network_or_tls' else SessionLost
+                raise error(f'GitHub 실행권 확인 실패({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
+            return result
+
+    def read(self):
+        found = self.git('ls-remote', self.remote, REF).stdout.strip()
+        if not found:
+            return '', {}
+        self.git('fetch', '--quiet', self.remote, REF)
+        oid = self.git('rev-parse', 'FETCH_HEAD').stdout.strip()
+        state = json.loads(self.git('show', oid + ':session.json').stdout)
+        return oid, state
+
+    def cas(self, expected, state):
+        # An orphan commit keeps the remote branch history bounded. Only lease metadata is stored.
+        blob = self.git('hash-object', '-w', '--stdin', input=json.dumps(state)).stdout.strip()
+        tree = self.git('mktree', input=f'100644 blob {blob}\tsession.json\n').stdout.strip()
+        commit = self.git('commit-tree', tree, input='Trading session ownership\n').stdout.strip()
+        result = self.git('push', '--quiet', f'--force-with-lease={REF}:{expected}',
+                          self.remote, f'{commit}:{REF}', check=False)
+        if result.returncode:
+            category = self.failure_category(result.stderr)
+            if category == 'reference_conflict':
+                # Someone else moved the ref: a competing claimant may have won. Never overwrite it blindly.
+                return False
+            # Anything else (network, timeout, unrecognised server error) says nothing about who owns the lease.
+            # The caller re-reads the ref, which is what actually decides ownership.
+            raise SessionUnverified(f'GitHub 실행권 갱신 확인 불가({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
+        return True
+
+
+def confirm_takeover():
+    import tkinter as tk
+    from tkinter import messagebox
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    try:
+        return messagebox.askyesno('봇 실행 연결 변경',
+            '다른 기계에서 작동 중입니다.\n기존 연결을 끊고 이 연결을 유지할까요?\n\n'
+            '기존 봇의 주문 중단을 확인한 뒤 이 PC에서 실행합니다.\n'
+            '계좌 조회 화면은 두 PC에서 함께 사용할 수 있습니다.', parent=root)
+    finally:
+        root.destroy()
+
+
+def notify(message, title='봇 실행 상태'):
+    import tkinter as tk
+    from tkinter import messagebox
+    root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True)
+    try:
+        messagebox.showwarning(title, str(message), parent=root)
+    finally:
+        root.destroy()
+
+
+def pc_identity(root):
+    """이 설치(PC)의 고정 식별자. 봇을 다시 켜도 같은 PC임을 알아보는 데 쓴다(실행권 기록의 owner는 '식별자:프로세스')."""
+    path = Path(root) / 'data' / 'pc_id.txt'
+    try:
+        found = path.read_text(encoding='utf-8').strip()
+        if found:
+            return found
+    except OSError:
+        pass
+    ident = uuid.uuid4().hex[:12]
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(ident, encoding='utf-8')
+    except OSError:
+        pass
+    return ident
+
+
+class SessionGuard:
+    def __init__(self, root, cfg=None, store=None, clock=time.time):
+        self.root = Path(root)
+        self.cfg = cfg or {}
+        self.store = store or GitStore(self.root / 'data' / 'session_git', self.cfg.get('remote', DEFAULT_REMOTE))
+        self.clock = clock
+        self.pc = str(self.cfg.get('pc_id') or pc_identity(self.root))
+        self.pc_name = socket.gethostname()
+        self.token = f'{self.pc}:{uuid.uuid4()}'
+        self.closed = threading.Event()
+        self.lost = threading.Event()
+        self.mutex = threading.RLock()
+        self.reason = ''
+        self.acquired = False
+        self.thread = None
+        self.required_checkpoint = ''
+        self.lease_until = 0  # expiry of the last lease we wrote ourselves
+        self.status = 'idle'   # idle | owner | other | free | unverified  (화면 램프용)
+        self.last_ok = 0.0     # 마지막으로 실행권을 확인한 시각
+        self.blind_since = 0.0 # GitHub를 확인하지 못하기 시작한 시각
+        self.other_pc = ''     # 지금 실행권을 가진 다른 PC 이름(알면)
+
+    def lease_valid(self):
+        return self.clock() < self.lease_until - LEASE_MARGIN
+
+    def checkpoint_hash(self):
+        file = self.root / 'data' / 'live' / 'live.json'
+        if not file.exists(): return ''
+        state = json.loads(file.read_text(encoding='utf-8'))
+        return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    def assert_transition_clear(self):
+        for relative in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
+                         'data/reconciliation/APPLYING'):
+            if (self.root / relative).exists():
+                raise SessionLost('인계·장부 대사 적용 중이거나 복구 확인이 필요합니다. 주문을 시작하지 않습니다.')
+
+    def record(self, **values):
+        state = {'owner': self.token, 'pc': self.pc_name, 'updated': self.clock(), 'expires': self.clock() + 180,
+                 'request': '', 'checkpoint': self.required_checkpoint or self.checkpoint_hash()}
+        state.update(values)
+        return state
+
+    def acquire(self, confirm=confirm_takeover, wait_seconds=240):
+        self.assert_transition_clear()
+        oid, state = self.store.read()
+        # 같은 PC에서 봇을 다시 켠 경우(이전 프로세스는 단일 실행 잠금 때문에 이미 없다): 기다림·확인 없이 이어받는다.
+        reclaim = bool(state.get('owner')) and self._same_pc(state['owner']) and not state.get('request')
+        if state.get('owner') and not reclaim and not confirm():
+            return False
+        if state.get('owner') and not reclaim:
+            wanted = dict(state, request=self.token)
+            if not self.store.cas(oid, wanted):
+                raise SessionLost('다른 PC가 연결 상태를 바꿨습니다. 다시 실행해 주세요.')
+            deadline = self.clock() + wait_seconds
+            while self.clock() < deadline:
+                oid, state = self.store.read()
+                if state.get('request') not in {'', self.token}:
+                    raise SessionLost('다른 연결 요청이 우선 처리 중입니다.')
+                if not state.get('owner'):
+                    break
+                if self.clock() > state.get('expires', 0) + 30:
+                    if self.cfg.get('live_enabled'):
+                        raise SessionLost('기존 PC의 종료 확인이 없습니다. 실거래 연결은 넘기지 않습니다. 기존 봇을 정상 종료한 뒤 다시 실행해 주세요.')
+                    break
+                time.sleep(2)
+            else:
+                raise SessionLost('기존 봇의 종료 확인을 기다리다 중단했습니다. 기존 PC 상태를 확인해 주세요.')
+        elif state.get('request') not in {'', None, self.token}:
+            raise SessionLost('다른 PC로 연결을 넘기는 중입니다. 잠시 뒤 다시 실행해 주세요.')
+        # Moving control is not moving the live ledger. Require its exact checkpoint before live trading.
+        expected = state.get('checkpoint', '')
+        self.required_checkpoint = expected if expected and not reclaim and self.checkpoint_hash() != expected else ''
+        if self.cfg.get('live_enabled') and self.required_checkpoint:
+            # Explicit account adoption creates a NEW baseline; it never claims to restore old history.
+            file = self.root / 'data' / 'live' / 'live.json'
+            adoption = json.loads(file.read_text(encoding='utf-8')).get('account_adoption', {}) if file.exists() else {}
+            valid = (self.cfg.get('account_adoption_id')
+                     and adoption.get('id') == self.cfg['account_adoption_id']
+                     and adoption.get('previous_checkpoint') == expected
+                     and adoption.get('scope') == 'all_current_holdings'
+                     and adoption.get('no_open_orders') is True
+                     and 0 <= self.clock() - adoption.get('epoch', 0) <= 600)
+            if not valid and self.cfg.get('account_reconciliation_id'):
+                # Explicit exchange reconciliation is a separate, preserved-basis
+                # recovery bridge. It never fabricates the previous PC's checkpoint.
+                try:
+                    import reconciliation_guard
+                    full_cfg = json.loads((self.root / 'config.json').read_text(encoding='utf-8-sig'))
+                    pins = ('account_reconciliation_id', 'account_reconciliation_source_checkpoint',
+                            'account_reconciliation_source_epoch')
+                    same_pins = all(full_cfg.get('session', {}).get(k) == self.cfg.get(k) for k in pins)
+                    valid = same_pins and reconciliation_guard.validate(self.root, full_cfg, state, self.clock())
+                except (OSError, ValueError, TypeError, ImportError):
+                    valid = False
+            if not valid:
+                raise SessionLost('기존 PC의 실거래 장부와 다릅니다. 기존 PC의 data 폴더를 비공개로 옮기거나 명시적으로 위임된 계좌 인수 절차가 필요합니다.')
+            self.required_checkpoint = ''
+        self.assert_transition_clear()
+        claim = self.record()
+        try:
+            won = self.store.cas(oid, claim)
+        except SessionUnverified:
+            won = self._landed(claim)  # 푸시가 '시간 초과'로 보여도 GitHub에는 반영됐을 수 있다: 다시 읽어 확인
+        if not won:
+            raise SessionLost('다른 PC가 먼저 연결했습니다. 중복 실행하지 않습니다.')
+        self.lease_until = claim['expires']
+        self.acquired = True
+        self.status, self.last_ok, self.blind_since, self.other_pc = 'owner', self.clock(), 0.0, ''
+        self.assert_transition_clear()
+        return True
+
+    def _landed(self, claim):
+        try:
+            _, state = self.store.read()
+        except Exception:
+            return False
+        return state.get('owner') == claim['owner'] and state.get('updated') == claim['updated']
+
+    def _same_pc(self, owner):
+        return isinstance(owner, str) and owner.startswith(self.pc + ':')
+
+    def _note_state(self, state):
+        """읽은 기록으로 램프 상태를 갱신한다(내가 소유자인지, 다른 PC인지, 아무도 아닌지)."""
+        owner = state.get('owner')
+        self.last_ok, self.blind_since = self.clock(), 0.0
+        if owner == self.token and self.acquired:
+            self.status, self.other_pc = 'owner', ''
+        elif owner:
+            self.status, self.other_pc = 'other', str(state.get('pc') or '다른 PC')
+        else:
+            self.status, self.other_pc = 'free', ''
+
+    def _mark_unverified(self, ex):
+        if not self.blind_since:
+            self.blind_since = self.clock()
+        if self.acquired:
+            self.status = 'unverified'
+        self.reason = str(ex)
+
+    def _give_up(self, state, why):
+        """실행권을 잃었거나 양도 요청을 받았다: 주문을 멈추고 대기 상태로 둔다(봇은 종료하지 않는다). 요청이 있으면 비워 준다."""
+        if state.get('owner') == self.token and state.get('request'):
+            try:
+                oid, fresh = self.store.read()
+                if fresh.get('owner') == self.token:
+                    self.store.cas(oid, self.record(owner='', expires=0, request=fresh.get('request', ''),
+                                                    checkpoint=self.required_checkpoint or self.checkpoint_hash()))
+            except SessionLost:
+                pass  # 비우지 못하면 요청한 쪽이 만료까지 기다린다. 이 PC는 어쨌든 주문하지 않는다.
+        self.acquired = False
+        self.status = 'other'
+        self.other_pc = str(state.get('pc') or '다른 PC')
+        self.reason = why
+
+    def assert_owner(self, side=None):
+        """주문 직전 확인. 실행권자가 아니면 NotOwner. 확인 자체를 못 하면 매수는 막고, 매도(손절)는 마지막 확인이 실행권자였을 때만 허용한다."""
+        with self.mutex:
+            self.assert_transition_clear()
+            if not self.acquired:
+                raise NotOwner(self.reason or '이 PC에는 실행권이 없습니다(다른 PC가 실행 중이거나 아직 받지 않음).')
+            try:
+                oid, state = self.store.read()
+            except SessionUnverified as ex:
+                self._mark_unverified(ex)
+                if side == 'ask' and self.last_ok and self.clock() - self.last_ok < SELL_BLIND_MAX:
+                    return  # 손절·청산은 실행권 확인 장애 때문에 막지 않는다(마지막 확인 때 이 PC가 실행권자였다)
+                raise
+            except SessionLost as ex:
+                self._mark_unverified(ex)
+                raise
+            except Exception as ex:
+                self._mark_unverified(ex)
+                raise SessionUnverified(f'실행권 확인 중 오류({type(ex).__name__}). 주문을 중단합니다.') from ex
+            if state.get('owner') != self.token or state.get('request'):
+                self._give_up(state, '다른 PC로 실행권이 넘어가 이 PC는 주문하지 않습니다.')
+                raise NotOwner(self.reason)
+            self._note_state(state)
+            if self.clock() >= state.get('expires', 0) - 60:  # 장애로 갱신이 밀렸으면 지금 갱신한다(기록이 아직 내 것이므로 안전)
+                self._renew(oid)
+
+    def _renew(self, oid):
+        renewed = self.record()
+        try:
+            if self.store.cas(oid, renewed):
+                self.lease_until = renewed['expires']
+                return True
+        except SessionLost:
+            pass
+        return False
+
+    def check_now(self):
+        """주기 확인(감시 스레드). 어떤 실패도 봇을 끄지 않는다."""
+        with self.mutex:
+            try:
+                oid, state = self.store.read()
+            except Exception as ex:
+                self._mark_unverified(ex)
+                return self.status
+            if self.acquired:
+                if state.get('owner') != self.token or state.get('request'):
+                    self._give_up(state, '다른 PC가 실행권을 요청하거나 가져가 이 PC는 주문을 멈춥니다.')
+                else:
+                    self._note_state(state)
+                    if self.clock() >= self.lease_until - 120:  # 마지막 갱신 뒤 60초가 지났을 때만(쓰기 횟수를 늘리지 않는다)
+                        self._renew(oid)
+            elif state.get('owner') == self.token and not state.get('request'):
+                self.acquired = True   # 시작 때 '실패'로 보였지만 실제로는 기록이 내 것으로 반영된 경우: 이어받는다
+                self._note_state(state)
+            else:
+                self._note_state(state)
+            return self.status
+
+    def start(self):
+        def watch():
+            while not self.closed.wait(CHECK_SECONDS):
+                try:
+                    self.check_now()
+                except Exception as ex:  # 감시 스레드는 절대 죽지 않는다
+                    self.reason = type(ex).__name__
+        self.thread = threading.Thread(target=watch, daemon=True)
+        self.thread.start()
+
+    def snapshot(self):
+        """화면 램프용 요약."""
+        now = self.clock()
+        return {'status': self.status, 'owner': bool(self.acquired), 'other_pc': self.other_pc, 'pc': self.pc_name,
+                'blind_seconds': int(now - self.blind_since) if self.blind_since else 0,
+                'checked_ago': int(now - self.last_ok) if self.last_ok else None, 'reason': self.reason}
+
+    def release(self):
+        self.closed.set()
+        if self.thread:
+            self.thread.join(timeout=80)
+        with self.mutex:
+            try:
+                oid, state = self.store.read()
+                if self.acquired and state.get('owner') == self.token:
+                    self.store.cas(oid, self.record(owner='', expires=0,
+                        request=state.get('request', ''),
+                        checkpoint=self.required_checkpoint or self.checkpoint_hash()))
+                elif state.get('request') == self.token:
+                    # Failed/cancelled handoff must not reserve a connection forever.
+                    self.store.cas(oid, dict(state, request=''))
+            except Exception:
+                pass  # Retain the expiring lease if the network is unavailable.
+            self.acquired = False

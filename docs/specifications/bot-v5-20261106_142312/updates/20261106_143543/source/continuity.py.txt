@@ -1,0 +1,115 @@
+"""PC를 옮겨 계좌를 새로 인수해도 봇 자신의 거래 기억(재진입 기록·평단 기반 손절 기준)을 거래소 체결 이력에서 복원한다.
+
+사용자·거래소가 기록한 사실만 쓴다: 봇 주문은 식별자가 `v5-`로 시작한다. 확인이 부족하면 아무것도 복원하지 않는다(보수적).
+순수 함수라 시험할 수 있다. 호출은 live.Live.restore_continuity().
+"""
+import datetime as dt
+import math
+
+BOT_PREFIX = 'v5-'
+EPS = 1e-8
+MAX_AGE_SECONDS = 7 * 86400  # 거래소 종료 주문 조회 기본 범위(7일)와 맞춘다
+
+
+def _epoch(iso):
+    return dt.datetime.fromisoformat(str(iso)).timestamp()
+
+
+def _num(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
+def replay_bot_orders(rows):
+    """거래소 주문 목록(rows)을 시간순으로 재생한다.
+
+    반환 {market: {'qty','cost','last_sell','mixed','open','known_basis'}}
+    - qty·cost: 봇 체결만으로 만든 평균단가 재생(매수는 체결금액+수수료, 매도는 평균단가 비례 차감)
+    - last_sell: {'time','price','profit'} 마지막 봇 매도. 매도 원가를 알 수 없으면 profit=False(수익 청산으로 추정하지 않음)
+    - mixed: 같은 종목에 봇이 아닌 체결이 하나라도 있음 / open: 미체결 주문이 있음 / known_basis: 모든 매도 원가가 재생으로 확인됨
+    """
+    out = {}
+    executed = []
+    for row in rows or []:
+        market = str(row.get('market', ''))
+        if not market:
+            continue
+        info = out.setdefault(market, {'qty': 0.0, 'cost': 0.0, 'last_sell': None, 'mixed': False, 'open': False, 'known_basis': True,
+                                       'first_side': None})
+        if str(row.get('state')) in ('wait', 'watch'):
+            info['open'] = True
+            continue
+        vol = _num(row.get('executed_volume'))
+        if not vol or vol <= 0:
+            continue
+        executed.append(row)
+    for row in sorted(executed, key=lambda r: str(r.get('created_at', ''))):
+        market = str(row['market'])
+        info = out[market]
+        vol = _num(row.get('executed_volume'))
+        funds = _num(row.get('executed_funds'))
+        fee = _num(row.get('paid_fee')) or 0.0
+        side = row.get('side')
+        bot = str(row.get('identifier') or '').startswith(BOT_PREFIX)
+        if not bot:
+            info['mixed'] = True
+            continue
+        if funds is None or funds <= 0 or side not in ('bid', 'ask'):
+            info['known_basis'] = False
+            continue
+        if info['first_side'] is None:
+            info['first_side'] = side  # 창 안 첫 봇 체결이 매수여야 처음부터 재생한 것(그 전에 이미 가지고 있던 물량이 없음)
+        try:
+            when = _epoch(row['created_at'])
+        except (KeyError, ValueError):
+            info['known_basis'] = False
+            continue
+        if side == 'bid':
+            info['qty'] += vol
+            info['cost'] += funds + fee
+        else:
+            known = info['qty'] > EPS and vol <= info['qty'] * (1 + 1e-6) + EPS
+            if known:
+                basis = info['cost'] * min(1.0, vol / info['qty'])
+                profit = (funds - fee - basis) > 0
+                info['cost'] -= basis
+                info['qty'] = max(0.0, info['qty'] - vol)
+            else:
+                profit = False
+                info['known_basis'] = False
+                info['qty'] = max(0.0, info['qty'] - vol)
+            info['last_sell'] = {'time': when, 'price': funds / vol, 'profit': bool(profit)}
+    return out
+
+
+def restorable_last_sell(replay_entry, existing, now):
+    """장부에 넣을 last_sell(없으면 None): 7일 안이고 장부 기록보다 새로운 봇 매도."""
+    if not replay_entry or replay_entry.get('open'):
+        return None
+    s = replay_entry.get('last_sell')
+    if not s or now - s['time'] > MAX_AGE_SECONDS or s['time'] > now + 60:
+        return None
+    if existing and existing.get('time', 0) >= s['time']:
+        return None
+    return {'time': s['time'], 'price': s['price'], 'profit': s['profit'], 'reason': '거래소 체결 복원'}
+
+
+def bot_basis(replay_entry, ledger_qty):
+    """인수받은 보유가 전부 봇이 산 물량임이 이력으로 입증되면 평균 매수가, 아니면 None.
+
+    조건: 비봇 체결 없음, 미체결 없음, 모든 매도 원가 확인, 창 안 첫 봇 체결이 매수(처음부터 재생), 재생 수량이 장부 수량과 0.1% 이내로 같음.
+    주문 시각은 거래소가 주는 생성 시각이다(시장가는 거의 즉시 체결). 조회 창(7일) 이전의 보유가 섞이면 첫 체결이 매도이거나 수량이 달라져 복원하지 않는다."""
+    if not replay_entry or replay_entry['mixed'] or replay_entry['open'] or not replay_entry['known_basis']:
+        return None
+    if replay_entry.get('first_side') != 'bid':
+        return None
+    q, c = replay_entry['qty'], replay_entry['cost']
+    lq = _num(ledger_qty)
+    if not lq or lq <= 0 or q <= EPS or c <= 0:
+        return None
+    if abs(q - lq) > max(EPS * 10, lq * 0.001):
+        return None
+    return c / q

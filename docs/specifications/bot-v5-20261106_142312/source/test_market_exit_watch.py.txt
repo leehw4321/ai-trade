@@ -1,0 +1,185 @@
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import exit_watch as ew
+import market_state as ms
+
+H = 3600
+
+
+def bars(closes):
+    return [{'t': str(i), 'c': c} for i, c in enumerate(closes)]
+
+
+class MarketState(unittest.TestCase):
+    def test_zones_and_compute(self):
+        self.assertEqual(ms.zone(-0.08)[0], '폭락')
+        self.assertEqual(ms.zone(-0.03)[0], '약세')
+        self.assertEqual(ms.zone(0.0)[0], '횡보')
+        self.assertEqual(ms.zone(0.03)[0], '상승')
+        self.assertEqual(ms.zone(0.2)[0], '폭등')
+        uni = {'KRW-BTC': bars([100] * 96 + [110]), 'KRW-A': bars([100] * 96 + [90])}
+        s = ms.compute(uni, -0.03, -0.025, '2026-11-06T12:00+09:00')
+        self.assertEqual((s['up'], s['total'], s['zone'], s['brake_4h']), (1, 2, '약세', True))
+        self.assertAlmostEqual(s['btc_24h'], 0.10)
+
+    def test_render_with_and_without_data(self):
+        self.assertIn('첫 판단 뒤', ms.render(None, None))
+        page = ms.render({'index_24h': -0.047, 'index_4h': -0.01, 'up': 5, 'total': 30, 'at': '2026-11-06T12:00+09:00'},
+                         {'value': 22, 'label': '극도의 공포', 'fetched': 0}, now=1)
+        for want in ('약세', '-4.70%', '5/30', '공포·탐욕', '22'):
+            self.assertIn(want, page)
+
+    def test_fng_fetch_saves_and_rejects_bad_value(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'fng.json'
+            ok = lambda req, timeout: io.BytesIO(json.dumps({'data': [{'value': '30', 'value_classification': 'Fear', 'timestamp': '1'}]}).encode())
+            ms.fetch_fng(path, now=5, opener=ok)
+            self.assertEqual(ms.load(path)['label'], '공포')
+            bad = lambda req, timeout: io.BytesIO(json.dumps({'data': [{'value': '300'}]}).encode())
+            with self.assertRaises(ValueError):
+                ms.fetch_fng(path, opener=bad)
+            self.assertEqual(ms.load(path)['value'], 30)        # 실패해도 이전 값 유지
+
+
+class ExitWatch(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.w = ew.Watch(Path(self.tmp.name))
+        self.t0 = 1_800_000_000.0
+        import datetime as dt
+        self.iso = dt.datetime.fromtimestamp(self.t0).astimezone().isoformat()
+        self.pos = {'KRW-A': {'qty': 1000.0, 'cost': 100_050.0, 'time': self.iso, 'profit_guard_peak': 100.5}}   # 평단 100.05
+
+    def events(self):
+        return [json.loads(x)['event'] for x in (Path(self.tmp.name) / 'exit_watch.jsonl').read_text(encoding='utf-8').splitlines()]
+
+    def test_tick_table(self):
+        self.assertEqual(ew.tick(118), 1); self.assertEqual(ew.tick(6.04), 0.01); self.assertEqual(ew.tick(3_119_000), 1000)
+        self.assertEqual(ew.ceil_tick(100.1), 101)
+
+    def test_weak_position_arms_then_virtual_fill(self):
+        self.w.update(self.pos, {'KRW-A': 99.0}, {'KRW-A': (3, .05)}, now=self.t0 + 1 * H)
+        self.assertEqual(self.w.s, {})                                   # 2시간 전에는 판정하지 않는다
+        self.w.update(self.pos, {'KRW-A': 99.0}, {'KRW-A': (3, .05)}, now=self.t0 + 2 * H)
+        k = f'KRW-A|{self.iso}|2'
+        self.assertEqual((self.w.s[k]['state'], self.w.s[k]['limit']), ('armed', 101))
+        self.w.update(self.pos, {'KRW-A': 101.0}, {}, now=self.t0 + 2.5 * H)   # 지정가에 닿기만 함: 체결 아님
+        self.assertEqual(self.w.s[k]['state'], 'armed')
+        self.w.update(self.pos, {'KRW-A': 102.0}, {}, now=self.t0 + 2.6 * H)   # 한 호가 위 통과
+        self.assertEqual(self.w.s[k]['state'], 'filled')
+        self.assertGreater(self.w.s[k]['pnl'], 0)
+
+    def test_strong_position_passes_and_sale_first_is_recorded(self):
+        strong = {'KRW-A': dict(self.pos['KRW-A'], profit_guard_peak=103.0)}
+        self.w.update(strong, {'KRW-A': 99.0}, {'KRW-A': (3, .05)}, now=self.t0 + 2 * H)
+        self.assertEqual(self.w.s[f'KRW-A|{self.iso}|2']['state'], 'pass')
+        w2 = ew.Watch(Path(self.tmp.name) / '..' / Path(self.tmp.name).name)
+        w2.s = {}
+        w2.update(self.pos, {'KRW-A': 99.0}, {'KRW-A': (3, .05)}, now=self.t0 + 2 * H)
+        w2.update(self.pos, {}, {}, now=self.t0 + 2.1 * H)                # 가격을 못 받은 순간은 보유로 본다
+        self.assertEqual(w2.s[f'KRW-A|{self.iso}|2']['state'], 'armed')
+        w2.update({}, {}, {}, now=self.t0 + 2.2 * H)                       # 포지션이 사라짐 = 실제 매도 먼저
+        self.assertEqual(w2.s[f'KRW-A|{self.iso}|2']['state'], 'sold_first')
+
+    def test_deadline_stage2_or_cancel(self):
+        self.w.update(self.pos, {'KRW-A': 99.0}, {'KRW-A': (3, .05)}, now=self.t0 + 2 * H)
+        k = f'KRW-A|{self.iso}|2'
+        self.w.update(self.pos, {'KRW-A': 99.0}, {}, now=self.t0 + 4.1 * H)    # 순위 자료 없으면 판단 미룸
+        self.assertEqual(self.w.s[k]['state'], 'armed')
+        self.w.update(self.pos, {'KRW-A': 99.0}, {'KRW-A': (20, .01)}, now=self.t0 + 4.2 * H)
+        self.assertEqual(self.w.s[k]['state'], 'stage2')                   # 15위 밖 = 근거 약화
+        self.assertIn('2단계 매도(가상)', self.events())
+        s, first = self.w.summary()
+        self.assertEqual(s[2]['armed'], 1)
+        self.assertIn('기록 모드', ew.render(self.w, Path(self.tmp.name) / 'none.jsonl'))
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+class RegimeCompare(unittest.TestCase):
+    def test_extra_buys_are_those_made_while_24h_index_was_negative(self):
+        import regime_compare as rc
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'w.jsonl').write_text('\n'.join(json.dumps(r) for r in (
+                {'at': '2026-11-06T13:00+09:00', 'index_24h': -0.03, 'index_6h': 0.01, 'filter_hours': 6},
+                {'at': '2026-11-06T14:00+09:00', 'index_24h': 0.01, 'index_6h': 0.01, 'filter_hours': 6})), encoding='utf-8')
+            def order(m, side, t, px, vol):
+                return {'market': m, 'side': side, 'paid_fee': '0', 'trades': [{'created_at': t, 'volume': str(vol), 'funds': str(px * vol)}]}
+            orders = [order('KRW-A', 'bid', '2026-11-06T13:01:30+09:00', 100, 800), order('KRW-A', 'ask', '2026-11-06T15:00:00+09:00', 95, 800),
+                      order('KRW-B', 'bid', '2026-11-06T14:01:30+09:00', 100, 800), order('KRW-C', 'bid', '2026-11-06T13:01:40+09:00', 10, 8000),
+                      order('KRW-DOGE', 'bid', '2026-11-06T13:01:50+09:00', 100, 800)]
+            (d / 'o.json').write_text(json.dumps({'orders': orders}), encoding='utf-8')
+            done, still = rc.extra_buys(d / 'w.jsonl', d / 'o.json', lambda m: m == 'KRW-DOGE')
+            self.assertEqual([p['m'] for p in done], ['KRW-A'])            # B는 24h 양수 시간에 샀다
+            self.assertAlmostEqual(done[0]['pnl'], -4000)
+            self.assertEqual([p['m'] for p in still], ['KRW-C'])           # 보호 종목 DOGE는 제외
+            self.assertIn('-4,000원', rc.render(d / 'w.jsonl', d / 'o.json', lambda m: m == 'KRW-DOGE'))
+
+    def test_filter_note_shows_6h_decision(self):
+        page = ms.render({'index_24h': -0.05, 'index_6h': 0.004, 'filter_hours': 6, 'up': 4, 'total': 29, 'at': 'x'}, None)
+        self.assertIn('매수 필터 6h +0.40% → 매수 가능', page)
+
+
+class BotCapitalSizing(unittest.TestCase):
+    def test_unit_is_bot_capital_over_divisor_ignoring_protected(self):
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, size_by_risk=True, entry_risk=0.00184,
+                      stop_max_pct=0.045, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5)
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': 0.05, 'close': 1.0, 'atr': 0.01}]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        holdings = {'KRW-BTC': 1_486_145.0, 'KRW-SUI': 2_213.0}
+        text, why = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, p, caps, 363_638.0, 0, market_index=0.01,
+                                    protected={'KRW-BTC'})
+        self.assertIn('매수 A 80000원', text)                        # 363,638 ÷ 4.5 = 80,808 → 1,000원 내림
+        self.assertTrue(any('봇 운용자금 363,638원' in r for r in why))   # 보호 BTC·자투리 SUI 제외
+        p.bot_capital_divisor = 0                                     # 끄면 예전(총자산 비례)
+        text, _ = shadow.proposal(holdings, ranked, {}, {'KRW-A'}, p, caps, 363_638.0, 0, market_index=0.01, protected={'KRW-BTC'})
+        self.assertIn('매수 A 75000원', text)                         # 1,851,996 × 0.00184 / 0.045 = 75,726
+
+    def test_dust_does_not_count_as_held(self):
+        # 2026-11-06 13:01: 손절 뒤 남은 CAP 1e-08개 때문에 CAP이 '이미 보유'로 사유 없이 빠졌다.
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5)
+        ranked = [{'market': 'KRW-CAP', 'rank': 3, 'rs': 0.12, 'close': 147.0, 'atr': 2.5}]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        text, _ = shadow.proposal({'KRW-CAP': 1.46e-06}, ranked, {}, {'KRW-CAP'}, p, caps, 363_638.0, 0, market_index=0.01)
+        self.assertIn('매수 CAP 80000원', text)
+        text, _ = shadow.proposal({'KRW-CAP': 60_000.0}, ranked, {}, {'KRW-CAP'}, p, caps, 303_638.0, 0, market_index=0.01)
+        self.assertNotIn('매수 CAP', text)                            # 진짜 보유는 그대로 재매수 안 함
+
+    def test_dust_anywhere_never_changes_the_plan(self):
+        # 자투리가 섞여도 주문안·사유가 자투리 없는 계좌와 완전히 같아야 한다(규칙이 늘어나도 이 검사가 지킨다).
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5,
+                      swap_stuck_loss=True)
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': 0.05 - i / 1000, 'close': 100.0, 'atr': 1.0} for i in range(1, 8)]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        real = {'KRW-BTC': 1_400_000.0, 'KRW-C5': 70_000.0}
+        dust = {**real, **{f'KRW-C{i}': 1e-6 for i in (1, 2, 3)}, 'KRW-SUI': 2_213.0, 'KRW-X': 4_999.0}
+        args = (ranked, {}, {r['market'] for r in ranked}, p, caps, 290_000.0, 0)
+        kw = dict(market_index=0.01, protected={'KRW-BTC'})
+        self.assertEqual(shadow.proposal(dict(real), *args, **kw), shadow.proposal(dust, *args, **kw))
+
+    def test_hourly_record_keeps_6h_fields(self):
+        import tempfile, json as js
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'w.jsonl'
+            ms.record_brake(f, {'at': 'x', 'index_24h': -0.06, 'index_6h': 0.002, 'filter_hours': 6})
+            r = js.loads(f.read_text(encoding='utf-8'))
+            self.assertEqual((r['index_6h'], r['filter_hours']), (0.002, 6))
+
+    def test_compare_treats_unlabelled_records_after_switch_as_6h(self):
+        import tempfile, regime_compare as rc, json as js
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'w.jsonl'
+            f.write_text(chr(10).join(js.dumps(r) for r in (
+                {'at': '2026-11-06T12:00+09:00', 'index_24h': -0.05}, {'at': '2026-11-06T13:00+09:00', 'index_24h': -0.06})), encoding='utf-8')
+            H = rc.hours(f)
+            self.assertEqual(sorted(r['filter_hours'] for r in H.values()), [6, 24])

@@ -1,0 +1,10 @@
+{
+  "recorded_at_snapshot_followup": true,
+  "source": "data/user_protected_assets.json",
+  "markets": [
+    "KRW-BTC",
+    "KRW-DOGE",
+    "KRW-XRP"
+  ],
+  "private_state_not_copied": true
+}

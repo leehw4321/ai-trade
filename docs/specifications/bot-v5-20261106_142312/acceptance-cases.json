@@ -1,0 +1,122 @@
+[
+  {
+    "id": "T01",
+    "scenario": "15분봉 72구간 상대강도",
+    "required_observation": "마지막 종가/72봉전 종가−1; 동률은 종목코드순",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T02",
+    "scenario": "장세 자료 부족",
+    "required_observation": "동일 시각 정렬된 유효 종목 20개 미만이면 신규 매수 보류",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T03",
+    "scenario": "6시간 필터 경계",
+    "required_observation": "현재 regime_bars24: 15분×24=6시간; 지수0이하 보류, 초과만 진입 가능",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T04",
+    "scenario": "사용자 보호",
+    "required_observation": "DOGE 및 사용자 보호 종목은 자동/수동UI 매수·매도·손절·익절에서 제외; 표시·조회만",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T05",
+    "scenario": "계좌 보호 파일 오류",
+    "required_observation": "필수 보호파일 누락/형식오류에서 거래 허용하지 않음; 실제 오류 경로는 스냅샷 소스와 비교",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T06",
+    "scenario": "중복 주문안",
+    "required_observation": "같은 슬롯·정책해시·의도는 중복 주문하지 않음; 재시작 후에도 영속 기록으로 확인",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T07",
+    "scenario": "주문 응답 불명",
+    "required_observation": "재전송 전에 identifier로 거래소 조회; 거래소 상태를 모른 채 새 주문 금지",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T08",
+    "scenario": "부분 체결",
+    "required_observation": "실제 체결수량·대금·수수료만 원가와 잔고에 반영; 남은 수량과 잠금을 구분",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T09",
+    "scenario": "동일 계획 매도 후 재매수",
+    "required_observation": "매도 직후 같은 신호를 재사용해 재진입하지 않음; fresh_reentry와 수신기 검사",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T10",
+    "scenario": "이익 보호",
+    "required_observation": "고점+3%에서 이익70% 보호선 계산; 보호선은 낮추지 않음; 체결가 보장은 아님",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T11",
+    "scenario": "본전 잠금",
+    "required_observation": "고점+1.5%에서 비용 고려 바닥 계산; 이미 더 높은 보호선이면 내리지 않음",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T12",
+    "scenario": "순위 이탈",
+    "required_observation": "rank_exit=false에서 단순 순위이탈은 청산하지 않음; swap_stuck_loss와 구분",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T13",
+    "scenario": "부분 교체",
+    "required_observation": "자리/현금 부족·적격 매수 후보·손실 묶임 조건에서만 부족액 기반 정리; 사용자 보호 제외",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T14",
+    "scenario": "계좌 손실 한도",
+    "required_observation": "보호종목 제외 범위·실현/미실현 합성·일일초기화와 재개요청 경로를 동일하게 재현",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T15",
+    "scenario": "PC 실행권",
+    "required_observation": "권한없는 PC는 조회만; 기동만으로 다른PC 권한을 빼앗지 않음; 인수 버튼·기존종료·체크포인트 검사",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T16",
+    "scenario": "정체 탈출",
+    "required_observation": "exit_watch가 가상체결 기록을 내더라도 upbit 실제주문 호출수는 증가하지 않음",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T17",
+    "scenario": "자투리",
+    "required_observation": "5천원미만 잔량은 별도 기록; 전량매도 수량은 vol8 및 avail/장부 구분에 따라 계산; 숨김과 소멸은 다름",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T18",
+    "scenario": "감시 지연",
+    "required_observation": "3초는 목표 점검주기; 동기 API호출·네트워크 지연으로 초과 가능. 실제지연을 측정하고 보장이라고 쓰지 않음",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T19",
+    "scenario": "미평가 자산",
+    "required_observation": "시세없는 자산은 수량 보존·미평가 표시; 0원 확정평가로 오해하지 않음",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  },
+  {
+    "id": "T20",
+    "scenario": "자동 토론",
+    "required_observation": "주문·기록 프로세스와 AI 반복 호출은 별개; 폐기된 토론 호출기를 복원하지 않음",
+    "execution": "NOT_RUN_DOCUMENTATION_ONLY"
+  }
+]

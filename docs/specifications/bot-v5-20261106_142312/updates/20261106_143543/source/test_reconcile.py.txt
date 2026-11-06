@@ -1,0 +1,116 @@
+import copy
+import unittest
+
+from reconcile import ReconciliationError, preserved_basis, reconcile
+
+
+def order(identifier, side, quantity, funds, second, market='KRW-A', fee='1'):
+    return {'identifier': identifier, 'uuid': 'synthetic-' + identifier,
+            'market': market, 'side': side, 'state': 'cancel', 'executed_volume': str(quantity),
+            'paid_fee': fee, 'complete': True, 'trades': [{'market': market, 'side': side,
+                'volume': str(quantity), 'funds': str(funds),
+                'created_at': f'2026-11-03T12:00:{second:02d}+09:00'}]}
+
+
+class Reconcile(unittest.TestCase):
+    def setUp(self):
+        self.base = {'positions': {'KRW-A': {'qty': 10., 'cost': 1000., 'stop': 90.,
+                            'stop0': 85., 'peak': 140., 'profit_guard_stop': 120., 'time': 'old'}},
+                     'realized': -20., 'bought_krw': 1000., 'executed': {'old': {'result': 'done'}},
+                     'pending_order': None, 'risk_pending_orders': {}, 'unmanaged_assets': [],
+                     'account_adoption': {'epoch': 1., 'history_restored': False},
+                     'risk_baseline_unrealized': -100., 'risk_base_equity': 2000.,
+                     'risk_loss_offset': 30., 'risk_day': '2026-11-03', 'halted': 'preserve halt',
+                     'last_sell': {'KRW-OLD': {'time': 20., 'price': 3., 'profit': False}}}
+        from datetime import datetime
+        self.epoch = datetime.fromisoformat('2026-11-03T11:04:00+09:00').timestamp()
+
+    def test_partial_and_final_sales_preserve_basis_and_use_actual_fill_time(self):
+        orders = [order('v5-one', 'ask', 4, 480, 1), order('v5-two', 'ask', 6, 660, 2)]
+        candidate, report = reconcile(self.base, orders, {}, self.epoch, {})
+        self.assertTrue(report['accounting_replay_complete'])
+        self.assertEqual(preserved_basis(candidate), preserved_basis(self.base))
+        self.assertEqual(candidate['last_sell']['KRW-OLD'], self.base['last_sell']['KRW-OLD'])
+        from datetime import datetime
+        actual = datetime.fromisoformat('2026-11-03T12:00:02+09:00').timestamp()
+        self.assertEqual(candidate['last_sell']['KRW-A']['time'], actual)
+        self.assertAlmostEqual(candidate['realized'], 118.)
+
+    def test_transient_new_position_needs_no_invented_stop_if_fully_closed(self):
+        orders = [order('v5-buy', 'bid', 5, 500, 1, 'KRW-B'),
+                  order('v5-sell', 'ask', 5, 450, 2, 'KRW-B')]
+        state, report = reconcile(self.base, orders, {}, self.epoch, {'KRW-A': 10})
+        self.assertTrue(report['accounting_replay_complete'])
+        self.assertNotIn('KRW-B', state['positions'])
+        self.assertEqual(state['positions']['KRW-A']['peak'], 140)
+
+    def test_repeated_terminal_order_is_idempotent(self):
+        orders = [order('v5-one', 'ask', 4, 480, 1)]
+        first, report = reconcile(self.base, orders + orders, {}, self.epoch, {'KRW-A': 6})
+        second, again = reconcile(first, orders, {}, self.epoch, {'KRW-A': 6})
+        self.assertEqual(first, second)
+        self.assertEqual(again['new_order_count'], 0)
+
+    def test_new_open_position_without_proven_stop_remains_unresolved(self):
+        state, report = reconcile(self.base, [order('v5-b', 'bid', 5, 500, 1, 'KRW-B')],
+                                  {}, self.epoch, {'KRW-A': 10, 'KRW-B': 5})
+        self.assertFalse(report['accounting_replay_complete'])
+        self.assertNotIn('stop', state['positions']['KRW-B'])
+
+    def test_stronger_known_stop_and_internal_peak_are_never_lowered(self):
+        state, report = reconcile(self.base, [order('v5-one', 'ask', 4, 480, 1)], {}, self.epoch,
+                                  {'KRW-A': 6}, verified_stop_floors={'KRW-A': 80})
+        self.assertEqual(state['positions']['KRW-A']['stop'], 90)
+        self.assertEqual(state['positions']['KRW-A']['profit_guard_stop'], 120)
+        self.assertEqual(state['positions']['KRW-A']['peak'], 140)
+
+    def test_protected_manual_inventory_is_not_adopted_or_sold(self):
+        state, report = reconcile(self.base, [], {}, self.epoch,
+                                  {'KRW-A': 10, 'KRW-DOGE': 999}, {'KRW-DOGE'})
+        self.assertTrue(report['accounting_replay_complete'])
+        self.assertNotIn('KRW-DOGE', state['positions'])
+
+    def test_unknown_manual_activity_and_balance_difference_block_completion(self):
+        manual = order('manual', 'bid', 1, 100, 1)
+        state, report = reconcile(self.base, [manual], {}, self.epoch, {'KRW-A': 11})
+        self.assertFalse(report['accounting_replay_complete'])
+        self.assertTrue(report['quantity_mismatches'])
+
+    def test_oversell_or_revised_cumulative_data_fails_without_mutating_input(self):
+        original = copy.deepcopy(self.base)
+        with self.assertRaises(ReconciliationError):
+            reconcile(self.base, [order('v5-one', 'ask', 11, 1100, 1)], {}, self.epoch, {})
+        self.assertEqual(self.base, original)
+        with self.assertRaises(ReconciliationError):
+            reconcile(self.base, [order('v5-one', 'ask', 4, 400, 1)],
+                      {'v5-one': {'volume': 5, 'funds': 500, 'fee': 1}}, self.epoch, {})
+
+    def test_explicit_external_btc_fill_import_preserves_risk_and_excludes_bot_buy_budget(self):
+        btc = order('manual', 'bid', 2, 1000, 1, 'KRW-BTC', fee='2')
+        state, report = reconcile(self.base, [btc], {}, self.epoch,
+            {'KRW-A': 10, 'KRW-BTC': 2, 'KRW-DOGE': 77}, {'KRW-DOGE'},
+            {'KRW-BTC': 450}, {'KRW-BTC'})
+        self.assertTrue(report['accounting_replay_complete'])
+        self.assertEqual(state['positions']['KRW-BTC']['cost'], 1002)
+        self.assertEqual(state['positions']['KRW-BTC']['stop'], 450)
+        self.assertEqual(state['bought_krw'], self.base['bought_krw'])
+        self.assertEqual(report['external_acquisition_cost'], 1002)
+        self.assertEqual(report['new_external_order_count'], 1)
+        self.assertEqual(preserved_basis(state), preserved_basis(self.base))
+        again, second = reconcile(state, [btc], {}, self.epoch,
+            {'KRW-A': 10, 'KRW-BTC': 2}, {'KRW-DOGE'}, {'KRW-BTC': 450}, {'KRW-BTC'})
+        self.assertEqual(state, again)
+        self.assertEqual(second['new_order_count'], 0)
+
+    def test_external_adoption_cannot_override_protected_doge_or_omit_stop(self):
+        with self.assertRaises(ReconciliationError):
+            reconcile(self.base, [], {}, self.epoch, {}, {'KRW-DOGE'}, {}, {'KRW-DOGE'})
+        btc = order('manual', 'bid', 2, 1000, 1, 'KRW-BTC')
+        state, report = reconcile(self.base, [btc], {}, self.epoch,
+            {'KRW-A': 10, 'KRW-BTC': 2}, {'KRW-DOGE'}, {}, {'KRW-BTC'})
+        self.assertFalse(report['accounting_replay_complete'])
+        self.assertTrue(any('stop' in x['reason'] for x in report['unresolved']))
+
+
+if __name__ == '__main__':
+    unittest.main()

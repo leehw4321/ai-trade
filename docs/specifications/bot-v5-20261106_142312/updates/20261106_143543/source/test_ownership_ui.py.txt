@@ -1,0 +1,67 @@
+import types
+import unittest
+
+import bot
+import manual_orders
+
+
+def fake(snap, grant=None, server=True):
+    srv = types.SimpleNamespace(port=8765, token='tok') if server else None
+    g = types.SimpleNamespace(snapshot=lambda: snap)
+    return types.SimpleNamespace(session_guard=g, grant_status=lambda: grant or {}, manual_server=srv)
+
+
+def render(*a, **k):
+    return bot.Bot.ownership_html(fake(*a, **k))
+
+
+class Lamp(unittest.TestCase):
+    base = {'status': 'owner', 'owner': True, 'other_pc': '', 'pc': 'HOME', 'blind_seconds': 0, 'checked_ago': 12, 'reason': ''}
+
+    def test_green_when_this_pc_owns_and_button_is_disabled(self):
+        h = render(self.base)
+        self.assertIn('#2e9e5b', h); self.assertIn('이 PC(HOME)에 있음', h)
+        self.assertIn('id=own-btn type=button disabled', h)
+
+    def test_red_when_another_pc_owns_and_button_is_enabled(self):
+        h = render(dict(self.base, status='other', owner=False, other_pc='OFFICE'))
+        self.assertIn('#d64545', h); self.assertIn('다른 PC(OFFICE)', h)
+        self.assertNotIn('own-btn type=button disabled', h)
+
+    def test_red_when_nobody_owns(self):
+        self.assertIn('아무도 갖고 있지 않음', render(dict(self.base, status='free', owner=False)))
+
+    def test_yellow_when_owner_but_unverifiable(self):
+        h = render(dict(self.base, status='unverified', blind_seconds=300))
+        self.assertIn('#d9a400', h); self.assertIn('5분째', h); self.assertIn('손절 매도는 허용', h)
+
+    def test_transfer_result_indicator(self):
+        off = dict(self.base, status='other', owner=False)
+        self.assertIn('✔ 넘어옴', render(off, {'state': 'done', 'time': '2026-11-04T19:00:00', 'message': '완료'}))
+        self.assertIn('✘ 넘어오지 않음', render(off, {'state': 'failed', 'time': '2026-11-04T19:00:00', 'message': '시간 초과'}))
+        self.assertIn('이전 진행 중', render(off, {'state': 'running', 'time': '2026-11-04T19:00:00'}))
+
+    def test_without_control_server_button_is_inert(self):
+        h = render(dict(self.base, status='other', owner=False), server=False)
+        self.assertIn('var A=null', h)
+
+
+class GrantRequest(unittest.TestCase):
+    def test_grant_needs_token_and_confirm_but_no_market(self):
+        srv = manual_orders.ManualOrderServer(8765, token='tok', allowed_kinds={'grant'})
+        host = '127.0.0.1:8765'
+        ok = b'{"token":"tok","confirm":true}'
+        self.assertEqual(srv.check(host, 'null', ok, 'grant'), (200, (None, None)))
+        self.assertEqual(srv.check(host, 'null', b'{"token":"bad","confirm":true}', 'grant')[0], 403)
+        self.assertEqual(srv.check(host, 'null', b'{"token":"tok"}', 'grant')[0], 400)
+        self.assertEqual(srv.check(host, 'http://evil', ok, 'grant')[0], 403)
+        srv2 = manual_orders.ManualOrderServer(8765, token='tok', allowed_kinds={'buy'})
+        self.assertEqual(srv2.check(host, 'null', ok, 'grant')[0], 403)
+
+    def test_grant_when_already_owner_is_a_noop(self):
+        me = types.SimpleNamespace(session_guard=types.SimpleNamespace(acquired=True))
+        self.assertEqual(bot.Bot.request_grant(me), (True, '이 PC에 이미 실행권이 있습니다.'))
+
+
+if __name__ == '__main__':
+    unittest.main()

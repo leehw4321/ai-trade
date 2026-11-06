@@ -1,0 +1,53 @@
+import datetime as dt
+import tempfile
+import unittest
+from pathlib import Path
+
+import daily_equity as de
+
+K = de.KST
+
+
+def t(d, h, m=0):
+    return dt.datetime(2026, 11, d, h, m, tzinfo=K)
+
+
+class DailyEquity(unittest.TestCase):
+    def setUp(self):
+        self.f = Path(tempfile.mkdtemp()) / 'daily_equity.json'
+
+    def test_first_observation_is_open(self):
+        r = de.record(self.f, 1000000, t(5, 9))
+        self.assertEqual((r['open'], r['pnl'], r['open_src']), (1000000, 0, '첫 관측'))
+
+    def test_pnl_high_low(self):
+        de.record(self.f, 1000000, t(5, 9)); de.record(self.f, 1020000, t(5, 12)); r = de.record(self.f, 990000, t(5, 15))
+        self.assertEqual((r['pnl'], r['high'], r['low']), (-10000, 1020000, 990000))
+
+    def test_new_day_opens_at_previous_last(self):
+        de.record(self.f, 1000000, t(5, 9)); de.record(self.f, 1050000, t(5, 23, 59))
+        r = de.record(self.f, 1048000, t(6, 0, 1))
+        self.assertEqual((r['open'], r['open_src'], r['pnl']), (1050000, '전날 마지막', -2000))
+        self.assertEqual(de.read(self.f)['2026-11-05']['pnl'], 50000)   # 전날 행은 그대로
+
+    def test_gap_day_uses_first_observation(self):
+        de.record(self.f, 1000000, t(3, 9))
+        self.assertEqual(de.record(self.f, 900000, t(6, 9))['open_src'], '첫 관측')
+
+    def test_midnight_boundary_is_kst_not_utc(self):
+        utc = dt.timezone.utc
+        self.assertEqual(de.day_of(dt.datetime(2026, 11, 5, 15, 30, tzinfo=utc)), '2026-11-06')  # UTC 15:30 = KST 00:30
+
+    def test_bad_values_ignored(self):
+        for v in (None, 0, -5, float('nan'), '1000'):
+            self.assertIsNone(de.record(self.f, v, t(5, 9)))
+        self.assertFalse(self.f.exists())
+
+    def test_recent_newest_first(self):
+        for d in (3, 4, 5):
+            de.record(self.f, 1000000 + d, t(d, 9))
+        self.assertEqual([k for k, _ in de.recent(self.f, 2)], ['2026-11-05', '2026-11-04'])
+
+
+if __name__ == '__main__':
+    unittest.main()

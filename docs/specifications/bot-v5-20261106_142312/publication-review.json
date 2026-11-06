@@ -1,0 +1,13 @@
+{
+  "heuristic_matches": 4,
+  "classification": "reviewed_false_positive_source_code_and_test_fixture",
+  "matched_files": [
+    "source/pnl_service.py.txt",
+    "source/test_pnl_service.py.txt",
+    "updates/20261106_143543/source/pnl_service.py.txt",
+    "updates/20261106_143543/source/test_pnl_service.py.txt"
+  ],
+  "reason": "worker_environment variable assignments and synthetic test-access/test-secret fixture literals; not real credentials",
+  "private_files_included": false,
+  "private_adoption_identifier_redacted": true
+}

@@ -1,0 +1,32 @@
+"""사용자 지시(2026-11-04): 거래량 급등·입금량 급증·가격 급등락 경보는 매매 제한에서 뺀다. 다른 사유가 함께 있으면 제한한다."""
+import unittest
+
+import upbit
+
+
+def row(warning=False, **caution):
+    return {'market': 'KRW-X', 'market_event': {'warning': warning, 'caution': caution}}
+
+
+class VolumeCaution(unittest.TestCase):
+    def test_volume_only_is_tradable_but_still_shown_as_warning(self):
+        d = upbit.market_warning_details(row(TRADING_VOLUME_SOARING=True))
+        self.assertTrue(d['warning'])
+        self.assertFalse(d['trade_blocked'])
+
+    def test_deposit_and_volume_together_tradable(self):
+        self.assertFalse(upbit.market_warning_details(row(DEPOSIT_AMOUNT_SOARING=True))['trade_blocked'])
+        self.assertFalse(upbit.market_warning_details(row(TRADING_VOLUME_SOARING=True, DEPOSIT_AMOUNT_SOARING=True))['trade_blocked'])
+        self.assertFalse(upbit.market_warning_details(row(PRICE_FLUCTUATIONS=True, TRADING_VOLUME_SOARING=True, DEPOSIT_AMOUNT_SOARING=True))['trade_blocked'])
+
+    def test_other_reasons_still_block(self):
+        for k in ('GLOBAL_PRICE_DIFFERENCES', 'CONCENTRATION_OF_SMALL_ACCOUNTS', 'UNKNOWN_NEW_TYPE'):
+            self.assertTrue(upbit.market_warning_details(row(TRADING_VOLUME_SOARING=True, **{k: True}))['trade_blocked'], k)
+        self.assertTrue(upbit.market_warning_details(row(warning=True, TRADING_VOLUME_SOARING=True))['trade_blocked'])
+
+    def test_clean_market_not_blocked(self):
+        self.assertFalse(upbit.market_warning_details(row())['trade_blocked'])
+
+
+if __name__ == '__main__':
+    unittest.main()

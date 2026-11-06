@@ -1,0 +1,84 @@
+"""Protected user assets never enter order transport. No real API calls."""
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import live
+import strategy as st
+
+
+class ProtectedAssets(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.lv = live.Live(Path(self.tmp.name)/'data/live', {'enabled': True, 'trail_enabled': True,
+                            'profit_guard_enabled': True}, st.Params())
+        self.lv.protection_file.write_text('{"markets":["KRW-DOGE"]}')
+        self.pos = {'entry': 100., 'qty': 100., 'cost': 10000., 'stop': 90., 'stop0': 90.,
+                    'trail': True, 'atr': 1., 'time': '2026-11-03T00:00:00+09:00'}
+        self.lv.d['positions']['KRW-DOGE'] = self.pos
+
+    def test_direct_buy_sell_and_risk_exit_block_before_transport(self):
+        with patch.object(live.upbit, 'market_buy') as buy, patch.object(live.upbit, 'market_sell') as sell:
+            for side, risk in [('bid',False),('ask',False),('ask',True)]:
+                with self.assertRaises(live.ProtectedAssetError):
+                    self.lv._trade(side,'KRW-DOGE',100.,'test',risk=risk)
+        buy.assert_not_called(); sell.assert_not_called()
+        self.assertFalse(self.lv.d.get('pending_order'))
+
+    def test_protected_plan_skips_before_account_lookup(self):
+        with patch.object(live.upbit,'accounts') as accounts:
+            result = self.lv.execute(('test','매도 DOGE 100%'), {})
+        accounts.assert_not_called()
+        self.assertIn('보호',result)
+
+    def test_activation_after_intent_save_still_prevents_transmission(self):
+        def activate():
+            self.lv.protection_file.write_text('{"markets":["KRW-DOGE","KRW-XRP"]}')
+        with patch.object(self.lv,'save',side_effect=activate), patch.object(live.upbit,'market_sell') as send:
+            with self.assertRaises(live.ProtectedAssetError):
+                self.lv._trade('ask','KRW-XRP',1.,'test',risk=True)
+        send.assert_not_called()
+        self.assertFalse(self.lv.d.get('risk_pending_orders',{}).get('KRW-XRP'))
+
+    def test_stop_profit_trail_do_not_mutate_or_sell_protected_position(self):
+        original = dict(self.pos)
+        with patch.object(live.upbit,'accounts') as accounts, patch.object(self.lv,'_trade') as trade, \
+             patch.object(live.upbit,'completed_candles') as candles:
+            self.lv.stop_check({'KRW-DOGE':80.})
+            self.lv.update_profit_guard({'KRW-DOGE':120.})
+            self.lv.trail_check()
+        trade.assert_not_called(); accounts.assert_not_called(); candles.assert_not_called()
+        self.assertEqual(self.pos,original)
+
+    def test_ui_actions_also_respect_user_protection(self):
+        with patch.object(live.upbit,'accounts') as accounts:
+            self.assertFalse(self.lv.liquidate_position('KRW-DOGE',{'KRW-DOGE':100.})[0])
+            self.assertFalse(self.lv.add_to_position('KRW-DOGE',5000,{})[0])
+        accounts.assert_not_called()
+
+    def test_protection_changes_are_reloaded_without_restart(self):
+        self.assertTrue(self.lv.is_protected('KRW-DOGE'))
+        self.lv.protection_file.write_text('{"markets":["KRW-DOGE","KRW-XRP"]}')
+        self.assertTrue(self.lv.is_protected('KRW-XRP'))
+        self.lv.protection_file.write_text('{"markets":["KRW-XRP"]}')
+        self.assertFalse(self.lv.is_protected('KRW-DOGE'))
+
+    def test_malformed_or_required_missing_protection_fails_closed(self):
+        self.lv.protection_file.write_text('{bad')
+        with self.assertRaises(live.ProtectedAssetError): self.lv._trade('ask','KRW-DOGE',1.,'test')
+        self.lv.protection_file.unlink()
+        self.lv.cfg['user_protection_required']=True
+        with self.assertRaises(live.ProtectedAssetError): self.lv._trade('ask','KRW-DOGE',1.,'test')
+
+    def test_unprotected_owned_asset_keeps_normal_risk_exit(self):
+        self.lv.d['positions']['KRW-XRP'] = dict(self.pos)
+        with patch.object(live.upbit,'accounts',return_value=[{'currency':'XRP','balance':'100'}]), \
+             patch.object(self.lv,'_trade',return_value={}) as trade, \
+             patch.object(self.lv,'_fill',return_value=(100.,8000.,4.)), patch.object(self.lv,'share'):
+            self.lv.stop_check({'KRW-DOGE':80.,'KRW-XRP':80.})
+        trade.assert_called_once_with('ask','KRW-XRP',100.,'손절',risk=True)
+
+
+if __name__=='__main__': unittest.main()

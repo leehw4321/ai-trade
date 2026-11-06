@@ -339,3 +339,7 @@ Claude가 실제 소스를 정적 검토하고 현재 손실/완전성 A·B 확�
 - `tools/patches/limits_unlocked.json`: 고정 금액 한도 해제(10억)를 두 PC 공통 설정으로 넣었다(사용자 지시, D-08).
 - `adopt_account.py`: `코인 트레이딩/launch_v5.py`가 없는 PC에서는 자동 시작을 건너뛴다(take_over가 시작).
 - **설정 변경 규칙 (11:16, 사용자 지시 "권한을 항상 같이 넘겨"):** 실행본 `config.json`은 PC마다 따로 있고 GitHub에 없다. 그래서 두 PC가 같아야 하는 설정은 반드시 `tools/patches/*.json` 조각으로 만든다. `take_over.py`가 시작할 때마다 모든 조각을 덮어 적용한다. 화면 강제 청산·추가 매수 버튼(`manual_ui`)도 `manual_ui.json` 조각으로 넣었다. 실행본 config만 손으로 바꾸면 다른 PC로 넘어가지 않는다.
+
+
+## 2026-11-06 봇 재현 명세서
+사용자 요청으로 [공통 진입점](docs/specifications/README.md)에 사람용HTML·AI용Markdown·기계JSON·설정·함수색인·20개인수시험·원본소스텍스트/SHA256을 기록했다. 14:23:12 기본판과 작성중 바뀐14:35:43 추가판을 구분. 실제Claude 초안을 참고해ChatGPT가 편집/대조했으며 수익성/전체코드검산 인증 아님. 추가판 지정가매수 코드는 기록했지만 실거래 검산 완료로 승인하지 않았다. 이번 작업은 문서·소스이력만이며 실행코드/설정/주문/프로세스 변경 없음. API키/개인장부/실제주문UUID 미포함. Git의 비실행 source/*.py.txt로 원본을 복구할 수 있고 각 manifest 해시를 확인한다.

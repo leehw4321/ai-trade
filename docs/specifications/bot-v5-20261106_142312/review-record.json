@@ -1,0 +1,15 @@
+{
+  "scope": "documentation source/config comparison, not full code audit or profitability certification",
+  "authors": {
+    "draft": "Actual Claude CLI reply received with compact source excerpts",
+    "editor_and_reviewer": "ChatGPT"
+  },
+  "changes_from_draft": [
+    "Hourly proposal timing corrected from 15-minute pseudocode",
+    "Core omitted modules and state contracts supplemented from frozen source",
+    "6-hour market filter, capital divisor, ownership/grant and exceptions clarified",
+    "Source identifiers checked against function index"
+  ],
+  "tests": "No bot tests or real orders run for this documentation task",
+  "snapshot_code_unchanged": true
+}

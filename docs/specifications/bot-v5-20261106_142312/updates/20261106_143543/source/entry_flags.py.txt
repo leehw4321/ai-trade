@@ -1,0 +1,71 @@
+"""매수 후보의 '급변 직후 진입' 표시를 기록만 한다(주문에는 영향 없음). 정의·기준값은 VERSION이 같은 동안 바꾸지 않는다.
+
+기준 시점 = 판단 때 방금 마감된 15분봉의 종가(주문 전에 알 수 있는 값).
+  r1  직전 1시간(4봉) 등락 %      r4  직전 4시간(16봉) 등락 %
+  vol 직전 1시간 거래대금 ÷ (그 앞 96봉 평균 × 4)
+  H1 급등·거래량: r4 >= +8 또는 vol >= 3     H2 하락 중: r4 <= -4     H3 1시간 급변: |r1| >= 3
+  R8 = H1 또는 H2 또는 H3
+"""
+import json
+import math
+from pathlib import Path
+
+VERSION = 'v1'
+H1_R4, H1_VOL, H2_R4, H3_R1 = 8.0, 3.0, -4.0, 3.0
+NEED = 100  # 96봉 기준 + 최근 4봉
+
+
+def features(bars):
+    """완료봉 목록(시간순)에서 지표를 계산한다. 자료가 모자라거나 이상하면 None(결측은 기록에 남긴다)."""
+    try:
+        if len(bars) < NEED:
+            return None
+        ref = float(bars[-1]['c'])
+        r1 = (ref / float(bars[-4]['o']) - 1) * 100
+        r4 = (ref / float(bars[-16]['o']) - 1) * 100
+        hi = max(float(b['h']) for b in bars[-96:])
+        vols = [b.get('v') for b in bars[-100:]]
+        vol = None
+        if all(type(v) in (int, float) and math.isfinite(v) for v in vols):
+            base = sum(vols[:96]) / 96 * 4
+            vol = sum(vols[96:]) / base if base > 0 else None
+        out = {'ref': ref, 'r1': r1, 'r4': r4, 'from_hi': (ref / hi - 1) * 100, 'vol': vol}
+        return out if all(v is None or math.isfinite(v) for v in out.values()) else None
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def flags(f):
+    """H1·H2·H3·R8. 지표가 없으면 모두 None(통과로 세지 않는다)."""
+    if not f:
+        return {'H1': None, 'H2': None, 'H3': None, 'R8': None}
+    h1 = f['r4'] >= H1_R4 or (f['vol'] is not None and f['vol'] >= H1_VOL)
+    h2 = f['r4'] <= H2_R4
+    h3 = abs(f['r1']) >= H3_R1
+    return {'H1': h1, 'H2': h2, 'H3': h3, 'R8': h1 or h2 or h3}
+
+
+def record(path, when, ranked, bars, entry_ok, market, top_n=15):
+    """순위 상위 top_n개의 지표·표시를 한 줄씩 덧붙인다. market: 시장 상태(BTC 변화·장세 지수)."""
+    rows = []
+    for r in ranked[:top_n]:
+        f = features(bars.get(r['market']) or [])
+        rows.append({'v': VERSION, 'time': when, 'market': r['market'], 'rank': r['rank'], 'rs': r['rs'],
+                     'eligible': r['market'] in entry_ok, 'f': f, 'flag': flags(f), 'mkt': market})
+    if rows:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open('a', encoding='utf-8') as fh:
+            fh.write(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in rows))
+    return len(rows)
+
+
+def market_state(bars, index):
+    """BTC 4시간·12시간 등락 %와 장세 지수(없으면 None)."""
+    b = bars.get('KRW-BTC') or []
+    try:
+        return {'btc_r4': (float(b[-1]['c']) / float(b[-16]['o']) - 1) * 100 if len(b) >= 16 else None,
+                'btc_r12': (float(b[-1]['c']) / float(b[-48]['o']) - 1) * 100 if len(b) >= 48 else None,
+                'regime_index': index}
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return {'btc_r4': None, 'btc_r12': None, 'regime_index': index}

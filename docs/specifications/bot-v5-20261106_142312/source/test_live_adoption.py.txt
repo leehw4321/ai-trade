@@ -1,0 +1,105 @@
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import adopt_account
+import live
+import session_guard as sg
+import strategy as st
+from test_session_guard import Store
+
+
+class Adoption(unittest.TestCase):
+    def test_explicit_snapshot_replaces_only_matching_previous_checkpoint(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            (root / 'data/live').mkdir(parents=True)
+            state = {'account_adoption': {'id': 'authorized', 'scope': 'all_current_holdings',
+                'no_open_orders': True, 'previous_checkpoint': 'old', 'epoch': 990}}
+            (root / 'data/live/live.json').write_text(json.dumps(state))
+            store = Store(); store.state = {'owner': '', 'checkpoint': 'old', 'request': ''}
+            guard = sg.SessionGuard(root, {'live_enabled': True, 'account_adoption_id': 'authorized'},
+                                    store=store, clock=lambda: 1000)
+            self.assertTrue(guard.acquire())
+            self.assertEqual(store.state['checkpoint'], guard.checkpoint_hash())
+            self.assertNotEqual(store.state['checkpoint'], 'old')
+
+    def test_unmatched_authorization_does_not_replace_checkpoint(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name); (root / 'data/live').mkdir(parents=True)
+            (root / 'data/live/live.json').write_text(json.dumps({'account_adoption': {
+                'id': 'wrong', 'scope': 'all_current_holdings', 'no_open_orders': True,
+                'previous_checkpoint': 'old', 'epoch': 990}}))
+            store = Store(); store.state = {'owner': '', 'checkpoint': 'old'}
+            guard = sg.SessionGuard(root, {'live_enabled': True, 'account_adoption_id': 'authorized'},
+                                    store=store, clock=lambda: 1000)
+            with self.assertRaises(sg.SessionLost): guard.acquire()
+            self.assertEqual(store.state['checkpoint'], 'old')
+
+    def test_snapshot_preserves_all_assets_without_fabricating_unsupported_prices(self):
+        rows = [{'currency': 'KRW', 'balance': '100', 'locked': '0'},
+                {'currency': 'A', 'balance': '2', 'locked': '0', 'avg_buy_price': '90'},
+                {'currency': 'UNLISTED', 'balance': '7', 'locked': '0', 'avg_buy_price': '1'}]
+        state = adopt_account.build_state(rows, {'KRW-A': {'trade_price': 100}}, {'KRW-A': {}},
+                                         {'KRW-A': 2}, 'old', st.Params(), 1000, 'id')
+        self.assertEqual(state['positions']['KRW-A']['qty'], 2)
+        self.assertEqual(state['positions']['KRW-A']['stop'], 94)
+        self.assertEqual(state['unmanaged_assets'][0]['qty'], 7)
+        self.assertFalse(state['account_adoption']['history_restored'])
+
+
+class OrderRecovery(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.lv = live.Live(self.tmp.name, {'enabled': True}, st.Params())
+        self.lv.d['positions']['KRW-A'] = {'qty': 100, 'cost': 10000, 'stop': 90, 'time': 't'}
+        self.lv.d['pending_order'] = {'identifier': 'i', 'side': 'ask', 'market': 'KRW-A',
+                                      'reason': 'stop', 'time': 't'}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_cancelled_partial_sale_keeps_remaining_owned_quantity(self):
+        self.lv._apply_pending({'state': 'cancel', 'executed_volume': '40', 'paid_fee': '2',
+            'trades': [{'volume': '40', 'funds': '3800'}]})
+        self.assertEqual(self.lv.d['positions']['KRW-A']['qty'], 60)
+        self.assertEqual(self.lv.d['positions']['KRW-A']['cost'], 6000)
+        self.assertAlmostEqual(self.lv.d['realized'], -202)
+        self.assertIsNone(self.lv.d['pending_order'])
+
+    def test_duplicate_partial_events_are_not_accounted_twice(self):
+        order = {'state': 'wait', 'paid_fee': '2', 'trades': [{'volume': '40', 'funds': '3800'}]}
+        self.lv._apply_pending(order); self.lv._apply_pending(order)
+        self.assertEqual(self.lv.d['positions']['KRW-A']['qty'], 60)
+        self.assertAlmostEqual(self.lv.d['realized'], -202)
+
+    def test_transmission_failure_is_durable_and_not_resubmitted(self):
+        self.lv.d['pending_order'] = None
+        with patch('upbit.market_sell', side_effect=TimeoutError) as send:
+            with self.assertRaises(TimeoutError): self.lv._trade('ask', 'KRW-A', 20, 'stop')
+            saved = json.loads(self.lv.file.read_text())
+            self.assertTrue(saved['pending_order']['identifier'])
+            with self.assertRaisesRegex(RuntimeError, '미확정'): self.lv._trade('ask', 'KRW-A', 20, 'stop')
+        self.assertEqual(send.call_count, 1)
+
+    def test_older_proposal_is_not_replayed_after_adoption(self):
+        import time
+        root = Path(self.tmp.name)
+        self.lv.folder = root / 'live'; self.lv.folder.mkdir()
+        self.lv.d['account_adoption'] = {'epoch': time.time()}
+        (root / 'proposal.json').write_text(json.dumps({'time': '2020-01-01T00:00:00+09:00',
+                                                     'text': '실행 주문안: 매수 A 10000원'}))
+        with patch.object(self.lv, 'execute') as execute:
+            self.lv.poll_proposal({})
+        execute.assert_not_called()
+
+    def test_inherited_past_losses_do_not_count_as_new_baseline_losses(self):
+        self.lv.d['pending_order'] = None
+        self.lv.d['risk_baseline_unrealized'] = self.lv.unrealized({'KRW-A': 80})
+        self.assertEqual(self.lv.check_loss({'KRW-A': 80}), 0)
+
+
+if __name__ == '__main__':
+    unittest.main()

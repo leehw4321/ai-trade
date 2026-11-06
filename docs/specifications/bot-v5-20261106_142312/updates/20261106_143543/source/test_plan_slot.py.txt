@@ -1,0 +1,200 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import shadow as sh
+
+H = 3600
+BASE = 1_794_000_000 // H * H  # 어떤 정각
+
+
+class SlotDue(unittest.TestCase):
+    def test_waits_for_delay_after_the_top_of_the_hour(self):
+        self.assertIsNone(sh.slot_due(BASE + 10, BASE - H))
+        self.assertIsNone(sh.slot_due(BASE + sh.SLOT_DELAY - 1, BASE - H))
+        self.assertEqual(sh.slot_due(BASE + sh.SLOT_DELAY, BASE - H), BASE)
+
+    def test_same_slot_is_never_due_twice(self):
+        self.assertIsNone(sh.slot_due(BASE + 120, BASE))
+
+    def test_late_slot_is_skipped_not_replayed(self):
+        # 재시작이 슬롯 시작 뒤 허용 지연보다 늦으면 놓친 슬롯을 소급 실행하지 않는다.
+        self.assertEqual(sh.slot_due(BASE + sh.SLOT_MAX_LATE, BASE - H), BASE)
+        self.assertIsNone(sh.slot_due(BASE + sh.SLOT_MAX_LATE + 1, BASE - H))
+        self.assertIsNone(sh.slot_due(BASE + 1200, BASE - H))
+
+    def test_restart_in_the_middle_of_an_hour_creates_no_plan(self):
+        for minutes in (5, 20, 37, 49, 59):
+            now = BASE + minutes * 60
+            last = sh.current_slot(now)  # 첫 가동: 현재 슬롯을 처리한 것으로 간주
+            self.assertIsNone(sh.slot_due(now, last))
+            self.assertIsNone(sh.slot_due(now + 30, last))
+
+
+class SlotPersistence(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'plan_slot.json'
+
+    def test_missing_or_corrupt_file_counts_as_current_slot_done(self):
+        now = BASE + 200
+        self.assertEqual(sh.load_last_slot(now, self.path), BASE)
+        for text in ('', '{', '[]', '{"slot": "x"}', '{"slot": -5}', '{"slot": NaN}'):
+            self.path.write_text(text, encoding='utf-8')
+            self.assertEqual(sh.load_last_slot(now, self.path), BASE, text)
+        self.assertIsNone(sh.slot_due(now, sh.load_last_slot(now, self.path)))
+
+    def test_claim_is_durable_and_blocks_a_second_plan_after_restart(self):
+        now = BASE + 120
+        last = BASE - H
+        slot = sh.slot_due(now, last)
+        self.assertEqual(slot, BASE)
+        sh.claim_slot(slot, self.path)
+        self.assertEqual(json.loads(self.path.read_text(encoding='utf-8'))['slot'], BASE)
+        # 프로세스가 죽었다 다시 떠도(메모리 상태 소실) 기록으로 같은 슬롯은 다시 만들어지지 않는다.
+        restarted_last = sh.load_last_slot(now + 30, self.path)
+        self.assertIsNone(sh.slot_due(now + 30, restarted_last))
+        self.assertEqual(sh.slot_due(BASE + H + 120, restarted_last), BASE + H)
+
+    def test_claim_happens_before_generation_so_a_crash_cannot_duplicate(self):
+        # 생성기 흐름과 같은 순서를 흉내: claim -> (장애) -> 재시작 -> 같은 슬롯 재생성 시도
+        slot = sh.slot_due(BASE + 100, BASE - H)
+        sh.claim_slot(slot, self.path)
+        generated = []
+        try:
+            raise RuntimeError('생성 중 장애')
+        except RuntimeError:
+            pass
+        last = sh.load_last_slot(BASE + 130, self.path)
+        if sh.slot_due(BASE + 130, last) is not None:
+            generated.append('again')
+        self.assertEqual(generated, [])
+
+
+class Hardening(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'plan_slot.json'
+
+    def test_restart_inside_the_late_window_waits_for_the_next_slot(self):
+        sh.claim_slot(BASE - H, self.path)  # 정상 이전 기록, 현재 슬롯은 아직 안 만듦
+        for offset in (sh.SLOT_DELAY, 200, sh.SLOT_MAX_LATE):
+            now = BASE + offset
+            last = sh.load_last_slot(now, self.path)  # 가동 시작
+            self.assertIsNone(sh.slot_due(now, last), offset)
+        self.assertEqual(sh.slot_due(BASE + H + 100, sh.load_last_slot(BASE + 200, self.path)), BASE + H)
+
+    def test_hostile_values_never_block_or_replay(self):
+        now = BASE + 200
+        for text in ('{"slot": 1e999}', '{"slot": 123456789012345678901234567890}', '{"slot": 3601}',
+                     '{"slot": %d}' % (BASE + 5 * H), '{"slot": true}', 'null'):
+            self.path.write_text(text, encoding='utf-8')
+            self.assertEqual(sh.load_last_slot(now, self.path), BASE, text)
+
+    def test_stale_signal_is_retried_without_claiming_then_made_once(self):
+        calls = {'claim': [], 'make': 0, 'ready': False}
+        def claim(slot): calls['claim'].append(slot)
+        def make(): calls['make'] += 1
+        last = BASE - H
+        last, status = sh.plan_tick(BASE + 100, last, lambda: calls['ready'], claim, make)
+        self.assertEqual((status, calls['claim'], last), ('waiting', [], BASE - H))
+        calls['ready'] = True
+        last, status = sh.plan_tick(BASE + 110, last, lambda: calls['ready'], claim, make)
+        self.assertEqual((status, calls['claim'], calls['make'], last), ('made', [BASE], 1, BASE))
+        last, status = sh.plan_tick(BASE + 120, last, lambda: True, claim, make)
+        self.assertEqual((status, calls['make']), (None, 1))
+
+    def test_crash_during_generation_loses_the_slot_but_never_duplicates_it(self):
+        made = []
+        def boom(): raise RuntimeError('생성 중 장애')
+        import contextlib, io
+        with contextlib.redirect_stderr(io.StringIO()):
+            last, status = sh.plan_tick(BASE + 100, BASE - H, lambda: True, lambda s: sh.claim_slot(s, self.path), boom)
+        self.assertEqual(status, 'failed')
+        restarted = sh.load_last_slot(BASE + 160, self.path)
+        last2, status2 = sh.plan_tick(BASE + 160, restarted, lambda: True, lambda s: None, lambda: made.append(1))
+        self.assertEqual((status2, made), (None, []))
+
+    def test_many_restarts_across_a_day_make_at_most_one_plan_per_slot(self):
+        import random
+        rng = random.Random(7)
+        made_slots = []
+        last = sh.load_last_slot(BASE, self.path)
+        now = BASE
+        for _ in range(24 * 120):  # 하루, 30초 간격 반복, 무작위 재시작·장애
+            now += 30
+            if rng.random() < 0.02:  # 재시작: 메모리 상태 소실
+                last = sh.load_last_slot(now, self.path)
+            def make(slot=sh.current_slot(now)):
+                if rng.random() < 0.1:
+                    raise RuntimeError('장애')
+                made_slots.append(slot)
+            import contextlib, io
+            with contextlib.redirect_stderr(io.StringIO()):
+                last, _ = sh.plan_tick(now, last, lambda: rng.random() > 0.2, lambda s: sh.claim_slot(s, self.path), make)
+        self.assertEqual(len(made_slots), len(set(made_slots)))  # 슬롯당 최대 1회
+        self.assertGreater(len(made_slots), 5)  # 장애·재시작이 있어도 일부 슬롯은 정상 생성(자명한 무동작 방지)
+
+
+class RealProcesses(unittest.TestCase):
+    """메모리를 공유하지 않는 실제 파이썬 프로세스로 영속 기록만을 통해 검증한다(강제 종료 포함)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'plan_slot.json'
+        self.log = Path(self.tmp.name) / 'made.log'
+
+    def run_driver(self, start, now, mode):
+        """start에 가동한 프로세스가 now에 한 번 반복한다(start 시점에 현재 슬롯은 처리된 것으로 본다)."""
+        import subprocess, sys
+        code = f'''
+import os, sys
+sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})
+from pathlib import Path
+import shadow as sh
+path, log, now = Path({str(self.path)!r}), Path({str(self.log)!r}), {now}
+last = sh.load_last_slot({start}, path)
+def claim(slot):
+    sh.claim_slot(slot, path)
+    if {mode!r} == 'crash_after_claim':
+        os._exit(9)  # claim 직후 강제 종료(정상 종료 처리 없음)
+def make():
+    with log.open('a') as f: f.write(str(sh.current_slot(now)) + chr(10))
+sh.plan_tick(now, last, lambda: True, claim, make)
+'''
+        return subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60).returncode
+
+    def made(self):
+        return self.log.read_text().split() if self.log.exists() else []
+
+    def test_restart_in_late_window_then_exactly_one_plan_at_the_next_slot(self):
+        sh.claim_slot(BASE - H, self.path)
+        # 지연창 안(정각+200초)에 가동: 같은 시각에 반복해도 주문안 없음
+        self.assertEqual(self.run_driver(BASE + 200, BASE + 200, 'normal'), 0)
+        self.assertEqual(self.made(), [])
+        # 그 프로세스가 계속 살아 다음 정규 슬롯에 반복하면 정확히 1회
+        self.assertEqual(self.run_driver(BASE + 200, BASE + H + 100, 'normal'), 0)
+        self.assertEqual(self.made(), [str(BASE + H)])
+        # 같은 슬롯 안에서 다시 가동(재시작)하면 또 만들지 않는다
+        self.assertEqual(self.run_driver(BASE + H + 130, BASE + H + 130, 'normal'), 0)
+        self.assertEqual(self.made(), [str(BASE + H)])
+
+    def test_force_kill_right_after_claim_never_recreates_the_slot(self):
+        sh.claim_slot(BASE - H, self.path)
+        # 정각 직후 가동한 프로세스가 다음 슬롯에서 claim 직후 강제 종료
+        self.assertEqual(self.run_driver(BASE + 100, BASE + H + 100, 'crash_after_claim'), 9)
+        self.assertEqual(self.made(), [])  # 기록만 되고 생성 전에 죽음
+        # 재시작(같은 슬롯 안): 슬롯은 이미 기록됐고 가동 시작 시 현재 슬롯은 처리된 것으로 본다
+        self.assertEqual(self.run_driver(BASE + H + 140, BASE + H + 140, 'normal'), 0)
+        self.assertEqual(self.made(), [])
+        # 그 프로세스가 다음 슬롯에 도달하면 정상 생성
+        self.assertEqual(self.run_driver(BASE + H + 140, BASE + 2 * H + 100, 'normal'), 0)
+        self.assertEqual(self.made(), [str(BASE + 2 * H)])
+
+
+if __name__ == '__main__':
+    unittest.main()

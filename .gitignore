@@ -32,3 +32,4 @@ debate_tools/*.html
 
 # 분석용 공개 시세 캐시(대용량, 재생성 가능)
 docs/ai-history/analysis/chase_cache.json
+tools/research/exit_study_out.json

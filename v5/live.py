@@ -65,6 +65,7 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'loss_stop_pct': 0.0,  # 0이면 loss_stop_krw(금액) 사용. 0보다 크면 '기준 총자산 대비 비율'로 신규 매수 중단(결정 D-37)
             'partial_enabled': False,  # 이익이 partial_r×R 이상이면 partial_frac만큼 현금화(결정 D-34). 승인 전까지 꺼짐
             'partial_r': 2.0, 'partial_frac': 0.3333,
+            'partial_pct': 0.0,  # 0보다 크면 R 대신 평단 대비 이 수익률(예: 0.05)에 도달했을 때 partial_frac만큼 현금화(사용자 지시 2026-11-07)
             'manual_ui': False,  # True면 화면의 '강제 청산' 버튼을 받는 127.0.0.1 전용 서버를 연다. 사용자가 설정으로 켜야만 동작
             'manual_port': 8765,
             'manual_buy_max_krw': 100000,  # 화면 '추가 매수' 1회 상한(원). 1건 한도(max_order_krw)보다 클 수 없다
@@ -1222,9 +1223,14 @@ class Live:
             changed = True
             why = st.ratchet(m, pos, bar['c'], p_pos)
             if why and not self.market_has_uncertain_order(m): exits.append((m, pos, why, bar['c']))
-            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done') and (pos.get('atr_r') or pos['atr']) > 0:
-                if (bar['c'] - pos['entry']) / (p_pos.k * (pos.get('atr_r') or pos['atr'])) >= float(self.cfg.get('partial_r', 2.0)):
-                    parts.append((m, pos, bar['c']))
+            elif not why and self.cfg.get('partial_enabled') and not pos.get('part_done'):
+                pct = self.cfg.get('partial_pct')
+                if type(pct) in (int, float) and math.isfinite(pct) and pct > 0:
+                    hit = pos['entry'] > 0 and bar['c'] / pos['entry'] - 1 >= pct
+                else:
+                    a = pos.get('atr_r') or pos['atr']
+                    hit = a > 0 and (bar['c'] - pos['entry']) / (p_pos.k * a) >= float(self.cfg.get('partial_r', 2.0))
+                if hit: parts.append((m, pos, bar['c']))
         if changed: self.save()
         if not exits and not parts: return
         balances = {r['currency']: r for r in upbit.accounts()}

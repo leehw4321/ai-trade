@@ -260,6 +260,22 @@ class PartialProfit(TrailLive):
         self.assertTrue(lv.d['positions']['KRW-X']['part_done'])
         self.assertIn('KRW-OLD', lv.d['positions'])                                    # 인수 보유분은 건드리지 않음
 
+    def test_partial_pct_sells_once_at_fixed_percent_before_2r(self):
+        lv = self.make(True)
+        lv.d['positions']['KRW-X']['qty'] = 1.0
+        lv.d['positions']['KRW-X']['cost'] = 100000.0
+        sold = self.trade_log(lv, [(1, 104900), (2, 105100), (3, 107000)], partial_pct=0.05)   # 2R=106,000이지만 +5%(105,000)에서 판다
+        self.assertEqual([(m, r) for m, r, _ in sold], [('KRW-X', '부분 익절')])
+        self.assertAlmostEqual(sold[0][2], 0.3333, places=3)
+        self.assertTrue(lv.d['positions']['KRW-X']['part_done'])
+
+    def test_partial_pct_zero_keeps_r_rule(self):
+        lv = self.make(True)
+        lv.d['positions']['KRW-X']['qty'] = 1.0
+        lv.d['positions']['KRW-X']['cost'] = 100000.0
+        sold = self.trade_log(lv, [(1, 105100)], partial_pct=0.0)
+        self.assertEqual(sold, [])                                                             # 1.7R: R 규칙은 2R 전엔 안 판다
+
     def test_partial_off_by_default(self):
         lv = self.make(True)
         lv.cfg['partial_enabled'] = False

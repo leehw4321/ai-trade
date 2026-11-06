@@ -57,7 +57,7 @@ def utc(ts):
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc)
 
 
-def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None):
+def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -90,6 +90,11 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
             btn = f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
         tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
+        if resting and resting.get('market') == m:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
+            tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(resting['price'])}원"
+            btn += (f" <span class=rest-cd data-dl='{resting['deadline']:.0f}'></span>"
+                    + (f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
+
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
@@ -179,14 +184,20 @@ NOISE = ('봇 종료', '봇 실행 시작', '요청 서버 시작')
 def promote_script(api):
     """순위표 '매수 대상으로'/'지정 취소' 버튼. 서버가 없으면 버튼이 나오지 않는다."""
     if not api:
-        return ''
+        return REST_CD
     return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
             "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
-            "if(!confirm(a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "if(!confirm(a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
-            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})})()</script>")
+            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})})()</script>" + REST_CD)
+
+
+# 지정가 매수 남은 시간(1초마다). 서버가 없어도 표시는 한다.
+REST_CD = ("<script>(function(){function f(){document.querySelectorAll('.rest-cd').forEach(function(x){"
+           "var s=Math.max(0,Math.round(+x.dataset.dl-Date.now()/1000));x.textContent='⏳ '+Math.floor(s/60)+':'+('0'+s%60).slice(-2)+' 남음'})}"
+           "f();setInterval(f,1000)})()</script>")
 
 
 class Bot:
@@ -715,7 +726,7 @@ class Bot:
         warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
         promote_api = self.manual_action() if self.live.cfg.get('enabled') and self.can_act() else None
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
-                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA)) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info()) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]
@@ -855,7 +866,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -894,6 +905,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     if self.can_act():  # 실행권이 없는 PC는 실거래 손절·판단을 하지 않는다(주문은 어차피 막힌다)
+                        try: self.live.manage_resting(live)   # 걸어 둔 지정가 매수: 손절선 근접이면 먼저 취소해 손절 길을 연다
+                        except SessionLost: raise
+                        except Exception as ex: self.log('지정가 매수 관리 오류(다음 주기 재시도): ' + type(ex).__name__ + ': ' + str(ex)[:120])
                         self.live.stop_check(live)  # 실시간 손절·이익보호를 1분봉 순차 조회(trail_check)보다 먼저
                         try:  # 정체 탈출 기록 모드: 주문 없이 '했다면'만 기록
                             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
@@ -1004,6 +1018,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     else:
                         ok, msg = co.promote(DATA, req.market, row['rs'], self.p)
                     label = '과열 종목 직접 지정'
+                elif req.kind == 'buy_now':   # 걸어 둔 지정가 매수를 즉시 시장가로(봇 주문의 연장이라 사용자 보호로 바꾸지 않는다)
+                    ok, msg = self.live.request_resting_now(req.market)
+                    label = '지정가 → 즉시 시장가'
                 elif req.kind == 'unpromote':
                     ok, msg = co.unpromote(DATA, req.market)
                     label = '과열 종목 직접 지정 취소'

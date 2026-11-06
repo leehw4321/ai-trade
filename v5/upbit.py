@@ -194,6 +194,41 @@ def vol8(volume):
     return str(Decimal(repr(float(volume))).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_EVEN))
 
 
+# 업비트 원화 마켓 호가 단위(공식 호가표 2025-07-31). (가격 하한, 1칸)
+TICKS = [(1_000_000, 1000), (500_000, 500), (100_000, 100), (50_000, 50), (10_000, 10), (5_000, 5), (100, 1), (10, .1),
+         (1, .01), (.1, .001), (.01, .0001), (.001, .00001), (.0001, .000001), (.00001, .0000001)]
+
+
+def tick_size(price):
+    for lo, t in TICKS:
+        if price >= lo: return t
+    return 1e-8
+
+
+def price_str(price):
+    """호가 단위에 맞춘 가격 문자열(내림)."""
+    from decimal import Decimal, ROUND_DOWN
+    t = Decimal(repr(tick_size(price)))
+    return str((Decimal(repr(float(price))) / t).to_integral_value(rounding=ROUND_DOWN) * t)
+
+
+def limit_buy_post_only(market, price, volume, identifier=None):
+    """지정가 매수(post_only): 즉시 체결될 가격이면 주문하지 않고 취소된다(매수호가 대기 전용)."""
+    params = {'market': market, 'side': 'bid', 'ord_type': 'limit', 'price': price_str(price), 'volume': vol8(volume),
+              'time_in_force': 'post_only'}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
+
+
+def cancel_order(order_uuid):
+    if ORDER_GUARD is not None:
+        ORDER_GUARD('ask')   # 걸어 둔 매수 취소는 위험을 줄이는 쪽: 손절과 같은 확인 규칙
+    params = {'uuid': order_uuid}
+    req = urllib.request.Request(BASE + '/v1/order?' + urllib.parse.urlencode(params), method='DELETE', headers=_auth(params))
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+
 def market_sell(market, volume, identifier=None):
     """시장가 매도: 수량 지정."""
     params = {'market': market, 'side': 'ask', 'ord_type': 'market', 'volume': vol8(volume)}

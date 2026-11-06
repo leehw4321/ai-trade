@@ -35,6 +35,8 @@ def load_fills(src):
 
 def positions(fills):
     pos, done, carry = {}, [], {}
+    last = {}                                   # 주문별 마지막 체결 위치(다른 종목 체결이 사이에 끼어도 일찍 닫지 않게)
+    for i, f in enumerate(fills): last[f['oid']] = i
     for i, f in enumerate(fills):
         px = f['funds'] / f['vol']; m = f['m']; p = pos.get(m)
         if f['side'] == 'ask' and p is None and m in carry:   # 닫힌 포지션이 남긴 잔량을 나중에 판 체결
@@ -57,7 +59,7 @@ def positions(fills):
             p['sold_cost'] += avg * q; p['cost'] -= avg * q; p['qty'] -= q
             p['proceeds'] += (f['funds'] - f['fee']) * share
             p['sells'].append({'t': f['t'], 'px': px, 'q': q, 'cut': share < 1})
-            last_of_order = i + 1 == len(fills) or fills[i + 1]['oid'] != f['oid']
+            last_of_order = last[f['oid']] == i
             if last_of_order and p['qty'] * px < 5000:     # 같은 주문의 분할 체결을 다 반영한 뒤에만 닫는다
                 p['close'] = f['t']; p['exit_px'] = px
                 p['carried_out'] = p['cost']

@@ -6,7 +6,7 @@
 - 호가 단위 = 업비트 공식 원화 마켓 표(2025-07-31 기준, docs.upbit.com/kr/docs/krw-market-info). 주문 가격에서 정한다.
   (2024-10-14 16개 종목 100~1,000원 예외는 종목 목록이 없어 반영 못 함 → 한계로 적는다.)
 - 최고수익: 매수가 걸친 15분봉 안은 매수 뒤 1분봉으로 본다. 1분봉도 없으면 '경계 불확실'로 따로 센다.
-- 전체 절차 재생: t0 본전+k 지정가(2시간) → 미체결이면 18h 상승률 ≤ 0일 때 매수 1호가 매도(다음 봉 시가 − 1호가로 가정),
+- 단순화한 절차 재생(ChatGPT 5차: '전체 절차'라 부르지 않는다): t0 본전+k 지정가(2시간) → 미체결이면 18h 상승률 ≤ 0일 때 매수 1호가 매도(다음 봉 시가 − 1호가로 가정),
   아니면 취소하고 실제 결과. 손절(실제 매도)이 먼저 오면 실제 결과. 순위 15위 밖 조건은 과거 순위 자료가 없어 빠졌다.
 - 매도 뒤 24시간은 봉 개수가 아니라 시각으로(매도+24h 직전 1시간 안의 마지막 봉).
 """
@@ -67,12 +67,16 @@ def weak_at(x, t0, m=0.01):
 FILL = {'닿음': 0, '한호가위': 1, '두호가위': 2}
 
 
-def sim(rows, T, k, rule, full=True):
-    """전체 절차. (총손익, 해당, 1단계 체결, 2단계 매도, 개선합, 악화합)"""
+STAGE2 = {'다음봉시가-1호가': lambda b: b[1] - tick(b[1]), '다음봉저가(최악)': lambda b: b[3], '2단계없음': None}
+
+
+def sim(rows, T, k, rule, full=True, s2='다음봉시가-1호가', skip_gap=False):
+    """단순화한 절차. (총손익, 해당, 1단계 체결, 2단계 매도, 개선합, 악화합)"""
+    if STAGE2[s2] is None: full = False
     tot = n = h1 = h2 = 0; better = worse = 0.
     for x in rows:
         t0 = up(x['open'] + T * 3600)
-        if t0 >= x['close'] or any(s < t0 for s in x['partial_before']) or not weak_at(x, t0):
+        if t0 >= x['close'] or any(s < t0 for s in x['partial_before']) or not weak_at(x, t0) or (skip_gap and x['entry_bar_gap']):
             tot += x['pnl']; continue
         n += 1; L = ceil_tick(x['be'] * (1 + k)); need = L + FILL[rule] * tick(L)
         dl = t0 + 2 * 3600
@@ -84,7 +88,7 @@ def sim(rows, T, k, rule, full=True):
             prev = at_or_before(x['bars'], dl, within=BAR); base = at_or_before(x['bars'], dl - 18 * 3600, within=BAR)
             nxt = [b for b in x['hold'] if b[0] >= dl]
             if prev and base and nxt and prev[4] / base[4] - 1 <= 0:      # 근거 약화(18h 상승률 ≤ 0) → 매수 1호가 매도
-                px = nxt[0][1] - tick(nxt[0][1])
+                px = STAGE2[s2](nxt[0])
                 v = x['q'] * px * (1 - FEE) - x['sold_cost']; h2 += 1
         d = v - x['pnl']; tot += v; better += max(d, 0); worse += min(d, 0)
     return tot, n, h1, h2, better, worse
@@ -139,7 +143,12 @@ def main():
         print(f"{mins:4}분 약세 → " + ' · '.join(cells))
 
     base = sum(x['pnl'] for x in rows)
-    print(f'\n정체 탈출 전체 절차 (실제 합 {base:+,.0f}). 1단계=본전+k 지정가 2시간, 2단계=미체결 & 18h 상승률≤0이면 매수 1호가 매도')
+    print('\n민감도: T=2h·k=0·한 호가 위 / 2단계 체결 가정 × 매수 경계 불확실 거래 포함·제외')
+    for s2 in STAGE2:
+        for sk in (False, True):
+            tot, n, a1, a2, b, w = sim(rows, 2, 0.0, '한호가위', s2=s2, skip_gap=sk)
+            print(f"  {s2:12} {'불확실 제외' if sk else '불확실 포함'}: 해당 {n} · 1단계 {a1} · 2단계 {a2} · 순변화 {tot-base:+,.0f} (악화 {w:+,.0f})")
+    print(f'\n정체 탈출 단순화한 절차 (실제 합 {base:+,.0f}). 1단계=본전+k 지정가 2시간, 2단계=미체결 & 18h 상승률≤0이면 매수 1호가 매도')
     print(f"{'T':>3}{'k':>6} {'체결가정':8}{'해당':>4}{'1단계':>5}{'2단계':>5}{'개선':>9}{'악화':>9}{'순변화':>9} | 1단계만 순변화")
     for T in (2, 4):
         for k in (0.0, 0.003):

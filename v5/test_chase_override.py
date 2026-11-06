@@ -259,6 +259,41 @@ class Receiver(unittest.TestCase):
         pos = self._buy(100, 10000)
         self.assertEqual((pos['stop'], pos['time']), (99.0, '2026-11-06T10:00:00+09:00'))
 
+    def test_sweep_dust_buys_then_sells_everything_and_keeps_last_sell(self):
+        import live
+        last = {'time': 1.0, 'price': 150.0, 'profit': False}
+        self.worker.d['last_sell'] = {'KRW-A': dict(last)}
+        self.worker.d['positions'] = {'KRW-A': {'qty': 1e-08, 'cost': 1e-06, 'stop': 138.4, 'entry': 140.0, 'time': '2026-11-06T10:25:56+09:00'}}
+        bal = {'v': '0.00000001'}
+        sent = []
+        def trade(side, m, amount, reason, risk=False, **k):
+            sent.append((side, amount, reason))
+            if side == 'bid':
+                o = {'side': 'bid', 'state': 'done', 'trades': [{'volume': '55.0', 'funds': '5500'}], 'paid_fee': '2.75', 'uuid': 'b'}
+                self.worker.d['pending_order'] = {'identifier': 'b', 'side': 'bid', 'market': m, 'amount': amount, 'reason': reason,
+                                                  'uuid': 'b', 'time': '2026-11-06T14:10:00+09:00', 'atr': 1.0}
+                self.worker._apply_pending({**o, 'identifier': 'b', 'executed_volume': '55.0'}, None); bal['v'] = '55.00000001'
+            else:
+                o = {'side': 'ask', 'state': 'done', 'trades': [{'volume': bal['v'], 'funds': '5490'}], 'paid_fee': '2.74', 'uuid': 's'}
+                self.worker.d['pending_order'] = {'identifier': 's', 'side': 'ask', 'market': m, 'amount': amount, 'reason': reason,
+                                                  'uuid': 's', 'time': '2026-11-06T14:10:01+09:00', 'atr': 1.0}
+                self.worker._apply_pending({**o, 'identifier': 's', 'executed_volume': bal['v']}, None); bal['v'] = '0'
+            return o
+        with patch.object(live.upbit, 'accounts', side_effect=lambda: [{'currency': 'A', 'balance': bal['v'], 'locked': '0'}]),              patch.object(live.upbit, 'tickers', return_value={'KRW-A': {'trade_price': 100.0}}),              patch.object(self.worker, '_trade', side_effect=trade), patch.object(self.worker, 'is_protected', return_value=False):
+            ok, msg = self.worker.sweep_dust('KRW-A', {'KRW-A': {}})
+        self.assertTrue(ok, msg)
+        self.assertEqual([s[0] for s in sent], ['bid', 'ask'])
+        self.assertEqual(sent[1][1], 55.00000001)                     # 잔고 전부
+        self.assertNotIn('KRW-A', self.worker.d['positions'])
+        self.assertEqual(self.worker.d['last_sell']['KRW-A'], last)   # 재진입 규칙용 기록은 그대로
+
+    def test_sweep_refuses_real_holdings(self):
+        import live
+        self.worker.d['positions'] = {'KRW-A': {'qty': 100.0, 'cost': 10000.0, 'stop': 90.0, 'time': 't'}}
+        with patch.object(live.upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '100', 'locked': '0'}]),              patch.object(live.upbit, 'tickers', return_value={'KRW-A': {'trade_price': 100.0}}),              patch.object(self.worker, 'is_protected', return_value=False):
+            ok, msg = self.worker.sweep_dust('KRW-A', {'KRW-A': {}})
+        self.assertFalse(ok); self.assertIn('자투리 아님', msg)
+
     def test_receiver_allows_profit_reentry_only_once(self):
         self.worker.d['last_sell'] = {'KRW-A': {'time': self.now - 600, 'price': 100., 'profit': True}}
         self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))

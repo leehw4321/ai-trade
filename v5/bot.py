@@ -404,6 +404,21 @@ class Bot:
             self.log('실제 계좌 조회 실패 (최종 성공 자료 유지): ' + self.real_error)
         self.write_status(self.prices(), next_close)
 
+    def sweep_dust_request(self):
+        """data/dust_sweep.json(["KRW-..."] 목록)이 있으면 한 번 자투리 정리를 하고 결과를 dust_sweep_result.jsonl에 남긴 뒤 요청을 지운다."""
+        f = DATA / 'dust_sweep.json'
+        if not f.exists(): return
+        try: markets = json.loads(f.read_text(encoding='utf-8'))
+        except (OSError, ValueError): markets = []
+        f.unlink(missing_ok=True)
+        for m in markets:
+            try: ok, msg = self.live.sweep_dust(m, self.markets or upbit.krw_markets())
+            except SessionLost: raise
+            except Exception as ex: ok, msg = False, f'{m[4:]} 오류: {type(ex).__name__}: {str(ex)[:150]}'
+            self.log(('자투리 정리 ' if ok else '자투리 정리 보류 ') + f'{m}: {msg}')
+            with open(DATA / 'dust_sweep_result.jsonl', 'a', encoding='utf-8') as out:
+                out.write(json.dumps({'at': time.time(), 'market': m, 'ok': ok, 'msg': msg}, ensure_ascii=False) + '\n')
+
     def can_act(self):
         """이 PC가 실행권을 가졌나(캐시된 판단). 실제 주문 직전에는 session_guard가 GitHub에서 다시 확인한다."""
         g = getattr(self, 'session_guard', None)
@@ -888,6 +903,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                         if now - last_trail >= self.p.stop_seconds:
                             self.live.trail_check()
                             last_trail = now
+                        self.sweep_dust_request()
                         self.live.check_resume_request(live)
                         self.live.check_loss(live)
                         try: self.live.check_concurrent(live)

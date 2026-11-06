@@ -175,7 +175,8 @@ class NoDustOnFullSell(unittest.TestCase):
         import upbit
         self.assertEqual(upbit.vol8(950.45500505), '950.45500505')
         self.assertEqual(upbit.vol8(254.23728813), '254.23728813')
-        self.assertEqual(upbit.vol8(1.234567899), '1.23456789')
+        self.assertEqual(upbit.vol8(1.234567899), '1.23456790')
+        self.assertEqual(upbit.vol8(1e-08 + 37.43), '37.43000001')   # 자투리+매수분 합계가 float에서 살짝 작아져도 정확히
 
     def _sell(self, plan, balance, price):
         import tempfile, live

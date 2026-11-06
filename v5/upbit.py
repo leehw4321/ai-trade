@@ -188,9 +188,10 @@ def market_buy(market, krw, identifier=None):
 
 
 def vol8(volume):
-    """수량을 소수 8자리 문자열로. 이진 소수 오차 없이(repr 기준) 내림만 한다(반올림으로 잔고를 넘지 않게)."""
-    from decimal import Decimal, ROUND_DOWN
-    return str(Decimal(repr(float(volume))).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN))
+    """수량을 소수 8자리 문자열로(repr 기준 가장 가까운 값). 거래소 잔고는 8자리라 float을 거쳐 37.430000009999998이 된 값도
+    37.43000001로 정확히 돌아온다. 내림이면 마지막 1e-08개가 남는다(2026-11-06 자투리 원인)."""
+    from decimal import Decimal, ROUND_HALF_EVEN
+    return str(Decimal(repr(float(volume))).quantize(Decimal('0.00000001'), rounding=ROUND_HALF_EVEN))
 
 
 def market_sell(market, volume, identifier=None):

@@ -42,6 +42,9 @@ LIMIT_ITEM = re.compile(r'^(1건|누적|1회매도|손실중단)\s+([\d,]+)\s*�
 _NO_ASK = object()
 
 
+DUST_REASON = '자투리 정리'
+DUST_BUY_KRW = 5500   # 최소 주문 5,000원 + 수수료·가격 변동 여유(판 금액도 5,000원 이상이어야 한다)
+
 class ProtectedAssetError(RuntimeError):
     """User-managed assets must never reach automated order submission."""
 
@@ -482,7 +485,9 @@ class Live:
                     self.d['realized'] += df - dfee - basis
                     pos['qty'] = max(0., pos['qty'] - dv)
                     pos['cost'] -= basis
-                    if pos['qty'] <= 1e-8:
+                    if pos['qty'] <= 1e-8 and pending.get('reason') == DUST_REASON:
+                        del self.d['positions'][m]   # 자투리 정리는 투자 매도가 아니다: 직전 매도 기록(재진입 규칙)을 바꾸지 않는다
+                    elif pos['qty'] <= 1e-8:
                         # 재진입 규칙(D-38)을 위해 전량 청산 기록을 남긴다
                         self.d.setdefault('last_sell', {})[m] = {'time': time.time(), 'price': df / dv, 'profit': (df - dfee - basis) > 0,
                                                                   'reason': str(pending.get('reason', ''))[:40],
@@ -1147,6 +1152,34 @@ class Live:
         msg = f'{market[4:]} 청산 {v:,.8g}개 → {funds - fee:,.0f}원' + (f' (일부 체결, 남은 수량 {left:,.8g})' if left > 0 else '')
         self.share(f'{msg} (수동 강제 청산, 실현 누적 {self.d["realized"]:+,.0f}원)')
         return True, msg
+
+    def sweep_dust(self, market, markets, krw=DUST_BUY_KRW):
+        """팔 수 없는 자투리(평가 5,000원 미만)를 없앤다(사용자 지시 2026-11-06). krw만큼 사서 자투리와 합친 뒤 잔고 전부를 판다.
+        비용은 수수료 2회와 호가 차이(종목당 수~수십 원). 손절과 같은 주문 경로(_trade)를 쓰고, 보호 종목·장부 밖 잔고·잠긴 수량은 하지 않는다."""
+        if self.is_protected(market): return False, '사용자 보호 종목'
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        if self.d['halted']: return False, '손실 중단 상태'
+        if self.has_uncertain_orders(): return False, '미확정 주문 대사 중'
+        if market not in markets: return False, '원화 마켓에 없음'
+        if market not in self.d['positions']: return False, '봇 장부에 없는 잔고'
+        def balance():
+            r = {x['currency']: x for x in upbit.accounts()}.get(market[4:], {})
+            return float(r.get('balance', 0)), float(r.get('locked', 0))
+        have, locked = balance()
+        px = upbit.tickers([market])[market]['trade_price']
+        if locked > 0: return False, '잠긴 수량 있음(미체결 주문)'
+        if have <= 0: return False, '잔고 없음'
+        if have * px >= 5000: return False, f'자투리 아님(평가 {have * px:,.0f}원)'
+        self.record({'event': '자투리 정리 요청', 'market': market, 'qty': have, 'krw': krw})
+        v, f1, fee1 = self._fill(self._trade('bid', market, krw, DUST_REASON))
+        if v <= 0: return False, '매수 미체결'
+        have, _ = balance()
+        v2, f2, fee2 = self._fill(self._trade('ask', market, have, DUST_REASON, risk=True))
+        left, _ = balance()
+        cost = (f1 + fee1) - (f2 - fee2)
+        msg = f'{market[4:]} 자투리 정리: 비용 {cost:,.0f}원, 남은 수량 {left:.8f}'
+        self.record({'event': '자투리 정리', 'market': market, 'cost': cost, 'left': left})
+        return left == 0, msg
 
     def add_to_position(self, market, krw, markets, reason='수동 추가 매수'):
         """사용자가 화면에서 확인한 금액만큼 이미 관리 중인 종목을 시장가로 더 산다. (성공 여부, 안내문)을 돌려준다.

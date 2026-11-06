@@ -236,6 +236,29 @@ class Receiver(unittest.TestCase):
         self.assertEqual(co.promoted(self.data), {})
         self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
 
+    def _buy(self, qty, funds, t='2026-11-06T14:01:00+09:00'):
+        self.worker.d['pending_order'] = {'identifier': 'i', 'side': 'bid', 'market': 'KRW-A', 'amount': funds, 'reason': 'p',
+                                          'uuid': 'u', 'time': t, 'atr': 1.0}
+        self.worker._apply_pending({'identifier': 'i', 'side': 'bid', 'state': 'done', 'executed_volume': str(qty),
+                                    'trades': [{'volume': str(qty), 'funds': str(funds)}], 'paid_fee': '5', 'uuid': 'u'}, None)
+        return self.worker.d['positions']['KRW-A']
+
+    def test_buy_over_dust_starts_a_fresh_position(self):
+        # 2026-11-06: 손절 뒤 남은 1e-08개 자투리의 옛 손절가(현재가보다 높음)를 새 매수가 이어받으면 사자마자 팔린다.
+        self.worker.d['positions'] = {'KRW-A': {'qty': 1e-08, 'cost': 1e-06, 'stop': 138.4, 'entry': 140.0,
+                                                'time': '2026-11-06T10:25:56+09:00', 'profit_guard_peak': 150.0}}
+        pos = self._buy(800, 80000)                                    # 100원에 매수
+        self.assertLess(pos['stop'], 100.0)
+        self.assertEqual((pos['entry'], pos['time']), (100.0, '2026-11-06T14:01:00+09:00'))
+        self.assertNotIn('profit_guard_peak', pos)
+        self.assertAlmostEqual(pos['qty'], 800 + 1e-08)
+
+    def test_buy_over_real_holding_keeps_the_old_stop(self):
+        self.worker.d['positions'] = {'KRW-A': {'qty': 500.0, 'cost': 50000.0, 'stop': 99.0, 'entry': 100.0,
+                                                'time': '2026-11-06T10:00:00+09:00'}}
+        pos = self._buy(100, 10000)
+        self.assertEqual((pos['stop'], pos['time']), (99.0, '2026-11-06T10:00:00+09:00'))
+
     def test_receiver_allows_profit_reentry_only_once(self):
         self.worker.d['last_sell'] = {'KRW-A': {'time': self.now - 600, 'price': 100., 'profit': True}}
         self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))

@@ -445,10 +445,13 @@ class Live:
                 qty = (old['qty'] if old else 0.) + dv
                 cost = (old['cost'] if old else 0.) + df + dfee
                 stop = st.cap_stop(df / dv, df / dv - self.p.k * pending['atr'], self.p)
+                # 손절 뒤 남은 자투리(최소 주문 5,000원 미만) 위에 산 것은 새 포지션이다(2026-11-06). 옛 손절가·시각을 이어받으면
+                # 옛 손절가가 현재가보다 높은 종목(BIRB 138 > 134)은 사자마자 팔린다. 같은 주문의 추가 체결은 time이 같아 이어 붙인다.
+                fresh = old is None or (old['qty'] * (df / dv) < 5000 and old.get('time') != pending['time'])
                 new = {'qty': qty, 'cost': cost,
-                    'stop': max(old['stop'], stop) if old else stop,
-                    'time': old['time'] if old else pending['time']}
-                if old is None:
+                    'stop': stop if fresh else max(old['stop'], stop),
+                    'time': pending['time'] if fresh else old['time']}
+                if fresh:
                     # EXIT-T1 대상: 봇이 새로 산 포지션만. E·A·초기 손절가는 첫 체결에서 확정한다(안건 26).
                     px = df / dv
                     new.update(entry=px, atr=pending['atr'], stop0=stop,

@@ -154,6 +154,19 @@ class BotCapitalSizing(unittest.TestCase):
         text, _ = shadow.proposal({'KRW-CAP': 60_000.0}, ranked, {}, {'KRW-CAP'}, p, caps, 303_638.0, 0, market_index=0.01)
         self.assertNotIn('매수 CAP', text)                            # 진짜 보유는 그대로 재매수 안 함
 
+    def test_dust_anywhere_never_changes_the_plan(self):
+        # 자투리가 섞여도 주문안·사유가 자투리 없는 계좌와 완전히 같아야 한다(규칙이 늘어나도 이 검사가 지킨다).
+        import shadow, strategy as st
+        p = st.Params(entry_scan=7, entry_want=4, slots=4, rank_exit=False, bot_capital_divisor=4.5, total_cap=0.9, coin_cap=0.5,
+                      swap_stuck_loss=True)
+        ranked = [{'market': f'KRW-C{i}', 'rank': i, 'rs': 0.05 - i / 1000, 'close': 100.0, 'atr': 1.0} for i in range(1, 8)]
+        caps = {'max_order_krw': 10**9, 'max_total_buy_krw': 10**9, 'max_sell_krw_per_plan': 10**9}
+        real = {'KRW-BTC': 1_400_000.0, 'KRW-C5': 70_000.0}
+        dust = {**real, **{f'KRW-C{i}': 1e-6 for i in (1, 2, 3)}, 'KRW-SUI': 2_213.0, 'KRW-X': 4_999.0}
+        args = (ranked, {}, {r['market'] for r in ranked}, p, caps, 290_000.0, 0)
+        kw = dict(market_index=0.01, protected={'KRW-BTC'})
+        self.assertEqual(shadow.proposal(dict(real), *args, **kw), shadow.proposal(dust, *args, **kw))
+
     def test_hourly_record_keeps_6h_fields(self):
         import tempfile, json as js
         with tempfile.TemporaryDirectory() as d:

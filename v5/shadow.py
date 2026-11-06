@@ -96,6 +96,9 @@ def claim_slot(slot, path=None):
     tmp.replace(path)
 
 
+MIN_HOLD_KRW = 5000   # 업비트 최소 주문 금액. 이보다 작은 잔고는 자투리
+
+
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
              promoted=None, hot=None, protected=None, costs=None, stuck_out=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
@@ -103,6 +106,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
     promoted: 사용자 직접 지정 종목, hot: 과열 보유 종목(순위 매도 제외). chase_override 참고.
     """
+    # 자투리 기준은 여기 한 곳에서 정한다(2026-11-06): 최소 주문 5,000원 미만 잔고는 팔 수도 없고 보유도 아니다.
+    # 아래 규칙마다 따로 거르다가 빠뜨린 곳(재매수 차단)이 손절 뒤 1e-08개 잔고 때문에 매수를 막았다.
+    holdings = {m: v for m, v in holdings.items() if v >= MIN_HOLD_KRW}
     pos = {r['market']: r for r in ranked}
     reasons, sells, sold = [], [], 0.0
     cands = []
@@ -159,7 +165,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     room = max(0.0, caps['max_total_buy_krw'] - bought)
     # Eligibility is based on the inventory at plan creation, not the inventory after
     # hypothetical sales. A queued sale must never make the same coin a fresh buy.
-    originally_held = {m for m, v in holdings.items() if v >= 5000}  # 팔 수 없는 자투리(5,000원 미만)는 보유로 보지 않는다(2026-11-06 CAP 1e-08개가 매수를 막음)
+    originally_held = set(holdings)
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top

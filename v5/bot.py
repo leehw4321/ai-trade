@@ -22,6 +22,7 @@ import strategy as st
 import rotation_policy as rotation
 import chase_override as co
 import daily_equity
+import daily_report
 import entry_flags
 import exit_watch
 import regime_compare
@@ -621,7 +622,7 @@ class Bot:
         table = holdings_table(urows, protected, co.read_stuck(DATA), L['positions'], self.sell_line)
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{self.ownership_html()}{halt}
 <div class=chips>{' · '.join(chips)}</div>
-<div class=tiles>{tiles}</div>{eq_table}
+<div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
 <div class=cols><div><h3>최근 실현손익 (매도 체결)</h3><ul>{recent}</ul></div><div><h3>실거래 기록</h3><ul>{ol}</ul></div></div>
 {position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
@@ -816,7 +817,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
 {notices.banner(notices.active(DATA / 'notices.json'), self.notice_action())}
-<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{auto_ctl}</h1>{market}</div><div class=sub>갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
+<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
 <div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 1회 매수 {('봇 자금 ÷ ' + format(p.bot_capital_divisor, 'g')) if getattr(p, 'bot_capital_divisor', 0) else '총자산 비례'} · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·
@@ -853,6 +854,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     '정시마다 후보의 급변 표시를 기록만 합니다(주문에는 영향 없음). 기준: 발동 40건·5일·8종목 이상이면 판정합니다.\n'
                     '조건을 채우면 "적용 제안" 배너가 뜹니다. 적용은 승인한 뒤에만 합니다.', 'info', at)
         r = entry_flags_review.evaluate(DATA / 'entry_flags.jsonl', DATA / 'pnl' / 'orders.json')
+        self.make_reports(path, at, r)
         tmp = DATA / 'entry_flags_review.json.tmp'
         tmp.write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding='utf-8')
         os.replace(tmp, DATA / 'entry_flags_review.json')
@@ -866,6 +868,25 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                                   str(ROOT), n['title'] + '\n\n' + n['body']], creationflags=subprocess.CREATE_NO_WINDOW)
             except OSError as ex:
                 self.log('알림창을 열지 못함(화면 배너는 유지): ' + type(ex).__name__)
+
+    def make_reports(self, notice_path, at, review):
+        """전날 리포트를 확정하고(없을 때만 새로 만들고 공지) 오늘 것은 잠정으로 갱신한다. 기록만 한다."""
+        folder = DATA / 'reports'
+        today = dt.datetime.now(KST)
+        live = dict(self.live.d)
+        for day, final in (((today - dt.timedelta(days=1)).strftime('%Y-%m-%d'), True), (today.strftime('%Y-%m-%d'), False)):
+            f = folder / f'{day}.json'
+            if final and f.exists():
+                try:
+                    if json.loads(f.read_text(encoding='utf-8')).get('final'): continue
+                except (OSError, ValueError): pass
+            if not final and not (DATA / 'daily_equity.json').exists(): continue
+            doc = daily_report.build(day, DATA / 'daily_equity.json', DATA / 'pnl' / 'orders.json', live, review, final)
+            if final and not doc.get('equity') and doc['all']['sells'] == 0:
+                continue  # 봇이 꺼져 있던 날 등 기록이 전혀 없으면 만들지 않는다
+            daily_report.save(folder, doc)
+            if final and notices.add(notice_path, f'report-{day}', f'{day} 일일 리포트가 올라왔습니다', daily_report.summary_line(doc), 'info', at):
+                self.log(f'일일 리포트 확정: {day}')
 
     def notice_action(self):
         srv = getattr(self, 'manual_server', None)

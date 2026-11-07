@@ -29,6 +29,7 @@ import regime_compare
 import market_state as ms
 import entry_flags_review
 import notices
+import rebuy_review
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -886,6 +887,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         t = entry_flags_review.notice_text(r)
         if t and notices.add(path, f"entry-flags-{r['state']}", t[0], t[1], t[2], at, popup=True):
             self.log(f"급변 진입 검토 결과 공지: {r['state']}")
+        try:
+            rr = rebuy_review.evaluate(DATA / 'pnl' / 'orders.json')
+            tmp = DATA / 'rebuy_review.json.tmp'
+            tmp.write_text(json.dumps(rr, ensure_ascii=False, indent=1), encoding='utf-8')
+            os.replace(tmp, DATA / 'rebuy_review.json')
+            notices.add(path, 'rebuy-review-started-20261108', '재매수 사후 점검 시작 (눌림 조건 0)',
+                        f'이익 청산 뒤 4~24시간 안 재매수 거래를 {rebuy_review.MIN_N}건 모으면 결과와 할 일을 이 화면에 알립니다. '
+                        '그 전에는 설정을 바꾸지 않습니다. 진행 상황은 data/rebuy_review.json.', 'info', at)
+            t2 = rebuy_review.notice_text(rr)
+            if t2 and notices.add(path, f"rebuy-review-{rr['state']}", t2[0], t2[1], t2[2], at, popup=True):
+                self.log(f"재매수 사후 점검 결과 공지: {rr['state']} ({rr['n']}건)")
+        except Exception as ex:
+            self.log('재매수 점검 오류(무시): ' + type(ex).__name__)
         for n in notices.take_popups(path):
             try:
                 subprocess.Popen([sys.executable, '-c',

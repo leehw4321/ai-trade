@@ -909,6 +909,11 @@ class Live:
             if bars and ask <= max(b['h'] for b in bars) * (1 - crash): return None   # 급락 중: 기다리지 않는다
         except SessionLost: raise
         except Exception: return None
+        return self._place_rest_sell(market, volume, reason, ask, tk)
+
+    def _place_rest_sell(self, market, volume, reason, ask, tk, manual=False):
+        """매도 1호가(ask)에 post_only 지정가 매도를 걸고 resting_orders에 기록한다. 거절·중복·최소금액 미달이면 None.
+        manual=True(사용자 수동 지정가 매도): 기한이 지나면 취소만 하고 시장가로 바꾸지 않는다(손절선 근접만 안전을 위해 시장가)."""
         if self.market_has_uncertain_order(market): return None
         self.assert_unprotected(market)
         checked = self.scan_manual_orders(market, False, volume)
@@ -918,7 +923,8 @@ class Live:
         wait = float(self.cfg.get('resting_sell_wait_seconds', 1200))
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'ask', 'market': market, 'amount': volume,
                    'reason': str(reason), 'time': now_iso(), 'atr': None, 'atr_r': None,
-                   'resting': {'price': ask, 'tick': tk, 'volume': volume, 'deadline': time.time() + wait, 'placed': time.time()}}
+                   'resting': {'price': ask, 'tick': tk, 'volume': volume, 'deadline': time.time() + wait, 'placed': time.time(),
+                               'manual': bool(manual)}}
         slot = ('rest', market)
         self._set_pending(pending, slot)
         self.save()
@@ -933,6 +939,7 @@ class Live:
         if order.get('uuid'):
             pending['uuid'] = order['uuid']; self.save()
         self.record({'event': '지정가 매도 대기', 'market': market, 'price': ask, 'volume': volume, 'wait_s': wait, 'reason': str(reason)})
+        if manual: return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · {volume:g}개 · 최대 {wait / 60:.0f}분, 안 팔리면 취소(시장가 전환 없음)'
         return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · 최대 {wait / 60:.0f}분, 안 팔리면 시장가'
 
     def _manage_rest_sell(self, m, prices):
@@ -952,7 +959,7 @@ class Live:
             pos = self.d['positions'].get(m)
             if self.is_protected(m): why = '사용자 보호 지정'
             elif live_px and pos and px <= self.stop_limit(pos) * 1.005: why = '손절선 근접'
-            elif live_px and px <= rest['price'] * (1 - float(self.cfg.get('resting_sell_drop_pct', 0.005))): why = '가격 하락 중'
+            elif live_px and not rest.get('manual') and px <= rest['price'] * (1 - float(self.cfg.get('resting_sell_drop_pct', 0.005))): why = '가격 하락 중'
             elif time.time() >= rest['deadline']: why = '대기 시간 만료'
             if not why:
                 self._apply_pending(order, slot)
@@ -963,7 +970,9 @@ class Live:
         if not self._apply_pending(order, slot): return
         pos = self.d['positions'].get(m)
         msg = f'{m[4:]} 지정가 매도 {f0 - fee0:,.0f}원 체결'
-        if pos and pos.get('qty', 0) > 0 and why != '사용자 보호 지정' and self.cfg['enabled'] and not self.is_protected(m):
+        manual_expired = bool(rest.get('manual')) and why == '대기 시간 만료'
+        if manual_expired: msg += ' · 수동 지정가 기한 만료로 취소(시장가 전환 없음, 남은 수량은 보유 그대로)'
+        if pos and pos.get('qty', 0) > 0 and why != '사용자 보호 지정' and not manual_expired and self.cfg['enabled'] and not self.is_protected(m):
             try:
                 bal = float({r['currency']: r for r in upbit.accounts()}.get(m[4:], {}).get('balance', 0))
                 vol = min(pos['qty'], bal)
@@ -1358,7 +1367,7 @@ class Live:
             except Exception as error:
                 self.record({'event': '부분 익절 대기', 'market': m, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
 
-    def liquidate_position(self, market, prices, reason='수동 강제 청산'):
+    def liquidate_position(self, market, prices, reason='수동 강제 청산', pct=100, ord_type='market'):
         """사용자가 화면에서 확인한 종목 한 개를 전량 시장가 매도한다. (성공 여부, 안내문)을 돌려준다.
 
         봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.
@@ -1376,7 +1385,29 @@ class Live:
         volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
         if volume * price < 5000:
             return False, f'평가액 {volume * price:,.0f}원: 최소 주문금액 5,000원 미만이라 청산할 수 없음'
-        self.record({'event': '수동 청산 요청', 'market': market, 'reason': reason})
+        if pct != 100 or ord_type != 'market':
+            if pct not in (25, 50, 75, 100) or ord_type not in ('market', 'limit'): return False, '매도 비율·주문 방식이 올바르지 않음'
+            if pct < 100:
+                part = float(upbit.vol8(volume * pct / 100))
+                if part * price < 5000: return False, f'{pct}%는 평가액 {part * price:,.0f}원으로 최소 주문금액 5,000원 미만이라 팔 수 없음(더 큰 비율을 고르세요)'
+                if (volume - part) * price < 5000: part = volume   # 남는 양이 최소 주문 미만이면 전량(자투리 방지)
+                volume = part
+            reason = f'수동 매도 {pct}%' + (' 지정가' if ord_type == 'limit' else '')
+        self.record({'event': '수동 청산 요청', 'market': market, 'reason': reason, 'pct': pct, 'ord': ord_type})
+        if ord_type == 'limit':
+            try:
+                book = upbit.orderbooks([market]).get(market, {})
+                ask = book.get('ask')
+                if type(ask) not in (int, float) or not math.isfinite(ask) or ask <= 0: return False, '매도 1호가를 확인할 수 없어 보류'
+                msg = self._place_rest_sell(market, volume, reason, ask, upbit.tick_size(ask), manual=True)
+            except SessionLost:
+                raise
+            except Exception as error:
+                self.record({'event': '수동 청산 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+                return False, f'지정가 매도 실패: {type(error).__name__}: {str(error)[:120]}'
+            if not msg: return False, '지정가 매도를 걸 수 없음(이미 진행 중인 주문·거절·최소 금액). 주문 기록을 확인하세요.'
+            self.share(msg + ' (수동 지정가 매도)')
+            return True, msg
         try:
             o = self._trade('ask', market, volume, reason, risk=True)
         except SessionLost:

@@ -182,3 +182,108 @@ class Server(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PartialAndLimitSell(LiquidatePosition):
+    """수동 매도(2026-11-07): 25/50/75/전량 × 시장가/지정가(매도호가)."""
+
+    def fake_trade(self, side, market, amount, reason, risk=False):
+        pos = self.lv.d['positions'][market]
+        pos['qty'] -= amount
+        return {'state': 'done', 'trades': [{'volume': str(amount), 'funds': str(amount * 1000)}], 'paid_fee': '5'}
+
+    def sell(self, pct, ord_type='market', price=3000.0):
+        trade = mock.Mock(side_effect=self.fake_trade)
+        with mock.patch.object(self.lv, '_trade', trade), mock.patch('upbit.accounts', return_value=self.accounts):
+            return self.lv.liquidate_position('KRW-X', {'KRW-X': price}, pct=pct, ord_type=ord_type), trade
+
+    def test_partial_market_sells_the_requested_share_and_keeps_the_rest(self):
+        (ok, msg), trade = self.sell(25)
+        self.assertTrue(ok, msg)
+        self.assertAlmostEqual(trade.call_args[0][2], 2.5)
+        self.assertEqual(trade.call_args[0][3], '수동 매도 25%')
+        self.assertTrue(trade.call_args[1]['risk'])
+        self.assertAlmostEqual(self.lv.d['positions']['KRW-X']['qty'], 7.5)
+
+    def test_each_allowed_share(self):
+        for pct, vol in ((50, 5.0), (75, 7.5)):
+            self.setUp()
+            (ok, _), trade = self.sell(pct)
+            self.assertTrue(ok); self.assertAlmostEqual(trade.call_args[0][2], vol)
+
+    def test_remainder_below_minimum_becomes_full_sale(self):
+        (ok, _), trade = self.sell(75, price=600.0)   # 7.5개=4,500원<5,000 → 25% 남는 1,500원 → 전량이 아니라 7.5개 자체가 최소 미달
+        self.assertFalse(ok); trade.assert_not_called()
+        self.setUp()
+        (ok, _), trade = self.sell(75, price=700.0)   # 7.5개=5,250원 OK, 남는 2.5개=1,750원<5,000 → 전량
+        self.assertTrue(ok); self.assertEqual(trade.call_args[0][2], 10.0)
+
+    def test_share_below_minimum_is_rejected_without_order(self):
+        (ok, msg), trade = self.sell(25, price=1000.0 / 5)   # 2.5개 x 200원 = 500원
+        self.assertFalse(ok); trade.assert_not_called(); self.assertIn('5,000원', msg)
+
+    def test_bad_share_or_order_type_is_rejected(self):
+        for pct, o in ((30, 'market'), (50, 'stop')):
+            (ok, _), trade = self.sell(pct, o)
+            self.assertFalse(ok); trade.assert_not_called()
+
+    def test_limit_sell_rests_at_best_ask_and_does_not_touch_market(self):
+        trade = mock.Mock()
+        with mock.patch.object(self.lv, '_trade', trade), mock.patch('upbit.accounts', return_value=self.accounts), \
+                mock.patch('upbit.orderbooks', return_value={'KRW-X': {'ask': 1005.0, 'bid': 1000.0}}), \
+                mock.patch('upbit.tick_size', return_value=5.0), \
+                mock.patch('upbit.limit_sell_post_only', return_value={'uuid': 'u9'}) as lim:
+            ok, msg = self.lv.liquidate_position('KRW-X', {'KRW-X': 1000.0}, pct=50, ord_type='limit')
+        self.assertTrue(ok, msg)
+        trade.assert_not_called()
+        self.assertEqual(lim.call_args[0][:3], ('KRW-X', 1005.0, 5.0))
+        rest = self.lv.d['resting_orders']['KRW-X']
+        self.assertTrue(rest['resting']['manual']); self.assertEqual(rest['side'], 'ask')
+
+    def test_manual_limit_expiry_cancels_without_market_fallback(self):
+        import time
+        self.lv.d['resting_orders'] = {'KRW-X': {'identifier': 'v5-m', 'uuid': 'u9', 'side': 'ask', 'market': 'KRW-X', 'amount': 5.0,
+            'reason': '수동 매도 50% 지정가', 'time': 't', 'atr': None, 'atr_r': None,
+            'resting': {'price': 1005.0, 'tick': 5.0, 'volume': 5.0, 'deadline': time.time() - 1, 'placed': time.time() - 100, 'manual': True}}}
+        order = {'uuid': 'u9', 'state': 'wait', 'market': 'KRW-X', 'side': 'ask', 'identifier': 'v5-m', 'trades': [], 'executed_volume': '0'}
+        trade = mock.Mock()
+        with mock.patch('upbit.get_order', return_value=order), mock.patch.object(self.lv, '_wait', return_value=dict(order, state='cancel')), \
+                mock.patch('upbit.cancel_order') as cancel, mock.patch.object(self.lv, '_trade', trade):
+            self.lv.manage_resting({'KRW-X': 1000.0})
+        cancel.assert_called_once(); trade.assert_not_called()
+        self.assertNotIn('KRW-X', self.lv.d['resting_orders'])
+        self.assertEqual(self.lv.d['positions']['KRW-X']['qty'], 10.0)
+
+    def test_manual_limit_near_stop_still_falls_back_to_market(self):
+        import time
+        self.lv.d['positions']['KRW-X']['stop'] = 999.0
+        self.lv.d['resting_orders'] = {'KRW-X': {'identifier': 'v5-m', 'uuid': 'u9', 'side': 'ask', 'market': 'KRW-X', 'amount': 5.0,
+            'reason': '수동 매도 50% 지정가', 'time': 't', 'atr': None, 'atr_r': None,
+            'resting': {'price': 1005.0, 'tick': 5.0, 'volume': 5.0, 'deadline': time.time() + 900, 'placed': time.time(), 'manual': True}}}
+        order = {'uuid': 'u9', 'state': 'wait', 'market': 'KRW-X', 'side': 'ask', 'identifier': 'v5-m', 'trades': [], 'executed_volume': '0'}
+        trade = mock.Mock(side_effect=self.fake_trade)
+        with mock.patch('upbit.get_order', return_value=order), mock.patch.object(self.lv, '_wait', return_value=dict(order, state='cancel')), \
+                mock.patch('upbit.cancel_order'), mock.patch.object(self.lv, '_trade', trade), mock.patch('upbit.accounts', return_value=self.accounts):
+            self.lv.manage_resting({'KRW-X': 1000.0})
+        trade.assert_called_once()
+
+
+class ManualSellValidation(unittest.TestCase):
+    def setUp(self):
+        self.srv = mo.ManualOrderServer(port=8765, token='tok')
+
+    def body(self, **kw):
+        return json.dumps({'token': 'tok', 'market': 'KRW-ABC', 'confirm': True, **kw}).encode()
+
+    def check(self, **kw):
+        return self.srv.check('127.0.0.1:8765', None, self.body(**kw), 'liquidate')[0]
+
+    def test_defaults_and_allowed_values(self):
+        self.assertEqual(self.check(), 200)
+        for pct in (25, 50, 75, 100):
+            for o in ('market', 'limit'):
+                self.assertEqual(self.check(pct=pct, ord=o), 200)
+
+    def test_rejects_other_values(self):
+        for kw in (dict(pct=30), dict(pct='50'), dict(pct=True), dict(pct=0), dict(ord='stop'), dict(ord=1)):
+            self.assertEqual(self.check(**kw), 400, kw)

@@ -1078,9 +1078,12 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                         self._protection_ui_dirty=True
                 elif req.kind=='liquidate':
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
-                    ok, msg = self.live.liquidate_position(req.market, prices)
-                    label = '수동 강제 청산'
-                    if self.live.cfg.get('auto_manual_protection'):
+                    opt = getattr(req, 'options', None) or {}
+                    pct, ordk = opt.get('pct', 100), opt.get('ord', 'market')
+                    ok, msg = self.live.liquidate_position(req.market, prices, pct=pct, ord_type=ordk)
+                    label = '수동 강제 청산' if (pct == 100 and ordk == 'market') else f'수동 매도 {pct}% ' + ('지정가' if ordk == 'limit' else '시장가')
+                    # 일부·지정가 매도는 남은 수량을 봇이 계속 관리한다(손절·이익보호). 전량 시장가 청산만 기존처럼 사용자 보호 결정을 건다.
+                    if self.live.cfg.get('auto_manual_protection') and pct == 100 and ordk == 'market':
                         self.live.protection_policy.decide(req.market,True)
                         self._protection_ui_dirty=True
                 else:

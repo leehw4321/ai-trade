@@ -20,6 +20,8 @@ MAX_BODY = 2048
 KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs',
          '/promote': 'promote', '/unpromote': 'unpromote', '/buy_now': 'buy_now', '/refresh': 'refresh', '/notice_ack': 'notice_ack'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
+SELL_PCTS = (25, 50, 75, 100)
+SELL_ORDS = ('market', 'limit')
 WAIT_SECONDS = 45
 REPEAT_SECONDS = 30
 
@@ -36,9 +38,10 @@ class _ExclusiveServer(ThreadingHTTPServer):
 
 
 class Request:
-    def __init__(self, market, kind='liquidate', krw=None, revision=None):
+    def __init__(self, market, kind='liquidate', krw=None, revision=None, options=None):
         self.market, self.kind, self.krw = market, kind, krw
         self.revision=revision
+        self.options = options or {}
         self.event = threading.Event()
         self.ok = False
         self.message = '처리 시간 초과: 봇이 응답하지 않았습니다. 주문 기록에서 결과를 확인하세요.'
@@ -101,11 +104,15 @@ class ManualOrderServer:
             krw = doc.get('krw')
             if type(krw) is not int or not MIN_KRW <= krw <= MAX_KRW:
                 return 400, '매수 금액이 올바르지 않음'
+        if kind == 'liquidate':   # 수동 매도(2026-11-07): 비율 25/50/75/100%, 주문 방식 시장가/지정가(매도호가). 생략하면 전량 시장가(기존 동작)
+            pct, ordk = doc.get('pct', 100), doc.get('ord', 'market')
+            if type(pct) is not int or pct not in SELL_PCTS or ordk not in SELL_ORDS:
+                return 400, '매도 비율 또는 주문 방식이 올바르지 않음'
         if kind == 'unprotect' and (type(doc.get('revision')) is not int or doc['revision']<0):
             return 400, '보호 상태를 새로고침한 뒤 다시 확인하세요'
         return 200, (market, krw)
 
-    def submit(self, market, kind='liquidate', krw=None, revision=None):
+    def submit(self, market, kind='liquidate', krw=None, revision=None, options=None):
         """검증된 요청을 큐에 넣고 봇의 처리 결과를 기다린다. (상태코드, 문서)"""
         now = self.clock()
         key = (kind, market)
@@ -115,7 +122,7 @@ class ManualOrderServer:
             return 409, {'ok': False, 'message': '다른 청산 요청을 처리 중입니다.'}
         try:
             self.recent[key] = now
-            req = Request(market, kind, krw, revision)
+            req = Request(market, kind, krw, revision, options)
             self.queue.put(req)
             req.event.wait(WAIT_SECONDS)
             return 200, {'ok': req.ok, 'message': req.message}
@@ -172,9 +179,10 @@ class ManualOrderServer:
                 code, value = server.check(self.headers.get('Host'), self.headers.get('Origin'), body, kind)
                 if code != 200:
                     return self._send(code, {'ok': False, 'message': value})
-                revision=json.loads(body.decode('utf-8')).get('revision') if kind=='unprotect' else None
-                code, doc = (server.submit(value[0],kind,value[1],revision) if kind=='unprotect'
-                             else server.submit(value[0],kind,value[1]))
+                posted = json.loads(body.decode('utf-8'))
+                revision = posted.get('revision') if kind == 'unprotect' else None
+                options = {'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market')} if kind == 'liquidate' else None
+                code, doc = server.submit(value[0], kind, value[1], revision, options)
                 self._send(code, doc)
 
         try:

@@ -60,7 +60,7 @@ class PositionPopupTest(unittest.TestCase):
         self.assertNotIn('XMLHttpRequest', pp.MODAL)
         self.assertNotIn('<form', pp.MODAL)
         self.assertNotIn('innerHTML', pp.MODAL)  # 값은 textContent로만 넣어 주입을 막는다
-        self.assertIn('청산을 원하십니까?', pp.MODAL)
+        self.assertIn('매도를 원하십니까?', pp.MODAL)
         self.assertIn('추가 매수를 원하십니까?', pp.MODAL)
         self.assertIn('이익 보호가 꺼집니다', pp.MODAL)  # 추가 매수의 부작용을 확인 질문에 밝힌다
 
@@ -70,6 +70,12 @@ class PositionPopupTest(unittest.TestCase):
         self.assertIn("if(id==='pm-buy')return ask('buy')", pp.MODAL)
         self.assertIn("if(id==='pm-yes')return send()", pp.MODAL)
         self.assertEqual(pp.MODAL.count('send()'), 2)  # 정의 1 + 호출 1
+
+    def test_sell_options_are_in_the_modal_and_sent_with_the_request(self):
+        for v in ('value="25"', 'value="50"', 'value="75"', 'value="100"', 'value="market"', 'value="limit"'):
+            self.assertIn(v, pp.MODAL)
+        self.assertIn('doc.pct=sp;doc.ord=so', pp.MODAL)
+        self.assertEqual(pp.MODAL.count('fetch('), 1)
 
     def test_action_tag_only_when_server_is_on(self):
         self.assertNotIn('posaction', pp.data_script({'KRW-A': POS}, {'KRW-A': 1.0}))

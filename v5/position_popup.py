@@ -71,7 +71,9 @@ MODAL = """<div id="posmodal" hidden><div class="pm-card" role="dialog" aria-mod
 <button type="button" class="pm-x" aria-label="닫기">×</button><h3 id="pm-title"></h3><div class="pm-sub" id="pm-sub"></div>
 <table class="pm-t"><tbody id="pm-body"></tbody></table>
 <div id="pm-act" hidden><div class="pm-row" id="pm-buyrow"><input type="number" id="pm-amt" min="5000" step="1000" aria-label="추가 매수 금액(원)"><span class="pm-won">원</span><button type="button" id="pm-buy" class="pm-btn">추가 매수</button></div>
-<button type="button" id="pm-liq" class="pm-btn pm-danger" style="margin-top:8px">강제 청산</button>
+<div class="pm-seg" id="pm-pct" role="radiogroup" aria-label="매도 비율"><label><input type="radio" name="pmpct" value="25">25%</label><label><input type="radio" name="pmpct" value="50">50%</label><label><input type="radio" name="pmpct" value="75">75%</label><label><input type="radio" name="pmpct" value="100" checked>전량</label></div>
+<div class="pm-seg" id="pm-ord" role="radiogroup" aria-label="주문 방식"><label><input type="radio" name="pmord" value="market" checked>시장가</label><label><input type="radio" name="pmord" value="limit">지정가(매도호가)</label></div>
+<button type="button" id="pm-liq" class="pm-btn pm-danger" style="margin-top:8px">매도</button>
 <div id="pm-ask" hidden><div id="pm-q"></div><div class="pm-row"><button type="button" id="pm-yes" class="pm-btn pm-danger">예, 청산합니다</button><button type="button" id="pm-no" class="pm-btn">아니오</button></div></div>
 <div id="pm-res" role="status"></div></div>
 <div class="pm-note" id="pm-note">조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.</div></div></div>
@@ -85,6 +87,7 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:rgba(120,140,170,.14)}
 .pm-t{width:100%;border-collapse:collapse;font-size:14px}.pm-t td{padding:6px 2px;border-bottom:1px solid rgba(128,140,160,.22)}
 .pm-t td:last-child{text-align:right;font-variant-numeric:tabular-nums}.pm-note{font-size:12px;opacity:.65;margin-top:10px}
 .pm-up{color:#c34b43}.pm-dn{color:#2f6fd0}
+.pm-seg{display:flex;gap:12px;margin-top:8px;font-size:14px;flex-wrap:wrap}.pm-seg label{cursor:pointer}
 #pm-act{margin-top:12px}.pm-row{display:flex;gap:8px;margin-top:8px}
 .pm-btn{border:1px solid rgba(128,140,160,.5);background:none;color:inherit;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
 .pm-btn:disabled{opacity:.45;cursor:not-allowed}.pm-danger{background:#c34b43;border-color:#c34b43;color:#fff}
@@ -97,29 +100,31 @@ var el=document.getElementById('posdata'),box=document.getElementById('posmodal'
 if(!el||!box)return;
 var D={};try{D=JSON.parse(el.textContent)}catch(e){}
 var A=null;try{A=JSON.parse(document.getElementById('posaction').textContent)}catch(e){}
-var cur=null,busy=false,mode='liq',amt=0;
+var cur=null,busy=false,mode='liq',amt=0,sp=100,so='market';
+function pick(name){var r=document.querySelectorAll('input[name='+name+']');for(var i=0;i<r.length;i++)if(r[i].checked)return r[i].value;return null}
 function $(i){return document.getElementById(i)}
 function n(v,d){return v==null?'-':Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d==null?0:d})}
 function px(v){return v==null?'-':n(v,v<100?4:(v<1000?2:0))}
 function sg(v,d){return v==null?'-':(v>0?'+':'')+n(v,d)}
 function put(k,v,cls){var tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td');
 a.textContent=k;b.textContent=v;if(cls)b.className=cls;tr.appendChild(a);tr.appendChild(b);document.getElementById('pm-body').appendChild(tr)}
-function resetAct(x){busy=false;$('pm-ask').hidden=true;$('pm-res').textContent='';$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;
+function resetAct(x){busy=false;$('pm-ask').hidden=true;$('pm-res').textContent='';$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false;
 $('pm-yes').disabled=false;$('pm-no').disabled=false;
 if(!A){$('pm-act').hidden=true;$('pm-note').textContent='조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.';return}
-$('pm-act').hidden=false;$('pm-note').textContent='시장가 주문이며 되돌릴 수 없습니다. 주문은 봇이 실행권을 확인한 뒤 냅니다.';
+$('pm-act').hidden=false;$('pm-note').textContent='주문은 되돌릴 수 없습니다(지정가는 대기 중 취소 버튼이 없고 기한 만료 때 취소됩니다). 주문은 봇이 실행권을 확인한 뒤 냅니다.';
 var cap=A.buy_max||0;$('pm-amt').max=cap;$('pm-amt').value=cap?Math.min(30000,cap):'';$('pm-buy').disabled=!cap;
 $('pm-liq').disabled=!x.sellable;if(!x.sellable)$('pm-res').textContent='평가액 5,000원 미만은 최소 주문금액 때문에 청산할 수 없습니다.'}
-function back(){$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false}
+function back(){$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false}
 function ask(kind){var x=D[cur];if(!x||busy)return;mode=kind;$('pm-res').textContent='';
 if(kind==='buy'){amt=Number($('pm-amt').value);var cap=A.buy_max||0;
 if(!Number.isInteger(amt)||amt<5000){$('pm-res').textContent='매수 금액은 5,000원 이상의 정수로 입력하세요.';return}
 if(amt>cap){$('pm-res').textContent='1회 추가 매수 상한은 '+n(cap)+'원입니다.';return}
 $('pm-q').textContent=x.name+'을(를) '+n(amt)+'원어치 시장가로 추가 매수합니다.'+(x.trail?' ⚠ 추가 매수하면 이 종목의 추적 손절·이익 보호가 꺼집니다(기존 규칙).':'')+' 추가 매수를 원하십니까?'}
-else{$('pm-q').textContent=x.name+' 전량(평가액 약 '+n(x.value)+'원)을 시장가로 청산합니다. 청산을 원하십니까?'}
-$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-ask').hidden=false}
+else{sp=Number(pick('pmpct'))||100;so=pick('pmord')==='limit'?'limit':'market';
+$('pm-q').textContent=x.name+' '+(sp===100?'전량':sp+'%')+'(평가액 약 '+n((x.value||0)*sp/100)+'원)을 '+(so==='limit'?'매도 1호가 지정가로 걸어 둡니다. 약 20분 안에 안 팔리면 취소되고 시장가로 바꾸지 않습니다.':'시장가로 매도합니다.')+' 매도를 원하십니까?'}
+$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-ask').hidden=false}
 function send(){if(!A||!cur||busy)return;busy=true;$('pm-yes').disabled=true;$('pm-no').disabled=true;$('pm-res').textContent='주문 요청 중… (최대 45초)';
-var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(buy)doc.krw=amt;
+var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(buy)doc.krw=amt;else{doc.pct=sp;doc.ord=so}
 fetch('http://127.0.0.1:'+A.port+(buy?'/buy':'/liquidate'),{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(doc)})
 .then(function(r){return r.json()}).then(function(d){$('pm-ask').hidden=true;$('pm-res').textContent=(d.ok?'✅ ':'⚠️ ')+d.message+(d.ok?' (표는 30초 안에 갱신됩니다)':'')})
 .catch(function(){$('pm-ask').hidden=true;$('pm-res').textContent='⚠️ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.'})}

@@ -98,6 +98,28 @@ def summary_line(d):
             + (f" · 손익비 {d['payoff']}" if d.get('payoff') else ''))
 
 
+def lines(d):
+    """리포트 한 날의 내용 줄 목록(첫 줄이 요약). 화면 '일일 리포트'란과 공지 내용 창이 같이 쓴다."""
+    eq = d.get('equity') or {}
+    out = [summary_line(d)]
+    if eq:
+        out.append(f"총자산 시작 {eq['open']:,.0f} → 마지막 {eq['last']:,.0f} (최고 {eq['high']:,.0f} / 최저 {eq['low']:,.0f})")
+    a = d['all']
+    if a['sells'] != d['v5']['sells']:
+        out.append(f"수동·출처불명 포함 전체 매도 {a['sells']}건 {a['net']:+,}원")
+    if d.get('worst'):
+        out.append('손실 큰 종목: ' + ' · '.join(f'{c} {v:+,}' for c, v in d['worst']))
+    if d.get('best'):
+        out.append('이익 큰 종목: ' + ' · '.join(f'{c} {v:+,}' for c, v in d['best']))
+    s = d.get('state')
+    if s and s['halted']:
+        out.append('매수 중단 상태: ' + str(s['halted']))
+    ef = d.get('entry_flags')
+    if ef:
+        out.append(f"급변 진입 검토: {ef['state']} (기록 {ef['records']}줄, 발동 {ef['hit']}건 / 통과 {ef['keep']}건)")
+    return out
+
+
 def section(docs):
     """화면 '일일 리포트'란 HTML. 최신이 맨 위."""
     if not docs:
@@ -105,25 +127,8 @@ def section(docs):
     e = html.escape
     items = []
     for i, d in enumerate(docs):
-        eq = d.get('equity') or {}
-        lines = [summary_line(d)]
-        if eq:
-            lines.append(f"총자산 시작 {eq['open']:,.0f} → 마지막 {eq['last']:,.0f} (최고 {eq['high']:,.0f} / 최저 {eq['low']:,.0f})")
-        a = d['all']
-        if a['sells'] != d['v5']['sells']:
-            lines.append(f"수동·출처불명 포함 전체 매도 {a['sells']}건 {a['net']:+,}원")
-        if d.get('worst'):
-            lines.append('손실 큰 종목: ' + ' · '.join(f'{c} {v:+,}' for c, v in d['worst']))
-        if d.get('best'):
-            lines.append('이익 큰 종목: ' + ' · '.join(f'{c} {v:+,}' for c, v in d['best']))
-        s = d.get('state')
-        if s and s['halted']:
-            lines.append('매수 중단 상태: ' + str(s['halted']))
-        ef = d.get('entry_flags')
-        if ef:
-            lines.append(f"급변 진입 검토: {ef['state']} (기록 {ef['records']}줄, 발동 {ef['hit']}건 / 통과 {ef['keep']}건)")
         tag = '' if d.get('final') else ' · 진행 중(잠정)'
-        body = ''.join(f'<div>{e(x)}</div>' for x in lines)
+        body = ''.join(f'<div>{e(x)}</div>' for x in lines(d))
         items.append(f"<details{' open' if i == 0 else ''}><summary><b>{e(d['day'])}</b>{tag} — {e(summary_line(d))}</summary>"
                      f"<div style='padding:6px 12px;line-height:1.6'>{body}</div></details>")
     return f"<section><h2>일일 리포트</h2>{''.join(items)}</section>"

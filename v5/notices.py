@@ -27,15 +27,29 @@ def _write(path, items):
     os.replace(tmp, p)
 
 
-def add(path, nid, title, body, level='info', at='', popup=False):
-    """같은 id가 이미 있으면 다시 만들지 않는다(확인한 공지가 되살아나지 않는다). 새로 만들면 True."""
+def add(path, nid, title, body, level='info', at='', popup=False, detail=''):
+    """같은 id가 이미 있으면 다시 만들지 않는다(확인한 공지가 되살아나지 않는다). 새로 만들면 True. detail은 배너와 알림창에 함께 보이는 자세한 내용."""
     items = _read(path)
     if any(i.get('id') == nid for i in items):
         return False
     items.append({'id': nid, 'title': title, 'body': body, 'level': level if level in LEVELS else 'info', 'at': at,
-                  'ack': False, 'popup': bool(popup), 'popped': False})
+                  'ack': False, 'popup': bool(popup), 'popped': False, 'detail': str(detail or '')})
     _write(path, items[-100:])
     return True
+
+
+def set_detail(path, nid, detail, popup=False):
+    """자세한 내용이 없는 확인 전 공지에 내용을 채운다(아직 알림창을 안 띄운 공지면 popup도 켠다). 채우면 True."""
+    items = _read(path)
+    hit = False
+    for i in items:
+        if i.get('id') == nid and not i.get('ack') and not i.get('detail'):
+            i['detail'] = str(detail or ''); hit = True
+            if popup and not i.get('popped'):
+                i['popup'] = True
+    if hit:
+        _write(path, items)
+    return hit
 
 
 def ack(path, nid):
@@ -78,6 +92,10 @@ def banner(items, action=None):
         btn = (f"<button type=button data-nid='{e(i['id'])}' style='margin-top:10px;padding:10px 20px;font-size:17px;font-weight:700;"
                "border:2px solid #2b2100;border-radius:8px;background:#fff;color:#2b2100;cursor:pointer'>확인했습니다</button>") if action else ''
         body = ''.join(f'<div>{e(line)}</div>' for line in str(i.get('body', '')).split('\n'))
+        if i.get('detail'):
+            body += ("<details open style='margin-top:8px;background:rgba(255,255,255,.55);border-radius:8px;padding:8px 12px'>"
+                     "<summary style='cursor:pointer;font-weight:700'>내용 보기</summary>"
+                     + ''.join(f'<div>{e(line)}</div>' for line in str(i['detail']).split('\n')) + '</details>')
         rows.append(f"<div style='{style};padding:16px 20px;border-radius:10px;line-height:1.55'><b style='font-size:1.15em'>"
                     f"{'📢 ' if big else 'ℹ️ '}{e(i['title'])}</b>"
                     f"<div style='margin-top:6px;font-weight:{600 if big else 400}'>{body}</div>"

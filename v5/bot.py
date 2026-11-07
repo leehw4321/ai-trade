@@ -904,7 +904,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             try:
                 subprocess.Popen([sys.executable, '-c',
                                   'import sys;sys.path.insert(0,sys.argv[1]);import session_guard;session_guard.notify(sys.argv[2],"봇 개선 결과 알림")',
-                                  str(ROOT), n['title'] + '\n\n' + n['body']], creationflags=subprocess.CREATE_NO_WINDOW)
+                                  str(ROOT), n['title'] + '\n\n' + (n.get('detail') or n['body'])], creationflags=subprocess.CREATE_NO_WINDOW)
             except OSError as ex:
                 self.log('알림창을 열지 못함(화면 배너는 유지): ' + type(ex).__name__)
 
@@ -917,14 +917,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             f = folder / f'{day}.json'
             if final and f.exists():
                 try:
-                    if json.loads(f.read_text(encoding='utf-8')).get('final'): continue
-                except (OSError, ValueError): pass
+                    old = json.loads(f.read_text(encoding='utf-8'))
+                    if old.get('final'):
+                        # 내용 창이 생기기 전에 올라온 공지에도 리포트 내용을 채워 한 번 알림창으로 보여 준다
+                        notices.set_detail(notice_path, f'report-{day}', '\n'.join(daily_report.lines(old)), popup=True)
+                        continue
+                except (OSError, ValueError, KeyError, TypeError): pass
             if not final and not (DATA / 'daily_equity.json').exists(): continue
             doc = daily_report.build(day, DATA / 'daily_equity.json', DATA / 'pnl' / 'orders.json', live, review, final)
             if final and not doc.get('equity') and doc['all']['sells'] == 0:
                 continue  # 봇이 꺼져 있던 날 등 기록이 전혀 없으면 만들지 않는다
             daily_report.save(folder, doc)
-            if final and notices.add(notice_path, f'report-{day}', f'{day} 일일 리포트가 올라왔습니다', daily_report.summary_line(doc), 'info', at):
+            if final and notices.add(notice_path, f'report-{day}', f'{day} 일일 리포트가 올라왔습니다', daily_report.summary_line(doc), 'info', at,
+                                     popup=True, detail='\n'.join(daily_report.lines(doc))):
                 self.log(f'일일 리포트 확정: {day}')
 
     def notice_action(self):

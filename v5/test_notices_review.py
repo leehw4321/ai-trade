@@ -101,6 +101,17 @@ class Review(unittest.TestCase):
         r = make(1, 1, -100, 50)
         self.assertEqual(r['entries'], 2)
 
+    def test_detail_shown_and_backfilled(self):
+        notices.add(self.p, 'r', '리포트', '요약', 'info')
+        self.assertTrue(notices.set_detail(self.p, 'r', '줄1
+줄2', popup=True))
+        self.assertFalse(notices.set_detail(self.p, 'r', '다른 내용'))      # 이미 채워졌으면 덮어쓰지 않는다
+        self.assertEqual(len(notices.take_popups(self.p)), 1)
+        h = notices.banner(notices.active(self.p), None)
+        self.assertIn('내용 보기', h); self.assertIn('줄2', h)
+        notices.add(self.p, 'n', '제목', '본문', 'info', detail='자세히')
+        self.assertIn('자세히', notices.banner(notices.active(self.p), None))
+
 
 if __name__ == '__main__':
     unittest.main()

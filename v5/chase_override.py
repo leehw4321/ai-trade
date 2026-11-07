@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 EXT_CAP = 0.20
+REENTRY_ENABLED = False   # 사용자 지시 2026-11-07: 목요일 낮 규칙으로 복귀 — 이익 청산 뒤 재진입 1회 예외를 끈다(매도 후 재진입 금지가 그대로 적용됨)
 REENTRY_HOURS = 24
 PROMOTED = 'chase_promoted.json'
 HOT_HELD = 'hot_held.json'
@@ -107,6 +108,7 @@ def unpromote(data_dir, market):
 
 def reentry_ok(last, now=None):
     """이익 청산 뒤 한 번 허용되는 재진입인가."""
+    if not REENTRY_ENABLED: return False
     if not (isinstance(last, dict) and last.get('profit') is True and not last.get('from_reentry') and _finite(last.get('time'))):
         return False
     now = time.time() if now is None else now

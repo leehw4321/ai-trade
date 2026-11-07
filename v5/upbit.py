@@ -220,6 +220,14 @@ def limit_buy_post_only(market, price, volume, identifier=None):
     return _post_order(params)
 
 
+def limit_sell_post_only(market, price, volume, identifier=None):
+    """지정가 매도(post_only): 즉시 체결될 가격이면 주문하지 않고 취소된다(매도호가 대기 전용)."""
+    params = {'market': market, 'side': 'ask', 'ord_type': 'limit', 'price': price_str(price), 'volume': vol8(volume),
+              'time_in_force': 'post_only'}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
+
+
 def cancel_order(order_uuid):
     if ORDER_GUARD is not None:
         ORDER_GUARD('ask')   # 걸어 둔 매수 취소는 위험을 줄이는 쪽: 손절과 같은 확인 규칙

@@ -1,0 +1,2 @@
+{"strategy": {"rank_exit": true, "slots": 3, "entry_want": 3, "swap_stuck_loss": false, "regime_bars": 96, "bot_capital_divisor": 0, "reentry_profit_hours": 4, "reentry_loss_hours": 24},
+ "live": {"stagnation_exit_enabled": false, "partial_pct": 0, "resting_sell_enabled": true, "resting_sell_wait_seconds": 1200, "resting_sell_crash_pct": 0.015, "resting_sell_drop_pct": 0.005}}

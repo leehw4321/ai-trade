@@ -1,3 +1,4 @@
+import time
 import tempfile
 from pathlib import Path
 import unittest
@@ -387,3 +388,82 @@ class DailyLoss(unittest.TestCase):
             lv.d['risk_day'] = '2000-01-01'
             lv.check_loss({})
             self.assertFalse(lv.d['halted'])                    # 다음 날 자동 재개
+
+
+class RestingSell(unittest.TestCase):
+    """순위 매도 지정가 우선(2026-11-07): 호가 1칸 큰 종목만, 급락이면 바로 시장가, 손절선 근접·하락·기한 만료면 취소 후 시장가."""
+
+    def make(self, **cfg):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        lv = live.Live(self.tmp.name, {'enabled': True, 'resting_sell_enabled': True, **cfg}, st.Params())
+        lv.d['positions']['KRW-X'] = {'qty': 100.0, 'cost': 20000.0, 'stop': 150.0, 'time': '2026-11-07T10:00:00+09:00', 'entry': 200.0, 'atr': 2.0}
+        return lv
+
+    def test_narrow_tick_goes_to_market(self):
+        lv = self.make()
+        with mock.patch('upbit.orderbooks', return_value={'KRW-X': {'ask': 1000.0, 'bid': 999.0}}), mock.patch('upbit.tick_size', return_value=1.0),                 mock.patch('upbit.completed_candles', return_value=[{'h': 1001.0}]), mock.patch('upbit.limit_sell_post_only') as lim:
+            self.assertIsNone(lv._rest_sell('KRW-X', 100.0, '순위 이탈'))   # 호가 1칸 0.1% < 0.3%
+            lim.assert_not_called()
+
+    def test_places_limit_sell_when_tick_is_wide(self):
+        lv = self.make()
+        with mock.patch('upbit.orderbooks', return_value={'KRW-X': {'ask': 200.0, 'bid': 199.0}}), mock.patch('upbit.tick_size', return_value=1.0),                 mock.patch('upbit.completed_candles', return_value=[{'h': 201.0}]), mock.patch('upbit.limit_sell_post_only', return_value={'uuid': 'u1'}) as lim:
+            msg = lv._rest_sell('KRW-X', 100.0, '순위 이탈')
+            self.assertIn('지정가 매도 대기', msg)
+            lim.assert_called_once()
+        self.assertEqual(lv.d['resting_orders']['KRW-X']['side'], 'ask')
+
+    def test_crash_goes_straight_to_market(self):
+        lv = self.make()
+        with mock.patch('upbit.orderbooks', return_value={'KRW-X': {'ask': 200.0, 'bid': 199.0}}), mock.patch('upbit.tick_size', return_value=1.0), \
+                mock.patch('upbit.completed_candles', return_value=[{'h': 210.0}]), mock.patch('upbit.limit_sell_post_only') as lim:
+            self.assertIsNone(lv._rest_sell('KRW-X', 100.0, '순위 이탈'))   # 고점 대비 -4.8% → 급락
+            lim.assert_not_called()
+
+    def pend(self, lv, deadline_in):
+        lv.d['resting_orders'] = {'KRW-X': {'identifier': 'v5-a', 'uuid': 'u1', 'side': 'ask', 'market': 'KRW-X', 'amount': 100.0,
+                                           'reason': '순위 이탈', 'time': 't', 'atr': None, 'atr_r': None,
+                                           'resting': {'price': 200.0, 'tick': 1.0, 'volume': 100.0, 'deadline': time.time() + deadline_in, 'placed': time.time()}}}
+
+    def run_manage(self, lv, px):
+        sold = []
+
+        def fake(side, market, amount, reason, risk=False):
+            sold.append((reason, risk)); lv.d['positions'].pop(market, None)
+            return {'state': 'done', 'trades': [{'volume': str(amount), 'funds': '19000'}], 'paid_fee': '0'}
+        order = {'uuid': 'u1', 'state': 'wait', 'market': 'KRW-X', 'side': 'ask', 'identifier': 'v5-a', 'trades': [], 'executed_volume': '0'}
+        done = dict(order, state='cancel')
+        with mock.patch('upbit.get_order', return_value=order), mock.patch.object(lv, '_wait', return_value=done), \
+                mock.patch('upbit.cancel_order') as cancel, mock.patch.object(lv, '_trade', side_effect=fake), \
+                mock.patch('upbit.accounts', return_value=[{'currency': 'X', 'balance': '100'}]):
+            lv.manage_resting({'KRW-X': px})
+        return sold, cancel
+
+    def test_keeps_waiting_when_price_is_steady(self):
+        lv = self.make(); self.pend(lv, 600)
+        sold, cancel = self.run_manage(lv, 200.0)
+        self.assertEqual(sold, []); cancel.assert_not_called()
+        self.assertIn('KRW-X', lv.d['resting_orders'])
+
+    def test_deadline_cancels_and_sells_remainder_at_market(self):
+        lv = self.make(); self.pend(lv, -1)
+        sold, cancel = self.run_manage(lv, 200.0)
+        cancel.assert_called_once()
+        self.assertEqual(len(sold), 1); self.assertTrue(sold[0][1])
+        self.assertIn('대기 시간 만료', sold[0][0])
+        self.assertNotIn('KRW-X', lv.d['resting_orders'])
+
+    def test_falling_price_sells_at_market_immediately(self):
+        lv = self.make(); self.pend(lv, 600)
+        sold, cancel = self.run_manage(lv, 198.0)    # 지정가 200 대비 -1% (기본 0.5%)
+        self.assertEqual(len(sold), 1); self.assertIn('가격 하락 중', sold[0][0])
+
+    def test_near_stop_sells_at_market_immediately(self):
+        lv = self.make(); lv.d['positions']['KRW-X']['stop'] = 199.0; self.pend(lv, 600)
+        sold, cancel = self.run_manage(lv, 199.5)
+        self.assertEqual(len(sold), 1); self.assertIn('손절선 근접', sold[0][0])
+
+    def test_resting_info_hides_sell_orders(self):
+        lv = self.make(); self.pend(lv, 600)
+        self.assertEqual(lv.resting_info(), {})

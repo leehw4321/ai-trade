@@ -56,7 +56,12 @@ class Rules(unittest.TestCase):
         self.assertFalse(co.promote(self.dir, 'KRW-A', 0.17, p, now=1000)[0])
         self.assertEqual(co.cap_for('KRW-A', p, {'KRW-A': 1e12}, None), 0.0)
 
+    def test_reentry_exception_is_off_by_default(self):
+        self.assertFalse(co.reentry_ok({'time': 100000 - 3600, 'profit': True}, 100000))
+
     def test_reentry_once_after_profit_within_24h(self):
+        from unittest import mock
+        mock.patch.object(co, 'REENTRY_ENABLED', True).start(); self.addCleanup(mock.patch.stopall)
         now = 100000
         last = {'time': now - 3600, 'profit': True}
         self.assertTrue(co.reentry_ok(last, now))
@@ -165,6 +170,8 @@ class Proposal(unittest.TestCase):
         self.assertNotIn('매수 B', text)
 
     def test_profit_exit_reentry_skips_wait_and_dip_once(self):
+        from unittest import mock
+        mock.patch.object(co, 'REENTRY_ENABLED', True).start(); self.addCleanup(mock.patch.stopall)
         ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .18, 'close': 110., 'atr': 1.}]
         fresh = {'KRW-A': {'time': time.time() - 600, 'price': 100., 'profit': True}}
         text, _ = self.plan(ranked, last_sells=fresh)
@@ -295,6 +302,8 @@ class Receiver(unittest.TestCase):
         self.assertFalse(ok); self.assertIn('자투리 아님', msg)
 
     def test_receiver_allows_profit_reentry_only_once(self):
+        from unittest import mock
+        mock.patch.object(co, 'REENTRY_ENABLED', True).start(); self.addCleanup(mock.patch.stopall)
         self.worker.d['last_sell'] = {'KRW-A': {'time': self.now - 600, 'price': 100., 'profit': True}}
         self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
         self.worker.d['last_sell']['KRW-A']['from_reentry'] = True

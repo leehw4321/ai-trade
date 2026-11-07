@@ -30,6 +30,7 @@ import market_state as ms
 import entry_flags_review
 import notices
 import rebuy_review
+import regime_review
 import math
 import upbit
 from session_guard import SessionGuard, SessionLost, notify
@@ -900,6 +901,20 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 self.log(f"재매수 사후 점검 결과 공지: {rr['state']} ({rr['n']}건)")
         except Exception as ex:
             self.log('재매수 점검 오류(무시): ' + type(ex).__name__)
+        try:
+            rg = regime_review.evaluate(DATA / 'pnl' / 'orders.json', DATA / 'regime_watch.jsonl')
+            tmp = DATA / 'regime_review.json.tmp'
+            tmp.write_text(json.dumps(rg, ensure_ascii=False, indent=1), encoding='utf-8')
+            os.replace(tmp, DATA / 'regime_review.json')
+            notices.add(path, 'regime-review-started-20261108', '장세 필터 해제 연구 시작',
+                        '장세 필터를 끄고 거래를 늘려, 24시간 지수가 음수일 때 연 거래가 양수일 때보다 나쁜지 모읍니다. '
+                        f'양쪽 {regime_review.MIN_GROUP}건 이상·{regime_review.MIN_DAYS}일이 모이면 결과와 할 일을 이 화면에 알립니다. '
+                        '진행 상황은 data/regime_review.json, 계획은 docs/ai-history/2026-11-08-regime-off-project.md.', 'info', at)
+            t3 = regime_review.notice_text(rg)
+            if t3 and notices.add(path, f"regime-review-{rg['state']}", t3[0], t3[1], t3[2], at, popup=True):
+                self.log(f"장세 필터 연구 결과 공지: {rg['state']}")
+        except Exception as ex:
+            self.log('장세 필터 연구 점검 오류(무시): ' + type(ex).__name__)
         for n in notices.take_popups(path):
             try:
                 subprocess.Popen([sys.executable, '-c',

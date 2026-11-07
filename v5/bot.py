@@ -58,7 +58,29 @@ def utc(ts):
     return dt.datetime.fromtimestamp(ts, dt.timezone.utc)
 
 
-def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None):
+def reentry_note(last, p, now):
+    """직전 매도 때문에 재매수가 막힌 종목의 표시 문구(이유·해제 시각). 막히지 않았으면 None. 주문에는 영향 없는 표시 전용이며,
+    판단 규칙은 strategy.reentry_block과 같다(손실 청산: reentry_loss_hours, 이익 청산: reentry_profit_hours + 눌림 조건, 기간 reentry_window_hours)."""
+    try:
+        t = float(last['time'])
+        if not math.isfinite(t) or now < t: return None
+        window = float(p.reentry_window_hours) * 3600
+        if now - t >= window: return None
+        profit = bool(last.get('profit'))
+        wait = float(p.reentry_profit_hours if profit else p.reentry_loss_hours) * 3600
+        why = str(last.get('reason') or '').strip()
+        kind = ('이익 청산' if profit else '손실 청산') + (f'·{why}' if why else '')
+        at = lambda ts: dt.datetime.fromtimestamp(ts, KST).strftime('%m-%d %H:%M')
+        if now < t + wait:
+            return f"재매수 금지({kind}, {at(t + wait)} 해제 · {(t + wait - now) / 3600:.1f}시간 남음)"
+        if profit and p.reentry_dip_atr > 0:
+            return f"재매수 보류({kind}, 매도가 {fmt_price(last.get('price'))}보다 {p.reentry_dip_atr:g}ATR 이상 눌려야 함 · 늦어도 {at(t + window)}에 해제)"
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    return None
+
+
+def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -75,6 +97,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         elif m in held:
             s = (stuck or {}).get(m)
             cls, tag = 'rk-held', '보유' + (f" · 묶임({s.get('state', '')})" if s else '') + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
+        elif rank <= p.M and rs > 0 and reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now):
+            # 재매수 금지 중인 후보는 '투자 대상'으로 세지 않는다(주문안이 사지 않는다). 이유와 해제 시각을 적는다.
+            cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now)
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
             cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
@@ -746,7 +771,7 @@ class Bot:
         warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
         promote_api = self.manual_action() if self.live.cfg.get('enabled') and self.can_act() else None
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
-                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info()) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {})) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]

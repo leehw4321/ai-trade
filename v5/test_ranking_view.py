@@ -48,3 +48,31 @@ class RankingView(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReentryNoteView(unittest.TestCase):
+    P = st.Params(reentry_profit_hours=4.0, reentry_loss_hours=24.0, reentry_window_hours=24.0, reentry_dip_atr=1.0)
+    NOW = 1_800_000_000.0
+
+    def rows(self, last_sells, ranking=None):
+        ranking = ranking or [{'market': 'KRW-A', 'rs': .08, 'rank': 2}, {'market': 'KRW-B', 'rs': .06, 'rank': 3}]
+        return bot.ranking_rows(ranking, set(), set(), self.P, last_sells=last_sells, now=self.NOW).split('</tr>')
+
+    def test_loss_exit_shows_reason_and_release_time_and_is_not_a_candidate(self):
+        lines = self.rows({'KRW-A': {'time': self.NOW - 3600, 'price': 100.0, 'profit': False, 'reason': '손절'}})
+        self.assertIn('재매수 금지', lines[0]); self.assertIn('손실 청산·손절', lines[0])
+        self.assertIn('23.0시간 남음', lines[0]); self.assertIn('해제', lines[0])
+        self.assertNotIn('투자 대상', lines[0])
+        self.assertIn('투자 대상', lines[1])      # 막힌 종목은 후보 자리를 차지하지 않는다
+
+    def test_profit_exit_waits_then_needs_a_dip_then_expires(self):
+        last = {'KRW-A': {'time': self.NOW - 3600, 'price': 100.0, 'profit': True, 'reason': '이익보호'}}
+        self.assertIn('3.0시간 남음', self.rows(last)[0])
+        last['KRW-A']['time'] = self.NOW - 5 * 3600
+        self.assertIn('눌려야 함', self.rows(last)[0])
+        last['KRW-A']['time'] = self.NOW - 25 * 3600
+        self.assertNotIn('재매수', self.rows(last)[0]); self.assertIn('투자 대상', self.rows(last)[0])
+
+    def test_no_note_without_sell_record_or_for_bad_record(self):
+        self.assertNotIn('재매수', self.rows({})[0])
+        self.assertNotIn('재매수', self.rows({'KRW-A': {'time': 'x'}})[0])

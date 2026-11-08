@@ -99,6 +99,17 @@ def claim_slot(slot, path=None):
 MIN_HOLD_KRW = 5000   # 업비트 최소 주문 금액. 이보다 작은 잔고는 자투리
 
 
+def effective_slots(base, market_index):
+    """장세별 최대 보유 종목 수(regime_slots: [[지수 하한, 종목 수], ...] 내림차순). 비어 있거나 지수를 모르면 slots 그대로. 신규 매수만 줄이고 보유·매도는 건드리지 않는다."""
+    tiers = getattr(base, 'regime_slots', None)
+    if not tiers or type(market_index) not in (int, float) or not math.isfinite(market_index):
+        return base.slots
+    for floor, n in tiers:
+        if market_index >= floor:
+            return min(base.slots, int(n)) if getattr(base, 'regime_slots_cap_only', False) else int(n)
+    return base.slots
+
+
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
              promoted=None, hot=None, protected=None, costs=None, stuck_out=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
@@ -169,14 +180,15 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     sell_queued = set(sells)
     picks = []
     want, scan = base.entry_want or base.entry_top, base.entry_scan or base.entry_top
+    slots = effective_slots(base, market_index)
     if not getattr(base, 'rank_exit', True):
         # 순위 매도를 끈 뒤에는 봇 보유 종목 수 상한(slots)을 지킨다(사용자 지시 2026-11-05: 최대 4종목). 보호 종목·5,000원 미만 자투리는 세지 않는다.
         bot_held = {m: v for m, v in holdings.items() if v >= 5000 and m not in protected and m not in sell_queued}
         count = len(bot_held)
         if not getattr(base, 'swap_stuck_loss', False):   # 부분 교체가 켜져 있으면 자리는 아래에서 금액 기준으로 센다
-            want = max(0, min(want, base.slots - count))
+            want = max(0, min(want, slots - count))
         stuck_n = sum(1 for _ in (stuck_out or {}))
-        reasons.append(f'봇 보유 {count}/{base.slots}종목' + (f' (묶임 {stuck_n})' if stuck_n else '') + f' → 신규 매수 최대 {want}종목')
+        reasons.append(f'봇 보유 {count}/{slots}종목' + (f' (장세 지수 {market_index:+.2%} 기준 한도, 기본 {base.slots})' if slots != base.slots else '') + (f' (묶임 {stuck_n})' if stuck_n else '') + f' → 신규 매수 최대 {want}종목')
     if rotation.enabled(base): scan = min(scan, base.M)
     regime_closed = False
     if getattr(base, 'halt_new_buys', False):
@@ -233,7 +245,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
         # 묶임(손실 중) 중 상승률이 가장 약한 한 종목을 모자란 만큼만 판다(남는 양이 1만 원 미만이면 전량). 묶임(이익 중)·보호 종목은 팔지 않는다.
         unit = unit_size or caps['max_order_krw']
         used = sum(min(1.0, v / unit) for v in bot_held.values())
-        short = max(max(0.0, 1 - (base.slots - used)) * unit, unit - cash)
+        short = max(max(0.0, 1 - (slots - used)) * unit, unit - cash)
         losers = sorted(((s['rs'] if isinstance(s.get('rs'), (int, float)) else -1.0), m) for m, s in (stuck_out or {}).items()
                         if s.get('state') == '손실 중' and m in bot_held)
         if short > 0 and losers:
@@ -245,9 +257,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             cash += v * pct / 100 * 0.997 * 0.98
             used -= min(1.0, v / unit) - min(1.0, v * (1 - pct / 100) / unit)
             reasons.append(f'{k[4:]} 부분 교체 매도 {pct}% (약 {v * pct / 100:,.0f}원): 묶임(손실 중) 중 가장 약함, 새 매수 자리·현금 확보')
-        n = max(0, int(base.slots - used + 1e-9))
+        n = max(0, int(slots - used + 1e-9))
         if len(picks) > n:
-            reasons.append(f'봇 자리(금액 기준) {used:.2f}/{base.slots}칸 → 매수 후보 {len(picks)}개 중 {n}개만')
+            reasons.append(f'봇 자리(금액 기준) {used:.2f}/{slots}칸 → 매수 후보 {len(picks)}개 중 {n}개만')
             picks = picks[:n]
         if not picks and partial:
             reasons.append('교체 매도 취소: 자리가 나지 않아 살 수 없음')

@@ -50,6 +50,8 @@ class Params:
     giveback: float = 0.5         # 고점 이익 중 이 비율 이상 반납하면 청산 (0이면 끔)
     # 장세 필터(2026-11-04 사용자 지시·ChatGPT 합의 요청): 켜면 시장 균등지수가 상승일 때만 신규 매수한다. 매도·손절·이익보호는 그대로.
     regime_filter: bool = False
+    regime_slots: tuple = ()      # 장세별 최대 보유 종목 수 [[24시간 지수 하한, 종목 수], ...] 내림차순(2026-11-08). 비면 slots 고정
+    regime_slots_cap_only: bool = False   # True면 slots보다 늘리지 않고 줄이기만 한다
     regime_bars: int = 96         # 균등지수 기간(15분봉 96개 = 24시간)
     regime_min_markets: int = 20  # 지수 계산에 필요한 최소 종목 수. 모자라면 신규 매수 보류
     halt_new_buys: bool = False  # preserve latest other-session temporary buy halt

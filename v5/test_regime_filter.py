@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 from unittest.mock import patch
 
 import shadow
@@ -23,6 +23,43 @@ class MarketIndex(unittest.TestCase):
         self.assertIsNone(st.market_index({f'KRW-C{i}': bars(100, 110) for i in range(19)}, 96, min_markets=20))
         self.assertIsNone(st.market_index({f'KRW-C{i}': bars(100, 110, n=50) for i in range(30)}, 96, min_markets=20))
         self.assertIsNone(st.market_index({}, 96))
+
+
+class MarketIndexByTime(unittest.TestCase):
+    """2026-11-09 업비트 봉 공백(01:45~07:00 KST) 재현: 봉 개수가 아니라 시각으로 24시간 전과 비교한다."""
+
+    @staticmethod
+    def iso_bars(first, last, gap=None, extra=0):
+        import datetime as d
+        end = d.datetime(2026, 11, 9, 0, 45, tzinfo=d.timezone.utc)
+        out = []
+        for k in range(199, -1, -1):
+            t = end - d.timedelta(minutes=15 * k)
+            if gap and gap[0] < t < gap[1] and not (extra and t == gap[0] + d.timedelta(minutes=15)):
+                continue
+            c = last if k == 0 else first if t <= end - d.timedelta(hours=24) else (first + last) / 2
+            out.append({'c': c, 'h': c, 'l': c, 't': t.isoformat()})
+        return out
+
+    def test_exchange_gap_still_compares_with_exactly_24h_ago(self):
+        import datetime as d
+        gap = (d.datetime(2026, 11, 8, 16, 45, tzinfo=d.timezone.utc), d.datetime(2026, 11, 8, 22, 0, tzinfo=d.timezone.utc))
+        data = {f'KRW-A{i}': self.iso_bars(100, 110, gap) for i in range(15)}
+        data.update({f'KRW-B{i}': self.iso_bars(100, 110, gap, extra=1) for i in range(15)})
+        self.assertAlmostEqual(st.market_index(data, 96, min_markets=20), 0.10)
+        self.assertAlmostEqual(st.market_index(data, 8, min_markets=20), 110 / 105 - 1)  # 2시간 전(공백 이후)도 정확한 시각
+        self.assertIsNone(st.market_index(data, 16, min_markets=20))  # 4시간 전이 공백 한가운데면 오래된 값으로 채우지 않는다
+
+    def test_missing_bar_uses_previous_close_but_not_stale_data(self):
+        data = {f'KRW-A{i}': self.iso_bars(100, 110) for i in range(20)}
+        thin = self.iso_bars(100, 110)
+        del thin[-97]  # 24시간 전 그 봉만 거래가 없음 → 직전 봉 종가 사용
+        data['KRW-THIN'] = thin
+        self.assertAlmostEqual(st.market_index(data, 96, min_markets=21), 0.10)
+        old = self.iso_bars(100, 110)
+        del old[-140:-1]  # 마지막 봉 직전 기록이 수십 시간 비어 있음 → 제외
+        data['KRW-OLD'] = old
+        self.assertIsNone(st.market_index(data, 96, min_markets=22))
 
 
 class RegimeGate(unittest.TestCase):

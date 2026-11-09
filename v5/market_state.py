@@ -1,4 +1,4 @@
-"""시장 자세 바(폭락·약세·횡보·상승·폭등)와 공포·탐욕 지수. 화면 표시와 기록 전용이며 주문 판단에 쓰지 않는다.
+"""시장 자세 바(폭락·하락·횡보·상승·폭등)와 공포·탐욕 지수. 화면 표시와 기록 전용이며 주문 판단에 쓰지 않는다.
 
 자세는 봇의 장세 필터와 같은 '거래대금 상위 종목 균등지수 24시간 수익률'로 정한다. 구간 경계(±2%, ±6%)는 보기 위한 눈금이다.
 공포·탐욕은 Alternative.me의 일간 BTC 중심 지표(0 극도의 공포 ~ 100 극도의 탐욕)이며 v4 화면과 같은 출처다.
@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.request
 
-ZONES = (('폭락', -1e9, -0.06, '#b42318'), ('약세', -0.06, -0.02, '#e8833a'), ('횡보', -0.02, 0.02, '#9aa6af'),
+ZONES = (('폭락', -1e9, -0.06, '#b42318'), ('하락', -0.06, -0.02, '#e8833a'), ('횡보', -0.02, 0.02, '#9aa6af'),
          ('상승', 0.02, 0.06, '#5fae4b'), ('폭등', 0.06, 1e9, '#1a7f37'))
 SPAN = 0.10            # 바의 양 끝 = ±10%
 BRAKE_4H = -0.02
@@ -107,28 +107,117 @@ def _pos(x):
     return max(1.0, min(99.0, (x + SPAN) / (2 * SPAN) * 100))
 
 
-def render(state, fng, now=None, esc=html.escape):
-    """머리글의 새로고침 버튼 옆에 들어가는 한 줄짜리 자세 바와 공포·탐욕."""
+FNG_ZONES = (('극공포', 0, 25, '#dc2626'), ('공포', 25, 45, '#f97316'), ('중립', 45, 55, '#eab308'),
+             ('탐욕', 55, 75, '#84cc16'), ('극탐욕', 75, 100, '#16a34a'))
+
+
+def _fng_bar(v):
+    """공포·탐욕 막대: 구간 이름·경계선·눈금(25·45·55·75)과 지금 값 선."""
+    now = next((n for n, lo, hi, _ in FNG_ZONES if lo <= v < hi), FNG_ZONES[-1][0])
+    segs = ''.join(f"<div style='flex:{hi - lo};background:{c};opacity:{1 if n == now else .5};color:#fff;font-size:13px;text-align:center;"
+                   f"line-height:40px;white-space:nowrap;overflow:hidden;font-weight:{800 if n == now else 500};"
+                   f"{'box-shadow:inset 0 0 0 3px var(--ink);' if n == now else ''}text-shadow:0 1px 2px rgba(0,0,0,.45)'>{n}</div>"
+                   for n, lo, hi, c in FNG_ZONES)
+    ticks = ''.join(f"<span style='position:absolute;left:{t}%;top:14px;width:2px;height:46px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.35);"
+                    f"transform:translateX(-50%)'></span><span style='position:absolute;left:{t}%;top:62px;transform:translateX(-50%);"
+                    f"font-size:11px;line-height:11px;color:var(--muted);font-weight:700'>{t}</span>" for t in (25, 45, 55, 75))
+    return (f"<span style='position:relative;display:inline-block;width:min(380px,72vw);height:76px'>"
+            f"<span style='position:absolute;left:0;right:0;top:14px;display:flex;height:40px;border-radius:8px;overflow:hidden'>{segs}</span>{ticks}"
+            f"<span style='position:absolute;left:{max(1, min(99, v))}%;top:8px;width:5px;height:52px;background:var(--ink);border-radius:2px;"
+            f"box-shadow:0 0 0 2px #fff;transform:translateX(-50%)'></span></span>")
+
+
+SLOT_NAMES = ('폭락', '하락', '횡보', '상승', '폭등')
+SLOT_COLORS = ('#b42318', '#e8833a', '#9aa6af', '#5fae4b', '#1a7f37')
+
+
+def slot_zones(tiers):
+    """봇의 regime_slots([[24h 지수 하한, 종목 수], ...] 내림차순)를 낮은 구간부터 (이름, 하한, 상한, 색, 종목 수)로 바꾼다."""
+    rows = sorted(((float(f), int(n)) for f, n in tiers), key=lambda r: r[0])
+    out = []
+    for i, (lo, n) in enumerate(rows):
+        hi = rows[i + 1][0] if i + 1 < len(rows) else 1e9
+        k = round(i * (len(SLOT_NAMES) - 1) / max(1, len(rows) - 1))
+        out.append((SLOT_NAMES[k] if len(rows) == len(SLOT_NAMES) else f'{n}종목', -1e9 if i == 0 else lo, hi, SLOT_COLORS[k], n))
+    return out
+
+
+def _slot_bar(state, tiers, base_slots, esc):
+    """장세별 최대 보유 종목 수를 구간 막대로 보인다. 경계·종목 수는 봇 설정(regime_slots)에서 그대로 읽는다."""
+    zones = slot_zones(tiers)
+    cuts = [z[1] for z in zones[1:]]
+    span = max(0.06, max(abs(c) for c in cuts) * 2) if cuts else 0.06
+    pos = lambda x: max(1.0, min(99.0, (x + span) / (2 * span) * 100))
+    x = state.get('index_24h') if state else None
+    known = isinstance(x, (int, float))
+    cur = next((z for z in zones if z[1] <= x < z[2]), zones[-1]) if known else None
+    segs = ''.join(f"<div style='flex:{(min(hi, span) - max(lo, -span)) / (2 * span):.3f};background:{c};opacity:{1 if cur and n == cur[0] else .5};"
+                   f"color:#fff;text-align:center;line-height:17px;padding-top:3px;white-space:nowrap;overflow:hidden;font-weight:{800 if cur and n == cur[0] else 500};"
+                   f"{'box-shadow:inset 0 0 0 3px var(--ink);' if cur and n == cur[0] else ''}text-shadow:0 1px 2px rgba(0,0,0,.45)'>"
+                   f"<div style='font-size:13px'>{n}</div><div style='font-size:15px'>{k}종목</div></div>"
+                   for n, lo, hi, c, k in zones)
+    ticks = ''.join(f"<span style='position:absolute;left:{pos(v):.1f}%;top:14px;width:2px;height:46px;background:#fff;"
+                    f"box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%)'></span>"
+                    f"<span style='position:absolute;left:{pos(v):.1f}%;top:62px;transform:translateX(-50%);font-size:11px;line-height:11px;"
+                    f"color:var(--muted);font-weight:700'>{v:+.0%}</span>" for v in cuts)
+    x4 = state.get('index_4h') if state else None
+    m4 = (f"<span title='4시간 균등지수 {x4:+.2%}' style='position:absolute;left:{pos(x4):.1f}%;top:0;transform:translateX(-50%);"
+          f"font-size:12px;line-height:12px;color:var(--muted)'>▼4h</span>") if isinstance(x4, (int, float)) else ''
+    mark = (f"<span style='position:absolute;left:{pos(x):.1f}%;top:8px;width:5px;height:52px;background:var(--ink);border-radius:2px;"
+            f"box-shadow:0 0 0 2px #fff;transform:translateX(-50%)'></span>") if known else ''
+    btc = state.get('btc_24h') if state else None
+    tip = (f"봇 신규 매수 최대 보유 종목 수 = 24시간 거래대금 상위 균등지수 구간(설정 regime_slots) · 양 끝 ±{span:.0%} · 검은 선 = 지금 값 · ▼4h = 4시간 참고"
+           + (f" · {str(state.get('at', ''))[11:16]} 판단" if state else '') + (f" · BTC 24시간 {btc:+.2%}" if isinstance(btc, (int, float)) else ''))
+    if known:
+        head = f"<b style='font-size:22px;color:{cur[3]}'>{esc(cur[0])} · 최대 {cur[4]}종목</b>"
+        note = (f"<span class=sub style='font-size:14px'>24h <b>{x:+.2%}</b>" + (f" · 4h {x4:+.2%}" if isinstance(x4, (int, float)) else '')
+                + f" · 오름 {state.get('up', 0)}/{state.get('total', 0)}</span>")
+    else:
+        head = f"<b style='font-size:22px;color:#b42318'>지수 없음 · 기본 {base_slots}종목</b>"
+        note = ("<span class=sub style='font-size:13px'>24시간 지수를 계산하지 못해(봉 자료 부족·공백) 구간 대신 기본값이 적용됩니다</span>"
+                if state else "<span class=sub>첫 판단 뒤 표시</span>")
+    return (f"<span title='{esc(tip)}' style='display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap'>{head}"
+            f"<span style='position:relative;display:inline-block;width:min(600px,92vw);height:76px'>"
+            f"<span style='position:absolute;left:0;right:0;top:14px;display:flex;height:40px;border-radius:8px;overflow:hidden'>{segs}</span>"
+            f"{ticks}{mark}{m4}</span>{note}"
+            + (_filter_note(state) if state else '')
+            + ("<b class=warn style='font-size:12px'>4h 급락: 브레이크 기록</b>" if state and state.get('brake_4h') else '') + "</span>")
+
+
+def render(state, fng, now=None, esc=html.escape, tiers=None, base_slots=None):
+    """머리글의 새로고침 버튼 바로 아래 줄에 들어가는 장세 바와 공포·탐욕.
+    tiers(봇 regime_slots)가 있으면 장세 바를 봇의 실제 장세별 종목 수 구간으로 그린다."""
     now = now or time.time()
-    if not state or not isinstance(state.get('index_24h'), (int, float)):
+    if tiers:
+        bar = _slot_bar(state, tiers, base_slots, esc)
+    elif not state or not isinstance(state.get('index_24h'), (int, float)):
         bar = "<span class=sub>시장 자세: 첫 판단 뒤 표시</span>"
     else:
         x = state['index_24h']; name, color = zone(x)
-        segs = ''.join(f"<div style='flex:{(min(hi, SPAN) - max(lo, -SPAN)) / (2 * SPAN):.3f};background:{c};opacity:{1 if n == name else .55};"
-                       f"color:#fff;font-size:10.5px;text-align:center;line-height:18px;font-weight:{800 if n == name else 400}'>{n}</div>"
+        segs = ''.join(f"<div style='flex:{(min(hi, SPAN) - max(lo, -SPAN)) / (2 * SPAN):.3f};background:{c};opacity:{1 if n == name else .5};"
+                       f"color:#fff;font-size:15px;text-align:center;line-height:40px;font-weight:{800 if n == name else 500};"
+                       f"{'box-shadow:inset 0 0 0 3px var(--ink);' if n == name else ''}text-shadow:0 1px 2px rgba(0,0,0,.45)'>{n}</div>"
                        for n, lo, hi, c in ZONES)
+        # 구간 경계선(-6%·-2%·+2%·+6%), 아래에 눈금 숫자(0 포함)
+        cuts = sorted({v for _, lo, hi, _ in ZONES for v in (lo, hi) if -SPAN < v < SPAN})
+        lines = ''.join(f"<span style='position:absolute;left:{_pos(v):.1f}%;top:14px;width:2px;height:46px;background:#fff;"
+                        f"box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%)'></span>"
+                        f"<span style='position:absolute;left:{_pos(v):.1f}%;top:62px;transform:translateX(-50%);font-size:11px;line-height:11px;"
+                        f"color:var(--muted);font-weight:700'>{v:+.0%}</span>" for v in cuts)
+        lines += (f"<span style='position:absolute;left:50%;top:62px;transform:translateX(-50%);font-size:11px;line-height:11px;color:var(--muted)'>0</span>")
         x4 = state.get('index_4h')
-        m4 = (f"<span title='4시간 균등지수 {x4:+.2%}' style='position:absolute;left:{_pos(x4):.1f}%;top:17px;transform:translateX(-50%);"
-              f"font-size:9px;line-height:9px;color:var(--muted)'>▲</span>") if isinstance(x4, (int, float)) else ''
+        m4 = (f"<span title='4시간 균등지수 {x4:+.2%}' style='position:absolute;left:{_pos(x4):.1f}%;top:0;transform:translateX(-50%);"
+              f"font-size:12px;line-height:12px;color:var(--muted)'>▼4h</span>") if isinstance(x4, (int, float)) else ''
         btc = state.get('btc_24h')
-        tip = (f"거래대금 상위 균등지수(봇 장세 필터와 같은 값, 0 이하면 신규 매수 보류) · 양 끝 ±10% · 눈금 ±2%·±6%는 보기용 · "
-               f"▲ = 4시간 · {str(state.get('at', ''))[11:16]} 판단" + (f" · BTC 24시간 {btc:+.2%}" if isinstance(btc, (int, float)) else ''))
-        bar = (f"<span title='{esc(tip)}' style='display:inline-flex;align-items:center;gap:8px'>"
-               f"<b style='font-size:16px;color:{color}'>{esc(name)}</b>"
-               f"<span style='position:relative;display:inline-block;width:250px;height:26px'>"
-               f"<span style='display:flex;height:18px;border-radius:4px;overflow:hidden'>{segs}</span>"
-               f"<span style='position:absolute;left:{_pos(x):.1f}%;top:-3px;width:3px;height:24px;background:var(--ink);transform:translateX(-50%)'></span>{m4}</span>"
-               f"<span class=sub>24h <b>{x:+.2%}</b>" + (f" · 4h {x4:+.2%}" if isinstance(x4, (int, float)) else '')
+        tip = (f"거래대금 상위 균등지수(봇 장세 필터와 같은 값, 0 이하면 신규 매수 보류) · 양 끝 ±10% · 경계 ±2%·±6% · "
+               f"검은 선 = 24시간 지금 값 · ▼4h = 4시간 · {str(state.get('at', ''))[11:16]} 판단" + (f" · BTC 24시간 {btc:+.2%}" if isinstance(btc, (int, float)) else ''))
+        bar = (f"<span title='{esc(tip)}' style='display:inline-flex;align-items:center;gap:10px'>"
+               f"<b style='font-size:22px;color:{color}'>{esc(name)}</b>"
+               f"<span style='position:relative;display:inline-block;width:min(560px,72vw);height:76px'>"
+               f"<span style='position:absolute;left:0;right:0;top:14px;display:flex;height:40px;border-radius:8px;overflow:hidden'>{segs}</span>{lines}"
+               f"<span style='position:absolute;left:{_pos(x):.1f}%;top:8px;width:5px;height:52px;background:var(--ink);border-radius:2px;"
+               f"box-shadow:0 0 0 2px #fff;transform:translateX(-50%)'></span>{m4}</span>"
+               f"<span class=sub style='font-size:14px'>24h <b>{x:+.2%}</b>" + (f" · 4h {x4:+.2%}" if isinstance(x4, (int, float)) else '')
                + f" · 오름 {state.get('up', 0)}/{state.get('total', 0)}</span>"
                + _filter_note(state)
                + ("<b class=warn style='font-size:12px'>4h 급락: 브레이크 기록</b>" if state.get('brake_4h') else '') + "</span>")
@@ -136,11 +225,9 @@ def render(state, fng, now=None, esc=html.escape):
         v = fng['value']; old = now - fng.get('fetched', 0) > 48 * 3600
         c = '#dc2626' if v < 25 else '#f97316' if v < 45 else '#eab308' if v < 55 else '#84cc16' if v < 75 else '#16a34a'
         g = (f"<span title='공포·탐욕 지수(Alternative.me 일간, BTC 중심) 0 극도의 공포 ~ 100 극도의 탐욕' "
-             f"style='display:inline-flex;align-items:center;gap:6px'><span class=sub>공포·탐욕</span>"
-             f"<b style='font-size:18px;color:{c}'>{v}</b><span class=sub>{esc(str(fng.get('label') or ''))}{' (오래됨)' if old else ''}</span>"
-             f"<span style='position:relative;display:inline-block;width:80px;height:8px;border-radius:4px;"
-             f"background:linear-gradient(90deg,#dc2626,#f97316,#eab308,#84cc16,#16a34a)'>"
-             f"<span style='position:absolute;left:{max(1, min(99, v))}%;top:-3px;width:3px;height:14px;background:var(--ink);transform:translateX(-50%)'></span></span></span>")
+             f"style='display:inline-flex;align-items:center;gap:10px'><span class=sub style='font-size:14px'>공포·탐욕</span>"
+             f"<b style='font-size:26px;color:{c}'>{v}</b><span class=sub>{esc(str(fng.get('label') or ''))}{' (오래됨)' if old else ''}</span>"
+             + _fng_bar(v) + "</span>")
     else:
         g = "<span class=sub>공포·탐욕 수신 대기</span>"
-    return f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px;font-weight:400'>{bar}{g}</div>"
+    return f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;font-weight:400;flex-basis:100%;margin-top:4px'>{bar}{g}</div>"

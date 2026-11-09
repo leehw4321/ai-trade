@@ -15,22 +15,31 @@ def bars(closes):
 
 
 class MarketState(unittest.TestCase):
+    def test_slot_bar_uses_bot_tiers(self):
+        tiers = [[0.03, 5], [0.01, 4], [-0.01, 3], [-0.03, 2], [-9, 1]]
+        z = ms.slot_zones(tiers)
+        self.assertEqual([(n, k) for n, _, _, _, k in z], [('폭락', 1), ('하락', 2), ('횡보', 3), ('상승', 4), ('폭등', 5)])
+        page = ms.render({'index_24h': -0.015, 'up': 9, 'total': 30, 'at': 'x'}, None, tiers=tiers, base_slots=3)
+        self.assertIn('하락 · 최대 2종목', page)
+        self.assertIn('+3%', page)
+        self.assertIn('지수 없음 · 기본 3종목', ms.render({'index_24h': None, 'at': 'x'}, None, tiers=tiers, base_slots=3))
+
     def test_zones_and_compute(self):
         self.assertEqual(ms.zone(-0.08)[0], '폭락')
-        self.assertEqual(ms.zone(-0.03)[0], '약세')
+        self.assertEqual(ms.zone(-0.03)[0], '하락')
         self.assertEqual(ms.zone(0.0)[0], '횡보')
         self.assertEqual(ms.zone(0.03)[0], '상승')
         self.assertEqual(ms.zone(0.2)[0], '폭등')
         uni = {'KRW-BTC': bars([100] * 96 + [110]), 'KRW-A': bars([100] * 96 + [90])}
         s = ms.compute(uni, -0.03, -0.025, '2026-11-06T12:00+09:00')
-        self.assertEqual((s['up'], s['total'], s['zone'], s['brake_4h']), (1, 2, '약세', True))
+        self.assertEqual((s['up'], s['total'], s['zone'], s['brake_4h']), (1, 2, '하락', True))
         self.assertAlmostEqual(s['btc_24h'], 0.10)
 
     def test_render_with_and_without_data(self):
         self.assertIn('첫 판단 뒤', ms.render(None, None))
         page = ms.render({'index_24h': -0.047, 'index_4h': -0.01, 'up': 5, 'total': 30, 'at': '2026-11-06T12:00+09:00'},
                          {'value': 22, 'label': '극도의 공포', 'fetched': 0}, now=1)
-        for want in ('약세', '-4.70%', '5/30', '공포·탐욕', '22'):
+        for want in ('하락', '-4.70%', '5/30', '공포·탐욕', '22'):
             self.assertIn(want, page)
 
     def test_fng_fetch_saves_and_rejects_bad_value(self):

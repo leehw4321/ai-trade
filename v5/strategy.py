@@ -91,13 +91,75 @@ def relative_strength(bars, L):
     return bars[-1]['c'] / bars[-1 - L]['c'] - 1
 
 
-def market_index(bars_by_market, n, min_markets=20):
-    """종목들의 최근 n개 봉 상승률의 단순 평균(균등지수 수익률). 자료가 부족·불일치하면 None.
+def _bar_time(bar):
+    try:
+        import datetime as _dt
+        return _dt.datetime.fromisoformat(bar['t']).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
 
-    비정상 값(NaN·무한대·0 이하)은 제외한다. 대다수 종목과 마지막 봉 시각 또는 n봉 전 봉 시각이 다른 종목(결측·정지)도 제외한다.
+
+def _market_index_by_time(bars_by_market, n, min_markets):
+    """시각 기준 균등지수: 공통 마지막 봉 시각에서 정확히 n봉 길이(n × 봉 간격) 전 시각의 가격과 비교한다.
+
+    2026-11-09: 업비트 15분봉이 01:45~07:00(KST) 모든 종목에서 비어, 봉 개수로 거슬러 가면 종목마다 기준 시각이 갈라져
+    지수가 하루 가까이 None이 됐다(장세별 종목 수가 기본값으로 떨어짐). 그 시각의 봉이 없으면(거래 없음·거래소 공백)
+    그 직전 봉 종가가 그 시각의 가격이다. 직전 봉이 기간의 1/4(최소 1봉)보다 오래되면 자료 부족으로 그 종목을 뺀다.
+    반환: 지수(float) / None(자료 부족) / False(시각을 읽을 수 없어 판단 불가 → 호출자가 기존 방식 사용).
+    """
+    import bisect
+    series = {}
+    for m, bars in bars_by_market.items():
+        if not bars:
+            continue
+        ts = [_bar_time(b) for b in bars]
+        if any(t is None for t in ts):
+            return False
+        series[m] = (ts, bars)
+    if not series:
+        return None
+    lasts = {}
+    for ts, _ in series.values():
+        lasts[ts[-1]] = lasts.get(ts[-1], 0) + 1
+    common = max(lasts, key=lasts.get)
+    steps = {}
+    for ts, _ in series.values():
+        for x, y in zip(ts[-8:], ts[-7:]):
+            if y > x:
+                steps[y - x] = steps.get(y - x, 0) + 1
+    if not steps:
+        return None
+    step = max(steps, key=lambda d: (steps[d], -d))
+    target = common - n * step
+    stale = max(step, n * step / 4)
+    values = []
+    for ts, bars in series.values():
+        if ts[-1] != common or ts[0] > target:
+            continue
+        i = bisect.bisect_right(ts, target) - 1
+        if i < 0 or target - ts[i] > stale:
+            continue
+        try:
+            last, first = float(bars[-1]['c']), float(bars[i]['c'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(last) and math.isfinite(first)) or last <= 0 or first <= 0:
+            continue
+        values.append(last / first - 1)
+    return sum(values) / len(values) if len(values) >= min_markets else None
+
+
+def market_index(bars_by_market, n, min_markets=20):
+    """종목들의 최근 n개 봉 기간 상승률의 단순 평균(균등지수 수익률). 자료가 부족·불일치하면 None.
+
+    봉 시각(ISO)을 읽을 수 있으면 시각 기준(_market_index_by_time)으로 계산해 거래소 봉 공백에도 정확히 n봉 길이 전과 비교한다.
+    비정상 값(NaN·무한대·0 이하)은 제외한다. 대다수 종목과 마지막 봉 시각이 다른 종목(결측·정지)도 제외한다.
     """
     if type(n) is not int or n < 1 or type(min_markets) is not int or min_markets < 1:
         raise ValueError('regime_bars와 regime_min_markets는 1 이상의 정수여야 합니다')
+    by_time = _market_index_by_time(bars_by_market, n, min_markets)
+    if by_time is not False:
+        return by_time
     rows = []
     for bars in bars_by_market.values():
         if len(bars) <= n:

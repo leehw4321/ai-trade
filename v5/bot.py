@@ -816,7 +816,8 @@ class Bot:
             watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl', live_hours=self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None) + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
-        market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'))
+        market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),
+                           tiers=getattr(p, 'regime_slots', None), base_slots=p.slots)
         blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
         page = f"""<!doctype html><html lang=ko><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>자동거래 v5</title>

@@ -65,6 +65,17 @@ class ReentryNoteView(unittest.TestCase):
         self.assertNotIn('투자 대상', lines[0])
         self.assertIn('투자 대상', lines[1])      # 막힌 종목은 후보 자리를 차지하지 않는다
 
+    def test_banned_row_shows_buy_sell_and_current_price(self):
+        last = {'KRW-A': {'time': self.NOW - 3600, 'price': 95.5, 'profit': False, 'reason': '손절', 'entry': 100.0}}
+        row = bot.ranking_rows([{'market': 'KRW-A', 'rs': .08, 'rank': 2}], set(), set(), self.P, last_sells=last, now=self.NOW,
+                               prices={'KRW-A': 97.25}).split('</tr>')[0]
+        self.assertIn('매수 100 → 매도 95.5 (-4.55%)', row)
+        self.assertIn('A <span class=sub>97.25원</span>', row)
+        old = {'KRW-A': {'time': self.NOW - 3600, 'price': 95.5, 'profit': False, 'reason': '손절'}}   # 예전 기록: 체결 기록에서 평단을 찾는다
+        row = bot.ranking_rows([{'market': 'KRW-A', 'rs': .08, 'rank': 2}], set(), set(), self.P, last_sells=old, now=self.NOW,
+                               entry_of=lambda m, t: 100.0).split('</tr>')[0]
+        self.assertIn('매수 100 → 매도 95.5', row)
+
     def test_profit_exit_waits_then_needs_a_dip_then_expires(self):
         last = {'KRW-A': {'time': self.NOW - 3600, 'price': 100.0, 'profit': True, 'reason': '이익보호'}}
         self.assertIn('3.0시간 남음', self.rows(last)[0])

@@ -123,6 +123,24 @@ def patch_config(app, patch):
     for section, values in patch.items():
         cfg.setdefault(section, {}).update(values)
     f.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+    sync_agreed(patch)
+
+
+AGREED = ROOT / 'tools' / 'agreed_config.json'
+
+
+def sync_agreed(patch, path=None):
+    """설정을 바꾸면 두 PC 공통 기준(agreed_config.json)도 같이 바꾼다. 실행권 받기는 이 파일과 다르면 멈추므로 어긋나지 않게 한다.
+    live.enabled·session은 PC별 값이라 넣지 않는다. 바뀐 파일은 커밋해야 다른 PC에 전달된다."""
+    path = path or AGREED
+    if not path.exists():
+        return
+    d = json.loads(path.read_text(encoding='utf-8'))
+    for section, values in patch.items():
+        if section == 'session' or not isinstance(values, dict):
+            continue
+        d.setdefault(section, {}).update({k: v for k, v in values.items() if (section, k) != ('live', 'enabled')})
+    path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
 def request_stop(app):

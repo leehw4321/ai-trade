@@ -24,6 +24,7 @@ import strategy as st
 import rotation_policy as rotation
 import chase_override as co
 import missed_ledger
+import rank_defer
 import upbit
 from bot import boundary, load_params, SETTLE, KST, utc
 from paper import Ledger, now_iso
@@ -111,7 +112,7 @@ def effective_slots(base, market_index):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None, protected=None, costs=None, stuck_out=None):
+             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -166,6 +167,12 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             continue
         cands.append((rs if rs is not None else -1.0, m, v, why))
     for rs, m, v, why in sorted(cands):  # 약한 것부터, 1회 매도 한도 안에서
+        if defer is not None:  # 손실 중 순위 매도 유예(2026-11-10 사용자 지시, rank_defer.py)
+            hold, msg = rank_defer.check(defer['state'], m, v, defer['pos'].get(m), defer['now'], defer['hours'])
+            if hold:
+                reasons.append(f'{m[4:]} 유지: {msg} — {why}')
+                continue
+            if msg: why = f'{why} · {msg}'
         if sold + v > caps['max_sell_krw_per_plan']:
             reasons.append(f'{m[4:]} 매도 보류: 1회 매도 한도 {caps["max_sell_krw_per_plan"]:,}원 초과분 ({why})')
             continue
@@ -468,13 +475,23 @@ class Shadow:
         hot = co.update_hot_held(DATA, {m for m, v in holdings.items() if v >= 5000}, rs_of, self.base)
         co.reset_cooled(DATA, rs_of, self.base)  # 과열이 풀린 직접 지정은 지운다(다시 과열되면 원래 15% 규칙)
         promoted, protected = co.promoted(DATA), self.protected_markets()
+        lc = self.cfg.get('live', {})
+        defer = ({'state': rank_defer.load_state(DATA), 'pos': state.get('positions', {}), 'now': time.time(),
+                  'hours': float(lc.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS))}
+                 if lc.get('rank_loss_defer_enabled') is True else None)
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,
                                  promoted=promoted, hot=hot, protected=protected,
                                  costs={m: p.get('cost') for m, p in state.get('positions', {}).items() if isinstance(p, dict)},
-                                 stuck_out=(stuck := {}))
+                                 stuck_out=(stuck := {}), defer=defer)
+        if defer is not None:
+            try:
+                sold = {'KRW-' + x for x in re.findall(r'매도 ([A-Z0-9]+) ', text)}
+                rank_defer.finish(DATA, defer['state'], {m for m, v in holdings.items() if v >= MIN_HOLD_KRW}, sold, defer['now'])
+            except Exception as ex:
+                print(f'[{now_iso()}] 손실 유예 기록 실패: {type(ex).__name__}: {ex}', flush=True)
         co.write_stuck(DATA, stuck)
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()

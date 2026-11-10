@@ -498,7 +498,7 @@ class Live:
                         # 재진입 규칙(D-38)을 위해 전량 청산 기록을 남긴다
                         self.d.setdefault('last_sell', {})[m] = {'time': time.time(), 'price': df / dv, 'profit': (df - dfee - basis) > 0,
                                                                   'reason': str(pending.get('reason', ''))[:40],
-                                                                  'from_reentry': bool(pos.get('reentry'))}
+                                                                  'from_reentry': bool(pos.get('reentry')), 'entry': basis / dv}
                         del self.d['positions'][m]
         elif dfee > 0:
             if pending['side'] == 'bid':
@@ -1447,6 +1447,60 @@ class Live:
             raise
         except Exception as error:
             self.record({'event': '정체 탈출 매도 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False
+
+    def step_sell(self, market, w, price):
+        """계단 보호선 실거래(2026-11-10 사용자 지시 '2+5 적용해서 실거래'): ATR×1 계단·10분 유지로 인정된 보호선에
+        3초 가격이 닿으면 위험 청산 경로(_trade risk=True)로 시장가 매도한다. 기존 이익보호·손절은 그대로 함께 작동한다.
+        성공하면 True, 보류·실패면 False(다음 감시에서 다시)."""
+        if not self.cfg.get('step_stop_enabled') or not self.cfg['enabled'] or self.is_protected(market): return False
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0 or pos.get('time') != w.get('opened'): return False
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False
+        if self.market_has_uncertain_order(market): return False
+        try:
+            balances = {r['currency']: r for r in upbit.accounts()}
+            volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
+            if volume * price < 5000: return False
+            reason = f"계단 보호 {w.get('level')}계단"
+            self.record({'event': '계단 보호 매도 요청', 'market': market, 'stop': w.get('stop'), 'price': price, 'entry': w.get('entry'),
+                         'step': w.get('step'), 'level': w.get('level')})
+            o = self._trade('ask', market, volume, reason, risk=True)
+            v, funds, fee = self._fill(o)
+            if v <= 0: return False
+            w['fill_funds'], w['fill_fee'], w['fill_vol'] = funds, fee, v
+            self.share(f'{market[4:]} {reason} 매도 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            return True
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '계단 보호 매도 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False
+
+    def defer_sell(self, market, w, price):
+        """손실 중 순위 매도 유예(2026-11-10 사용자 지시 '유예적용, 4시간'): 유예 중 종목이 본전에 닿으면 위험 청산 경로로 시장가 매도한다.
+        성공하면 True, 보류·실패면 False(다음 감시에서 다시)."""
+        if not self.cfg.get('rank_loss_defer_enabled') or not self.cfg['enabled'] or self.is_protected(market): return False
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0 or pos.get('time') != w.get('opened'): return False
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False
+        if self.market_has_uncertain_order(market): return False
+        try:
+            balances = {r['currency']: r for r in upbit.accounts()}
+            volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
+            if volume * price < 5000: return False
+            reason = '손실 유예 본전 매도'
+            self.record({'event': '손실 유예 본전 매도 요청', 'market': market, 'be': w.get('be'), 'price': price})
+            o = self._trade('ask', market, volume, reason, risk=True)
+            v, funds, fee = self._fill(o)
+            if v <= 0: return False
+            w['fill_funds'], w['fill_fee'], w['fill_vol'] = funds, fee, v
+            self.share(f'{market[4:]} {reason} {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            return True
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '손실 유예 본전 매도 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
             return False
 
     def sweep_dust(self, market, markets, krw=DUST_BUY_KRW):

@@ -25,6 +25,8 @@ import daily_equity
 import daily_report
 import entry_flags
 import exit_watch
+import step_watch
+import rank_defer
 import regime_compare
 import market_state as ms
 import entry_flags_review
@@ -82,7 +84,8 @@ def reentry_note(last, p, now):
     return None
 
 
-def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None):
+def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None,
+                 prices=None, entry_of=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -101,7 +104,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             cls, tag = 'rk-held', '보유' + (f" · 묶임({s.get('state', '')})" if s else '') + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
         elif rank <= p.M and rs > 0 and reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now):
             # 재매수 금지 중인 후보는 '투자 대상'으로 세지 않는다(주문안이 사지 않는다). 이유와 해제 시각을 적는다.
-            cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now)
+            cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now) + trade_prices(last_sells[m], m, entry_of)
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
             cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
@@ -124,9 +127,58 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             btn += (f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>"
                     + (f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
 
-        out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{esc(m[4:])}</td>"
+        px = (prices or {}).get(m)
+        name = esc(m[4:]) + (f" <span class=sub>{fmt_price(px)}원</span>" if isinstance(px, (int, float)) and px > 0 else '')
+        out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{name}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
+
+
+def trade_prices(last, m, entry_of=None):
+    """재매수 금지 줄에 붙일 '매수 평단 → 매도가 (손익률)'. 매수 평단은 last_sell['entry'](2026-11-10부터 기록),
+    없으면 entry_of(종목, 매도 시각)로 체결 기록에서 찾는다. 모르면 매도가만."""
+    try:
+        sell = float(last.get('price'))
+        entry = last.get('entry')
+        if not isinstance(entry, (int, float)) and entry_of:
+            entry = entry_of(m, float(last['time']))
+        if isinstance(entry, (int, float)) and entry > 0:
+            return f" · 매수 {fmt_price(entry)} → 매도 {fmt_price(sell)} ({sell * (1 - 0.0005) / entry - 1:+.2%})"
+        return f" · 매도 {fmt_price(sell)}"
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return ''
+
+
+_ENTRY_CACHE = {'key': None, 'map': {}}
+
+
+def history_entries(path):
+    """pnl 체결 기록(data/pnl/orders.json)에서 종목별 매도 체결 시각과 그 직전 매수 평단(수수료 포함). 표시 전용, 파일 시각으로 캐시."""
+    try: key = path.stat().st_mtime
+    except OSError: return {}
+    if _ENTRY_CACHE['key'] == key: return _ENTRY_CACHE['map']
+    out, pos = {}, {}
+    try:
+        import pnl
+        for e in pnl.fills(json.loads(path.read_text(encoding='utf-8')).get('orders', {})):
+            q, c = pos.get(e['coin'], (0.0, 0.0)); v = float(e['vol'])
+            if e['side'] == 'bid':
+                pos[e['coin']] = (q + v, c + float(e['funds'] + e['fee']))
+            elif q > 0:
+                out.setdefault('KRW-' + e['coin'], []).append((e['time'].timestamp(), c / q))
+                left = max(0.0, q - v)
+                pos[e['coin']] = (left, c * left / q) if left * c / q >= 1 else (0.0, 0.0)
+    except Exception:
+        return _ENTRY_CACHE['map']
+    _ENTRY_CACHE.update(key=key, map=out)
+    return out
+
+
+def entry_lookup(path):
+    def find(m, t):
+        rows = [e for ts, e in history_entries(path).get(m, []) if t - 3 * 3600 <= ts <= t + 120]
+        return rows[-1] if rows else None
+    return find
 
 
 def stuck_html(stuck, esc=html.escape):
@@ -772,8 +824,14 @@ class Bot:
                 pass
         warned = {m: info for m, info in (self.markets or {}).items() if info.get('warning')}
         promote_api = self.manual_action() if self.live.cfg.get('enabled') and self.can_act() else None
+        try:  # 순위표 종목명 옆 현재가(사용자 지시 2026-11-10). 실패하면 직전 15분봉 종가
+            rk_m = [r['market'] for r in d.get('ranking', [])]
+            rank_px = {m: t['trade_price'] for m, t in upbit.tickers(rk_m).items()} if rk_m else {}
+        except Exception:
+            rank_px = {r['market']: r.get('close') for r in d.get('ranking', [])}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
-                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {})) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {}),
+                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json')) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]
@@ -814,6 +872,12 @@ class Bot:
         try:
             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
             watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl', live_hours=self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None) + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
+            if not hasattr(self, 'step_watch'): self.step_watch = step_watch.Watch(DATA)
+            watch_line = step_watch.render(self.step_watch, live=bool(self.live.cfg.get('step_stop_enabled'))) + watch_line   # 실험 비교를 맨 위에
+            if self.live.cfg.get('rank_loss_defer_enabled') is True:
+                if not hasattr(self, 'defer_watch'): self.defer_watch = rank_defer.Watch(DATA)
+                watch_line = rank_defer.render(self.defer_watch, float(self.live.cfg.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS)),
+                                               since=self.live.cfg.get('rank_loss_defer_since')) + watch_line
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),
@@ -1017,6 +1081,25 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                                                    live_sell=self.live.stagnation_sell if hours else None, live_hours=hours)
                         except SessionLost: raise
                         except Exception as ex: self.log('정체 탈출 오류(무시): ' + type(ex).__name__)
+                        try:  # 계단 보호선(2026-11-10 '2+5 실거래'): 켜져 있으면 실제 매도, 아니면 기록만. 이전 조건 비교용 시세도 받는다
+                            if not hasattr(self, 'step_watch'): self.step_watch = step_watch.Watch(DATA)
+                            extra = [m for m in self.step_watch.cf_markets() if m not in live]
+                            px_all = {**live, **({m: t['trade_price'] for m, t in upbit.tickers(extra).items()} if extra else {})}
+                            self.step_watch.update({m: p for m, p in self.live.d['positions'].items() if not self.live.is_protected(m)},
+                                                   px_all, atr_bars=lambda m: upbit.completed_candles(m, 15, 30),
+                                                   live_sell=self.live.step_sell if self.live.cfg.get('step_stop_enabled') else None,
+                                                   guard={'arm': self.live.cfg.get('profit_guard_arm_pct', 0.03), 'give': self.live.cfg.get('profit_guard_giveback', 0.3)})
+                        except SessionLost: raise
+                        except Exception as ex: self.log('계단 기록 오류(무시): ' + type(ex).__name__)
+                        try:  # 손실 중 순위 매도 유예(2026-11-10 '유예적용, 4시간'): 유예 중 종목이 본전에 닿으면 판다
+                            if not hasattr(self, 'defer_watch'): self.defer_watch = rank_defer.Watch(DATA)
+                            on = self.live.cfg.get('rank_loss_defer_enabled') is True
+                            if on or self.defer_watch.r:
+                                self.defer_watch.update({m: p for m, p in self.live.d['positions'].items() if not self.live.is_protected(m)},
+                                                        live, last_sell=self.live.d.get('last_sell'),
+                                                        live_sell=self.live.defer_sell if on else None)
+                        except SessionLost: raise
+                        except Exception as ex: self.log('손실 유예 오류(무시): ' + type(ex).__name__)
                         if now - last_trail >= self.p.stop_seconds:
                             self.live.trail_check()
                             last_trail = now

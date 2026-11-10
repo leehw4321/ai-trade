@@ -88,14 +88,62 @@ def update_code():
             shutil.copy2(REPO / 'v5' / name, APP / name)
 
 
-def align_config(enabled=None):
-    """두 PC가 같은 규칙을 쓰도록 저장소 기본값 위에 합의 조각(tools/patches)을 덮는다."""
+AGREED = REPO / 'tools' / 'agreed_config.json'
+PC_ONLY = {('live', 'enabled')}   # PC마다 다른 값(실거래 켜짐 여부)과 session 구역은 비교·덮어쓰기 대상이 아니다
+
+
+class ConfigMismatch(RuntimeError):
+    """이 PC 설정이 합의 설정(agreed_config.json)과 달라 실행권 받기를 멈춘다."""
+
+
+def agreed():
+    d = json.loads(AGREED.read_text(encoding='utf-8'))
+    return {k: v for k, v in d.items() if not k.startswith('_')}
+
+
+def config_diff(cfg=None):
+    """[(항목, 이 PC 값, 합의 값), ...]. 합의 파일에 있는 항목만 본다."""
+    if cfg is None:
+        path = APP / 'config.json'
+        if not path.exists():
+            return []
+        cfg = json.loads(path.read_text(encoding='utf-8-sig'))
+    out = []
+    for sec, vals in agreed().items():
+        if isinstance(vals, dict):
+            for k, v in vals.items():
+                if (sec, k) not in PC_ONLY and (cfg.get(sec) or {}).get(k) != v:
+                    out.append((f'{sec}.{k}', (cfg.get(sec) or {}).get(k), v))
+        elif cfg.get(sec) != vals:
+            out.append((sec, cfg.get(sec), vals))
+    return out
+
+
+def diff_text(diffs, limit=None):
+    rows = [f'{k}: 이 PC {a} / 합의 {b}' for k, a, b in diffs]
+    return ' · '.join(rows[:limit] + ([f'외 {len(rows) - limit}개'] if limit and len(rows) > limit else []))
+
+
+def align_config(enabled=None, accept=False):
+    """운용 설정을 합의 설정 하나에 맞춘다. 2026-11-10: 예전에는 tools/patches 조각 37개를 이름순으로 전부 덮어써
+    철회된 옛 결정(장세 필터 켜기·4종목 등)이 최신 결정을 이겼다. 이제 조각은 읽지 않는다.
+    이 PC 설정이 합의와 다르면 accept=True(사용자가 --accept-config로 확인)일 때만 맞추고, 아니면 아무것도 바꾸지 않고 멈춘다."""
     path = APP / 'config.json'
-    cfg = json.loads(path.read_text(encoding='utf-8')) if path.exists() else \
-        json.loads((REPO / 'v5' / 'config.json').read_text(encoding='utf-8'))
-    for f in sorted((REPO / 'tools' / 'patches').glob('*.json')):
-        for sec, vals in json.loads(f.read_text(encoding='utf-8')).items():
-            cfg.setdefault(sec, {}).update(vals)
+    fresh = not path.exists()
+    cfg = json.loads((REPO / 'v5' / 'config.json' if fresh else path).read_text(encoding='utf-8-sig'))
+    diffs = config_diff(cfg)
+    if diffs and not (accept or fresh):
+        raise ConfigMismatch(f'설정이 합의와 달라 멈춤({len(diffs)}개): {diff_text(diffs, 4)}. '
+                             '확인 후 python tools/take_over.py --accept-config 로 합의값에 맞추거나 합의 파일을 고치세요')
+    if diffs:
+        say(f'설정을 합의값으로 맞춤({len(diffs)}개): {diff_text(diffs)}')
+    for sec, vals in agreed().items():
+        if isinstance(vals, dict):
+            for k, v in vals.items():
+                if (sec, k) not in PC_ONLY:
+                    cfg.setdefault(sec, {})[k] = v
+        else:
+            cfg[sec] = vals
     if enabled is not None:
         cfg.setdefault('live', {})['enabled'] = enabled
     tmp = path.with_suffix('.tmp')
@@ -132,7 +180,7 @@ def adopt():
         keep = APP / 'data' / f"live_이전장부_{dt.datetime.now():%Y%m%d_%H%M%S}"
         live.rename(keep)
         say(f'이 PC의 이전 장부 보관: {keep.name}')
-    align_config(enabled=False)  # 인수 도구는 꺼진 상태에서만 새 기준을 만든다
+    align_config(enabled=False, accept=True)  # 바로 앞 단계에서 합의 일치를 확인했다. 인수 도구는 꺼진 상태에서만 새 기준을 만든다
     code, out = run([str(PY), 'adopt_account.py', '--user-authorized-all-holdings'], APP)
     if code:
         raise RuntimeError('계좌 인수 실패: ' + out[-300:])
@@ -201,7 +249,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--button', action='store_true', help='봇 화면의 실행권 버튼에서 호출(확인창 없음, 결과를 화면에 표시)')
+    ap.add_argument('--accept-config', action='store_true', help='이 PC 설정이 합의(agreed_config.json)와 달라도 합의값으로 맞추고 진행')
+    ap.add_argument('--config-diff', action='store_true', help='이 PC 설정과 합의 설정의 차이만 출력')
     a = ap.parse_args()
+    if a.config_diff:
+        d = config_diff()
+        print('\n'.join(f'{k}: 이 PC {x} / 합의 {y}' for k, x, y in d) or '차이 없음')
+        return
+    if a.button and not a.accept_config:
+        d = config_diff()
+        if d:  # 이 PC 봇을 멈추기도 전에 막는다(설정 차이로 실행권 이동 중단)
+            say(f'중단: 설정이 합의와 다름({len(d)}개): {diff_text(d)}')
+            set_grant('failed', f'설정이 합의와 달라 멈췄습니다({len(d)}개): {diff_text(d, 3)}'[:160])
+            return
     if a.button:
         try:
             set_grant('running', '이 PC 봇을 정상 종료하는 중')
@@ -220,7 +280,7 @@ def main():
     st = lease()
     other = bool(st.get('owner')) and time.time() < st.get('expires', 0) + 30
     same = bool(st.get('checkpoint')) and st.get('checkpoint') == local_hash()
-    plan = ['최신 코드 받기·실행본 갱신', '운용 설정 맞추기',
+    plan = ['최신 코드 받기·실행본 갱신', '운용 설정이 합의(agreed_config.json)와 같은지 확인(다르면 중단)',
             '다른 PC 봇에 양도 요청' if other else '다른 PC 실행 없음',
             '이 PC 장부 그대로 이어감' if same else '현재 계좌 전체를 새 기준으로 인수',
             '보호 목록을 사용자 원칙대로 맞춤(보유 중·직접 거래·5,000원 초과만)', '봇·그림자·계좌 조회 시작']
@@ -237,7 +297,7 @@ def main():
         if a.button:
             set_grant('running', '코드·설정 맞추는 중')
         update_code()
-        align_config()
+        align_config(accept=a.accept_config)   # 다른 PC를 건드리기 전에: 합의와 다르면 여기서 멈춘다
         if other:
             say('양도 요청 · 다른 PC 봇의 반납을 기다리는 중 (최대 4분)')
             if a.button:
@@ -248,7 +308,7 @@ def main():
             say('만료된 실행권 정리 (다른 PC가 응답 없이 꺼진 경우)')
             request_handover()
         if same:
-            align_config(enabled=True)
+            align_config(enabled=True, accept=True)
         else:
             adopt()
         apply_protection_principle()

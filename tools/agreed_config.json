@@ -1,0 +1,103 @@
+{
+  "_note": "두 PC가 함께 쓰는 운용 설정의 유일한 기준(2026-11-10 사용자 확인값). 실행권 받기는 이 파일과 다르면 멈춘다. 바꿀 때는 deploy_v5.py --apply --patch 로 바꾸면 이 파일도 함께 바뀐다(커밋 필요).",
+  "allocation_fraction": 0.1,
+  "strategy": {
+    "L": 72,
+    "M": 9,
+    "coin_cap": 0.25,
+    "cost_major": 0.001,
+    "cost_other": 0.002,
+    "entry_risk": 0.00184,
+    "entry_scan": 7,
+    "entry_top": 3,
+    "entry_want": 3,
+    "k": 3.0,
+    "reentry_hours": 24,
+    "require_positive_rs": true,
+    "risk": 0.002,
+    "size_by_risk": true,
+    "slots": 3,
+    "stop_max_pct": 0.045,
+    "stop_seconds": 30,
+    "tf": 15,
+    "total_cap": 0.5,
+    "universe": 30,
+    "regime_filter": false,
+    "regime_bars": 96,
+    "regime_min_markets": 20,
+    "regime_expires": 0,
+    "halt_new_buys": false,
+    "rotation_enabled": true,
+    "rotation_confirmations": 1,
+    "rank_exit": true,
+    "swap_stuck_loss": false,
+    "bot_capital_divisor": 0,
+    "reentry_profit_hours": 4,
+    "reentry_loss_hours": 24,
+    "reentry_dip_atr": 0,
+    "regime_slots": [
+      [
+        0.03,
+        5
+      ],
+      [
+        0.01,
+        4
+      ],
+      [
+        -0.01,
+        3
+      ],
+      [
+        -0.03,
+        2
+      ],
+      [
+        -9,
+        1
+      ]
+    ]
+  },
+  "live": {
+    "adopted_trail_start_r": 1.0,
+    "auto_proposal": true,
+    "loss_daily": true,
+    "loss_stop_krw": 15000,
+    "loss_stop_pct": 0.008,
+    "manual_ui": true,
+    "max_order_krw": 1000000000,
+    "max_sell_krw_per_plan": 1000000000,
+    "max_spread": 0.01,
+    "max_total_buy_krw": 1000000000,
+    "partial_enabled": true,
+    "partial_frac": 0.3333,
+    "partial_r": 2.0,
+    "profit_guard_arm_pct": 0.03,
+    "profit_guard_enabled": true,
+    "profit_guard_giveback": 0.3,
+    "proposal_max_age_seconds": 120,
+    "stop_tf": 240,
+    "trail_adopted": true,
+    "trail_enabled": true,
+    "user_protection_required": true,
+    "auto_manual_protection": true,
+    "protection_ui": true,
+    "slot_plans": true,
+    "restore_continuity": true,
+    "r_from_15m": true,
+    "breakeven_lock_pct": 0,
+    "resting_buy_enabled": true,
+    "resting_min_tick": 0.003,
+    "resting_wait_seconds": 900,
+    "stagnation_exit_enabled": false,
+    "stagnation_exit_hours": 4,
+    "partial_pct": 0,
+    "resting_sell_enabled": true,
+    "resting_sell_wait_seconds": 1200,
+    "resting_sell_crash_pct": 0.015,
+    "resting_sell_drop_pct": 0.005,
+    "step_stop_enabled": true,
+    "rank_loss_defer_enabled": true,
+    "rank_loss_defer_hours": 4
+  }
+}

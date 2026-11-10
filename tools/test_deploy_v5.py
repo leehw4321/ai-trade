@@ -98,6 +98,17 @@ class Deploy(Fixture):
         self.assertEqual(self.code(), 'OLD = 1\n')                  # 백업으로 복원
 
 
+class AgreedSync(unittest.TestCase):
+    def test_patch_updates_agreed_file_without_pc_values(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 'agreed.json'
+            f.write_text(json.dumps({'_note': 'n', 'strategy': {'slots': 3}, 'live': {'x': 0}}), encoding='utf-8')
+            dp.sync_agreed({'strategy': {'slots': 2}, 'live': {'enabled': True, 'x': 1}, 'session': {'id': 'z'}}, f)
+            got = json.loads(f.read_text(encoding='utf-8'))
+            self.assertEqual(got, {'_note': 'n', 'strategy': {'slots': 2}, 'live': {'x': 1}})
+
+
 if __name__ == '__main__':
     unittest.main()
 

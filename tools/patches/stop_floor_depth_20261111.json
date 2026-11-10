@@ -1,0 +1,12 @@
+{
+  "live": {
+    "stop_floor_enabled": true,
+    "stop_floor_pct": 0.005,
+    "stop_floor_wait_seconds": 30,
+    "min_bid_depth_enabled": true,
+    "min_bid_depth_pct": 0.005,
+    "min_bid_depth_mult": 10,
+    "stop_fast_manual_check": true,
+    "stop_fast_manual_max_age": 30
+  }
+}

@@ -104,7 +104,11 @@ def orderbooks(markets):
     out = {}
     for ob in _get('/v1/orderbook', {'markets': ','.join(markets)}):
         unit = ob['orderbook_units'][0]
-        out[ob['market']] = {'ask': unit['ask_price'], 'bid': unit['bid_price']}
+        # units: 호가 깊이 확인용(매수 전 호가 두께 조건). 기존 사용처는 ask·bid만 읽는다.
+        out[ob['market']] = {'ask': unit['ask_price'], 'bid': unit['bid_price'],
+                             'units': [{'bid_price': u.get('bid_price'), 'bid_size': u.get('bid_size'),
+                                        'ask_price': u.get('ask_price'), 'ask_size': u.get('ask_size')}
+                                       for u in ob['orderbook_units']]}
     return out
 
 
@@ -235,6 +239,13 @@ def cancel_order(order_uuid):
     req = urllib.request.Request(BASE + '/v1/order?' + urllib.parse.urlencode(params), method='DELETE', headers=_auth(params))
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.load(r)
+
+
+def limit_sell(market, price, volume, identifier=None):
+    """일반 지정가 매도(GTC): 이 가격 이상의 매수 호가와 즉시 체결되고, 남은 수량은 이 가격에 걸려 있다(바닥가 손절용)."""
+    params = {'market': market, 'side': 'ask', 'ord_type': 'limit', 'price': price_str(price), 'volume': vol8(volume)}
+    if identifier: params['identifier'] = identifier
+    return _post_order(params)
 
 
 def market_sell(market, volume, identifier=None):

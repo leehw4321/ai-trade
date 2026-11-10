@@ -144,7 +144,7 @@ class Detector:
                 if market in doc.get('bootstrap',{}): prior[market]=str(qty-owned)
         self.policy.mutate(change)
 
-    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False):
+    def scan(self,state,market=None,risk=False,amount=None,allow_protected=False,fast_max_age=None):
         market=normalize(market) if market else None
         try:
             inventory=self._inventory(self.client.accounts())
@@ -152,6 +152,17 @@ class Detector:
             self.error='계좌 확인 불가: 직접 보유 보호 확인 대기'
             raise ProtectionError(self.error) from None
         doc=self.policy.read()
+        if market and risk and fast_max_age is not None and amount is not None:
+            # 위험 청산 빠른 확인(2026-11-11, live.stop_fast_manual_check): 최근 fast_max_age초 안에 이 종목의 직접 주문
+            # 확인이 통과했고, 지금 잔고가 봇 장부와 정확히 같고 잠김 0, 보호 리비전 불변·보호 아님이면 주문 이력 재조회를 생략한다.
+            # 그 사이 직접 매수·매도·미체결 주문이 있으면 잔고나 잠김이 달라져 아래 전체 확인으로 간다(이력 조회 실패 때의 기존 예외와 같은 기준).
+            prior=self.good.get(market)
+            qty,locked=inventory.get(market,(Decimal(0),Decimal(0)))
+            owned,known=self._owned(state,market)
+            if (prior and 0<=self.clock()-prior['at']<=fast_max_age and known and owned>EPS and abs(qty-owned)<=EPS
+                    and locked<=EPS and self.policy.revision(market,doc)==prior['revision']
+                    and market not in effective(doc,self.policy.configured)):
+                return min(float(qty),float(owned),float(amount))
         tracked=set(doc.get('bootstrap',{}))|{normalize(m) for m in state.get('positions',{})}
         for m in ({market} if market else tracked)-set(inventory):inventory[m]=(Decimal(0),Decimal(0))
         bootstrap=self._bootstrap(state,inventory,{market} if market else None)

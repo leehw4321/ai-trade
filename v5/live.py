@@ -75,7 +75,14 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'protection_ui': False,  # 사용자 직접 주문 기본 보호/화면은 명시 활성 시 적용
             'restore_continuity': False,  # True면 시작 때 거래소 체결 이력에서 봇의 재진입 기록·평단 기반 손절 기준을 복원(계좌 인수 후 상실 방지)
             'r_from_15m': False,  # True면 새 진입의 R(1R=k×ATR)을 설계대로 15분 ATR로 정의(False면 손절용 4시간 ATR)
-            'concurrent_warn_at': 6}  # 봇이 관리하는 동시 보유(보호 종목·5천원 미만 제외)가 이 수 이상이면 알림만 낸다(주문 제한 없음, 0이면 끔)
+            'concurrent_warn_at': 6,
+            # 2026-11-11 사용자 지시(PIEVERSE 01:23 손절 미끄러짐): 셋 다 기본 꺼짐, 배포·설정 때 켠다.
+            'stop_floor_enabled': False,  # 손절을 '판정 시세 −stop_floor_pct' 바닥가 지정가로. stop_floor_wait_seconds 안에 다 안 팔리면 남은 수량 시장가
+            'stop_floor_pct': 0.005, 'stop_floor_wait_seconds': 30,  # 2026-11-11 사용자: 30초
+            'min_bid_depth_enabled': False,  # 매수 전: 최고 매수호가 −min_bid_depth_pct 이내 매수 잔량 금액이 매수금액×min_bid_depth_mult 미만이면 매수 안 함
+            'min_bid_depth_pct': 0.005, 'min_bid_depth_mult': 10,
+            'stop_fast_manual_check': False,  # 위험 청산 때 최근(stop_fast_manual_max_age초) 직접 주문 확인이 통과했고 잔고=장부·잠김 0이면 주문 이력 재조회 생략
+            'stop_fast_manual_max_age': 30}  # 봇이 관리하는 동시 보유(보호 종목·5천원 미만 제외)가 이 수 이상이면 알림만 낸다(주문 제한 없음, 0이면 끔)
 
 
 def parse(text):
@@ -201,6 +208,9 @@ class Live:
     def scan_manual_orders(self, market=None, risk=False, amount=None, allow_protected=False):
         if not self.cfg.get('auto_manual_protection'): return amount
         try:
+            if risk and market and self.cfg.get('stop_fast_manual_check') is True:
+                return self.manual_detector.scan(self.d,market,risk,amount,allow_protected,
+                                                 fast_max_age=float(self.cfg.get('stop_fast_manual_max_age',30)))
             return self.manual_detector.scan(self.d,market,risk,amount,allow_protected)
         except (asset_protection.ProtectionError,OSError,ValueError,TypeError) as error:
             raise ProtectedAssetError(str(error)) from None
@@ -585,8 +595,10 @@ class Live:
                 try: atr_r = st.wilder_atr(upbit.completed_candles(market, 15, 100))
                 except Exception: atr_r = None
                 if atr_r is None or not math.isfinite(atr_r) or atr_r <= 0: atr_r = None  # 자료가 없으면 기존 정의로 되돌아간다
+        t_scan=time.monotonic()
         checked=self.scan_manual_orders(market,risk,amount)
         if checked is not None: amount=checked
+        t_scanned=time.monotonic()
         if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
         if side=='bid' and validate_entry:
             # Provenance and ATR lookups precede the final executable quote check.
@@ -607,8 +619,10 @@ class Live:
         self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
         try:
             self.assert_unprotected(market)  # Do not transmit a newly protected asset.
+            t_send=time.monotonic()
             order = (upbit.market_buy(market, amount, identifier=pending['identifier']) if side == 'bid'
                      else upbit.market_sell(market, amount, identifier=pending['identifier']))
+            if risk: self._record_risk_timing(market, reason, t_scan, t_scanned, t_send, time.monotonic())
         except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
             # Rejected submission or failed lease check happened before acceptance; do not create a phantom order.
             self._set_pending(None, risk_market)
@@ -622,6 +636,17 @@ class Live:
         if not self._apply_pending(order, risk_market):
             raise RuntimeError('주문 미종결: 체결 반영 후 신규 주문 대기')
         return order
+
+    def _record_risk_timing(self, market, reason, t_scan, t_scanned, t_send, t_acked):
+        """위험 청산(손절 등) 판정→거래소 접수까지 단계별 소요(ms). 2026-11-11 PIEVERSE 6초 지연 원인 측정용. 기록 실패는 무시."""
+        t0 = getattr(self, '_risk_t0', None)
+        ms = lambda a, b: round((b - a) * 1000) if a is not None else None
+        try:
+            self.record({'event': '위험 청산 소요', 'market': market, 'reason': str(reason)[:60],
+                         'ms': {'판정→확인시작': ms(t0, t_scan), '직접주문확인': ms(t_scan, t_scanned),
+                                '기록저장': ms(t_scanned, t_send), '주문전송응답': ms(t_send, t_acked), '합계': ms(t0, t_acked)}})
+        except Exception:
+            pass
 
     def poll(self, markets):
         """봇 주문안(위임)과 토론 합의 주문안을 확인하고, 새것이면 한 번 실행한다."""
@@ -942,6 +967,44 @@ class Live:
         if manual: return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · {volume:g}개 · 최대 {wait / 60:.0f}분, 안 팔리면 취소(시장가 전환 없음)'
         return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · 최대 {wait / 60:.0f}분, 안 팔리면 시장가'
 
+    def _place_stop_floor(self, market, volume, px):
+        """바닥가 손절(2026-11-11 사용자 지시): 판정 시세 px의 (1−stop_floor_pct)를 바닥으로 일반 지정가 매도를 건다.
+        바닥 이상 매수 호가는 즉시 체결되고, 남은 수량은 바닥가에 걸려 있다가 stop_floor_wait_seconds 뒤 manage_resting이
+        취소하고 시장가로 판다(급락 바닥에서 시장가로 다 던지는 것을 피하려는 것). 걸지 못하면 None → 호출자가 기존 시장가 손절."""
+        if self.market_has_uncertain_order(market): return None
+        self.assert_unprotected(market)
+        if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
+        pct = float(self.cfg.get('stop_floor_pct', 0.005)); wait = float(self.cfg.get('stop_floor_wait_seconds', 30))
+        if not (math.isfinite(pct) and 0 < pct < 0.05 and math.isfinite(wait) and 0 < wait <= 300): return None
+        t_scan = time.monotonic()
+        checked = self.scan_manual_orders(market, True, volume)
+        if checked is not None: volume = checked
+        t_scanned = time.monotonic()
+        volume = float(upbit.vol8(volume))
+        price = float(upbit.price_str(px * (1 - pct)))
+        if price <= 0 or volume * price < 5000: return None
+        pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'ask', 'market': market, 'amount': volume,
+                   'reason': '손절', 'time': now_iso(), 'atr': None, 'atr_r': None,
+                   'resting': {'price': price, 'tick': upbit.tick_size(price), 'volume': volume, 'deadline': time.time() + wait,
+                               'placed': time.time(), 'manual': False, 'stop_floor': True, 'trigger_px': px}}
+        slot = ('rest', market)
+        self._set_pending(pending, slot)
+        self.save()
+        try:
+            self.assert_unprotected(market)
+            t_send = time.monotonic()
+            order = upbit.limit_sell(market, price, volume, identifier=pending['identifier'])
+            self._record_risk_timing(market, '바닥가 손절', t_scan, t_scanned, t_send, time.monotonic())
+        except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
+            self._set_pending(None, slot); self.save()
+            self.record({'event': '주문 전송 차단·거부', 'market': market, 'identifier': pending['identifier'], 'reason': str(error)[:300]})
+            if isinstance(error, upbit.OrderRejected): return None
+            raise
+        if order.get('uuid'):
+            pending['uuid'] = order['uuid']; self.save()
+        self.record({'event': '바닥가 손절 주문', 'market': market, 'trigger_px': px, 'price': price, 'volume': volume, 'wait_s': wait})
+        return f'{market[4:]} 손절: 바닥가 {price:,.8g}원 지정가 매도(판정 시세 {px:,.8g}원 −{pct:.1%}) · {wait:.0f}초 안에 안 팔리면 시장가'
+
     def _manage_rest_sell(self, m, prices):
         """걸어 둔 지정가 매도 관리. 체결분은 즉시 장부에 반영. 손절선 근접(+0.5%)·지정가보다 resting_sell_drop_pct 하락·기한 만료 →
         취소하고 남은 수량을 시장가로 판다(위험 청산 경로). 보호 지정이면 취소만 한다."""
@@ -958,6 +1021,8 @@ class Live:
             live_px = type(px) in (int, float) and math.isfinite(px) and px > 0
             pos = self.d['positions'].get(m)
             if self.is_protected(m): why = '사용자 보호 지정'
+            elif rest.get('stop_floor'):   # 바닥가 손절: 이미 손절선 아래이므로 기한만 본다
+                if time.time() >= rest['deadline']: why = '바닥가 대기 만료'
             elif live_px and pos and px <= self.stop_limit(pos) * 1.005: why = '손절선 근접'
             elif live_px and not rest.get('manual') and px <= rest['price'] * (1 - float(self.cfg.get('resting_sell_drop_pct', 0.005))): why = '가격 하락 중'
             elif time.time() >= rest['deadline']: why = '대기 시간 만료'
@@ -969,7 +1034,7 @@ class Live:
         _, f0, fee0 = self._fill(order)
         if not self._apply_pending(order, slot): return
         pos = self.d['positions'].get(m)
-        msg = f'{m[4:]} 지정가 매도 {f0 - fee0:,.0f}원 체결'
+        msg = f'{m[4:]} {"바닥가 손절" if rest.get("stop_floor") else "지정가"} 매도 {f0 - fee0:,.0f}원 체결'
         manual_expired = bool(rest.get('manual')) and why == '대기 시간 만료'
         if manual_expired: msg += ' · 수동 지정가 기한 만료로 취소(시장가 전환 없음, 남은 수량은 보유 그대로)'
         if pos and pos.get('qty', 0) > 0 and why != '사용자 보호 지정' and not manual_expired and self.cfg['enabled'] and not self.is_protected(m):
@@ -1141,6 +1206,9 @@ class Live:
         ob = upbit.orderbooks([m])[m]
         if (ob['ask'] - ob['bid']) / ob['ask'] > c['max_spread']:
             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} > {c["max_spread"]:.0%}'
+        if c.get('min_bid_depth_enabled') is True:
+            why = self.bid_depth_block(ob, krw)
+            if why: return why
         if validate_entry:
             why = self.entry_chase_block(m, entry_context, ob.get('ask'))
             if why: return why
@@ -1156,6 +1224,24 @@ class Live:
             why = st.reentry_block(reentry_row, last, time.time(), self.p)
             if why: return why
         return ''
+
+    def bid_depth_block(self, ob, krw):
+        """매수 전 호가 두께(2026-11-11 사용자 지시): 최고 매수호가에서 min_bid_depth_pct 아래까지 쌓인 매수 잔량 금액이
+        이번 매수 금액의 min_bid_depth_mult배 미만이면 사유 문자열. 팔 때 받아 줄 매수 호가가 얇은 종목을 피한다. 확인 불가도 보류."""
+        pct = float(self.cfg.get('min_bid_depth_pct', 0.005)); mult = float(self.cfg.get('min_bid_depth_mult', 10))
+        units, bid = ob.get('units'), ob.get('bid')
+        if not units or type(bid) not in (int, float) or not math.isfinite(bid) or bid <= 0:
+            return '매수 호가 깊이 확인 불가: 매수 보류'
+        depth = 0.0
+        for u in units:
+            p, q = u.get('bid_price'), u.get('bid_size')
+            if (type(p) in (int, float) and type(q) in (int, float) and math.isfinite(p) and math.isfinite(q)
+                    and p >= bid * (1 - pct) - 1e-12):
+                depth += p * q
+        need = krw * mult
+        if depth < need:
+            return f'매수 호가 얇음: 최고 매수호가 −{pct:.1%} 이내 {depth:,.0f}원 < 매수금액×{mult:g} {need:,.0f}원'
+        return None
 
     def restore_continuity(self, rows=None):
         """시작할 때 한 번: 거래소 체결 이력에서 봇(v5-)의 마지막 매도(재진입 기록)와, 인수 보유의 원래 평단(손절 기준)을 복원한다.
@@ -1578,6 +1664,7 @@ class Live:
                       and prices[m] > 0 and prices[m] <= self.stop_limit(pos) and pos['qty'] > 0
                       and not self.market_has_uncertain_order(m)]
         if not candidates: return
+        self._risk_t0 = time.monotonic()
         balances = {r['currency']: r for r in upbit.accounts()}
         for m, pos in candidates:
             available = float(balances.get(m[4:], {}).get('balance', 0))
@@ -1585,6 +1672,19 @@ class Live:
             if volume * prices[m] < 5000: continue
             g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
             why = '이익보호' if g is not None and self.stop_limit(pos) == g else '손절'
+            if why == '손절' and self.cfg.get('stop_floor_enabled') is True:
+                try:
+                    msg = self._place_stop_floor(m, volume, prices[m])
+                except SessionLost:
+                    raise
+                except Exception as error:
+                    self.record({'event': '종목 청산 대기', 'market': m,
+                                 'reason': '바닥가 손절 ' + type(error).__name__ + ': ' + str(error)[:230]})
+                    continue
+                if msg:
+                    self.share(msg)
+                    continue
+                # None: 바닥가 주문을 걸지 못함(거절·최소금액 등) → 아래 기존 시장가 손절
             try:
                 o = self._trade('ask', m, volume, why, risk=True)
                 v, funds, fee = self._fill(o)

@@ -197,6 +197,14 @@ class SessionGuard:
         self.last_ok = 0.0     # 마지막으로 실행권을 확인한 시각
         self.blind_since = 0.0 # GitHub를 확인하지 못하기 시작한 시각
         self.other_pc = ''     # 지금 실행권을 가진 다른 PC 이름(알면)
+        self.relay = None      # 실행권 반납 때 장부를 암호화해 다른 PC로 잇는 통로(config session.ledger_relay)
+        self.relay_note = ''
+        if self.cfg.get('ledger_relay'):
+            try:
+                import ledger_relay
+                self.relay = ledger_relay.Relay(self.root, self.store)
+            except Exception as ex:
+                self.relay_note = f'장부 전달 준비 실패({type(ex).__name__})'
 
     def lease_valid(self):
         return self.clock() < self.lease_until - LEASE_MARGIN
@@ -206,6 +214,32 @@ class SessionGuard:
         if not file.exists(): return ''
         state = json.loads(file.read_text(encoding='utf-8'))
         return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+    def _release_checkpoint(self):
+        """반납 때 기록할 체크섬. 이 PC 장부가 정본일 때만(required_checkpoint 없음) 같은 바이트를 암호화해 올린다.
+        올리기 실패는 반납을 막지 않는다(받는 PC는 기존처럼 계좌 새 인수로 넘어간다)."""
+        if self.required_checkpoint:
+            return self.required_checkpoint
+        file = self.root / 'data' / 'live' / 'live.json'
+        if not file.exists():
+            return ''
+        data = file.read_bytes()
+        checkpoint = hashlib.sha256(json.dumps(json.loads(data.decode('utf-8')), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        if self.relay is not None:
+            started = time.monotonic()
+            try:
+                orders = self.root / 'data' / 'live' / 'orders.jsonl'
+                meta = self.relay.publish(data, checkpoint, orders.read_bytes() if orders.exists() else b'')
+                self.relay_note = f'장부 전달 올림 · 수신 {len(meta.get("recipients", []))}대'
+            except Exception as ex:
+                self.relay_note = f'장부 전달 실패: {ex}'[:200]
+            try:
+                with (self.root / 'data' / 'ledger_relay.log').open('a', encoding='utf-8') as f:
+                    f.write(json.dumps({'epoch': time.time(), 'checkpoint': checkpoint[:16], 'note': self.relay_note,
+                                        'ms': round((time.monotonic() - started) * 1000)}, ensure_ascii=False) + chr(10))
+            except OSError:
+                pass
+        return checkpoint
 
     def assert_transition_clear(self):
         for relative in ('data/handoff-transition.lock', 'data/handoff-restore-pending.json',
@@ -323,7 +357,7 @@ class SessionGuard:
                 oid, fresh = self.store.read()
                 if fresh.get('owner') == self.token:
                     self.store.cas(oid, self.record(owner='', expires=0, request=fresh.get('request', ''),
-                                                    checkpoint=self.required_checkpoint or self.checkpoint_hash()))
+                                                    checkpoint=self._release_checkpoint()))
             except SessionLost:
                 pass  # 비우지 못하면 요청한 쪽이 만료까지 기다린다. 이 PC는 어쨌든 주문하지 않는다.
         self.acquired = False
@@ -416,7 +450,7 @@ class SessionGuard:
                 if self.acquired and state.get('owner') == self.token:
                     self.store.cas(oid, self.record(owner='', expires=0,
                         request=state.get('request', ''),
-                        checkpoint=self.required_checkpoint or self.checkpoint_hash()))
+                        checkpoint=self._release_checkpoint()))
                 elif state.get('request') == self.token:
                     # Failed/cancelled handoff must not reserve a connection forever.
                     self.store.cas(oid, dict(state, request=''))

@@ -174,6 +174,41 @@ def request_handover():
     g.release()
 
 
+def relay():
+    sys.path.insert(0, str(APP))
+    import ledger_relay
+    from session_guard import GitStore
+    return ledger_relay, ledger_relay.Relay(APP, GitStore(APP / 'data' / 'session_git'), workspace=APP.parents[1], repo=REPO)
+
+
+def receive_ledger(checkpoint):
+    """넘겨준 PC가 반납 때 올린 암호화 장부를 받아 이어 쓴다. 실행권 기록 체크섬과 정확히 같을 때만. 실패하면 False(계좌 새 인수로 진행)."""
+    try:
+        lr, r = relay()
+        bundle = r.fetch(checkpoint)
+        keep = lr.install(APP, bundle)
+    except Exception as ex:
+        say(f'장부 이어받기 불가 → 계좌 새 인수로 진행: {ex}'[:300])
+        return False
+    say(f'장부 이어받기: {bundle.get("pc")} {bundle.get("time")} 반납분 (체크섬 일치)' + (f' · 이 PC 이전 장부 보관 {keep.name}' if keep else ''))
+    return True
+
+
+def enroll():
+    """이 PC를 장부 전달 수신 PC로 등록(한 번). 개인키는 이 PC private_handoff에만, 공개 인증서만 ledger-relay 브랜치에 올린다."""
+    lr, r = relay()
+    ids = r.identities()
+    if not ids:
+        sys.path.insert(0, str(REPO / 'tools'))
+        import handoff_cli
+        name = 'pc-' + ''.join(c for c in os.environ.get('COMPUTERNAME', 'pc') if c.isalnum() or c in '-_')[:30]
+        handoff_cli.init_recipient(APP.parents[1] / 'private_handoff', name)
+        ids = r.identities()
+        say(f'수신 인증서 새로 만듦: private_handoff/identities/{name} (개인키는 이 PC에만)')
+    where = r.enroll(ids[0] / 'public-certificate.pem')
+    say(f'장부 전달 수신 등록 완료: ledger-relay {where}')
+
+
 def adopt():
     live = APP / 'data' / 'live'
     if (live / 'live.json').exists():
@@ -251,7 +286,11 @@ def main():
     ap.add_argument('--button', action='store_true', help='봇 화면의 실행권 버튼에서 호출(확인창 없음, 결과를 화면에 표시)')
     ap.add_argument('--accept-config', action='store_true', help='이 PC 설정이 합의(agreed_config.json)와 달라도 합의값으로 맞추고 진행')
     ap.add_argument('--config-diff', action='store_true', help='이 PC 설정과 합의 설정의 차이만 출력')
+    ap.add_argument('--enroll', action='store_true', help='이 PC를 장부 전달 수신 PC로 등록(PC마다 한 번)')
     a = ap.parse_args()
+    if a.enroll:
+        enroll()
+        return
     if a.config_diff:
         d = config_diff()
         print('\n'.join(f'{k}: 이 PC {x} / 합의 {y}' for k, x, y in d) or '차이 없음')
@@ -282,7 +321,7 @@ def main():
     same = bool(st.get('checkpoint')) and st.get('checkpoint') == local_hash()
     plan = ['최신 코드 받기·실행본 갱신', '운용 설정이 합의(agreed_config.json)와 같은지 확인(다르면 중단)',
             '다른 PC 봇에 양도 요청' if other else '다른 PC 실행 없음',
-            '이 PC 장부 그대로 이어감' if same else '현재 계좌 전체를 새 기준으로 인수',
+            '이 PC 장부 그대로 이어감' if same else '넘겨준 PC 장부 이어받기(암호화 전달·체크섬 일치 시), 안 되면 현재 계좌 전체를 새 기준으로 인수',
             '보호 목록을 사용자 원칙대로 맞춤(보유 중·직접 거래·5,000원 초과만)', '봇·그림자·계좌 조회 시작']
     if a.check:
         print('\n'.join(f'{i}. {x}' for i, x in enumerate(plan, 1)))
@@ -307,6 +346,13 @@ def main():
         elif st.get('owner') or st.get('request'):
             say('만료된 실행권 정리 (다른 PC가 응답 없이 꺼진 경우)')
             request_handover()
+        if other or st.get('owner') or st.get('request'):
+            st = lease()  # 반납한 PC가 방금 기록한 체크섬으로 다시 판단한다
+            same = bool(st.get('checkpoint')) and st.get('checkpoint') == local_hash()
+        if not same and st.get('checkpoint'):
+            if a.button:
+                set_grant('running', '넘겨준 PC 장부 받는 중')
+            same = receive_ledger(st['checkpoint'])
         if same:
             align_config(enabled=True, accept=True)
         else:

@@ -31,6 +31,8 @@ class Params:
     # 과열 추격 방지와 손절 상한 (결정 D-12, 사용자 요청 21:50). 0이면 끔. 값은 탐색 분석에 근거한 미검증 가설이다.
     chase_rs_cap: float = 0.15    # 기간 상승률이 이 값 이상이면 신규 매수 보류
     stop_max_pct: float = 0.08    # 손절가는 진입가(또는 인수 시점 가격)보다 이 비율 이상 멀리 두지 않음
+    # 급락 중 매수 보류(사용자 지시 2026-11-12): 직전 2시간 등락이 −이 값 이하이면 신규 매수 보류. 0이면 끔. 근거: 실거래 148건 중 −6% 이하 5건 모두 손실(입증 아님, drop_watch로 관찰)
+    drop2h_block_pct: float = 0.0
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
     entry_risk: float = 0.0   # 실거래 매수 위험(계좌 대비). 0이면 risk 사용. 모의 장부의 risk는 건드리지 않는다(D-47)
     size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
@@ -188,7 +190,8 @@ def rank(bars_by_market, p):
         rs, atr = relative_strength(bars, p.L), wilder_atr(bars)
         if rs is None or atr is None:
             continue
-        rows.append({'market': m, 'rs': rs, 'atr': atr, 'close': bars[-1]['c'], 'bar': bars[-1]['t']})
+        rows.append({'market': m, 'rs': rs, 'atr': atr, 'close': bars[-1]['c'], 'bar': bars[-1]['t'],
+                     'r2': recent_change(bars, 120, p.tf), 'r4': recent_change(bars, 240, p.tf)})
     rows.sort(key=lambda r: (-r['rs'], r['market']))
     for i, r in enumerate(rows, 1):
         r['rank'] = i
@@ -201,6 +204,26 @@ def chase_block(r, p, cap=None):
     cap = p.chase_rs_cap if cap is None else cap
     if cap > 0 and r['rs'] >= cap:
         return f'기간 상승 {r["rs"]:+.1%} ≥ 과열 상한 {cap:.0%}'
+    return None
+
+
+def recent_change(bars, minutes, tf):
+    """직전 minutes분 등락(마지막 완성봉 종가 ÷ minutes분 전 봉 시가 − 1). 자료가 모자라면 None."""
+    n = max(1, int(minutes // tf))
+    try:
+        if len(bars) < n: return None
+        o = float(bars[-n]['o'])
+        return float(bars[-1]['c']) / o - 1 if o > 0 else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def drop_block(r, p):
+    """급락 중 매수 보류 사유(직전 2시간 등락 ≤ −drop2h_block_pct). 자료가 없으면 막지 않는다."""
+    lim = getattr(p, 'drop2h_block_pct', 0) or 0
+    r2 = r.get('r2')
+    if lim > 0 and isinstance(r2, (int, float)) and r2 <= -lim:
+        return f'직전 2시간 {r2:+.1%} ≤ −{lim:.0%} 급락 중'
     return None
 
 

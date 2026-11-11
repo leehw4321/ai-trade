@@ -24,6 +24,7 @@ import strategy as st
 import rotation_policy as rotation
 import chase_override as co
 import missed_ledger
+import drop_watch
 import rank_defer
 import upbit
 from bot import boundary, load_params, SETTLE, KST, utc
@@ -227,6 +228,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             last = (last_sells or {}).get(r['market'])
             again = co.reentry_ok(last)
             why = (st.chase_block(r, base, co.cap_for(r['market'], base, promoted, last))
+                   or st.drop_block(r, base)
                    or (st.reentry_block(r, last, time.time(), base) if last and not again else None))
             if why:
                 reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
@@ -496,10 +498,18 @@ class Shadow:
         # Account/quote lookups may cross a candle boundary. Recheck the actual source before writing.
         provenance = self.proposal_signal()
         try:  # 놓친 이유 장부: 기록 전용, 실패해도 주문안은 그대로 만든다
-            missed_ledger.record(DATA, self.signal_closed_at, self.base_ranked, self.base, holdings, protected, promoted,
-                                 state.get('last_sell'), self.entry_ok, reasons, text, now=self.evaluated_at)
+            missed_rows = missed_ledger.record(DATA, self.signal_closed_at, self.base_ranked, self.base, holdings, protected, promoted,
+                                               state.get('last_sell'), self.entry_ok, reasons, text, now=self.evaluated_at)
         except Exception as ex:
+            missed_rows = None
             print(f'[{now_iso()}] 놓친 이유 장부 기록 실패: {type(ex).__name__}: {ex}', flush=True)
+        try:  # 급락 중 매수 보류 관찰(2026-11-12 사용자 지시, drop_watch.py): 기록 전용, 주문 무영향
+            if missed_rows is not None:
+                drop_watch.record(DATA, self.signal_closed_at, self.base_ranked, missed_rows)
+            drop_watch.resolve(DATA, lambda m: upbit.completed_candles(m, 15, 200), self.base.stop_max_pct,
+                               float(lc.get('profit_guard_arm_pct', 0.02)), float(lc.get('profit_guard_giveback', 0.4)))
+        except Exception as ex:
+            print(f'[{now_iso()}] 급락 관찰 기록 실패: {type(ex).__name__}: {ex}', flush=True)
         # Public signal prices, not account inventory: the receiver can enforce the SAME
         # chase cap against a later executable ask instead of trusting a frozen return.
         entry_context = {}

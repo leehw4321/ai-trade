@@ -35,6 +35,8 @@ def blocks_for(r, base, held, protected, promoted, last, entry_ok, regime_closed
     cap = co.cap_for(m, base, promoted, last, now)
     if cap > 0 and r['rs'] >= cap:
         out.append(f'과열(상한 {cap:.0%})')
+    if st.drop_block(r, base):
+        out.append('급락 중(2시간)')
     if last and not co.reentry_ok(last, now) and st.reentry_block(r, last, now, base):
         out.append('재진입 대기')
     return out

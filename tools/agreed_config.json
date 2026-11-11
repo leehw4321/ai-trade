@@ -106,6 +106,8 @@
     "min_bid_depth_pct": 0.005,
     "min_bid_depth_mult": 10,
     "stop_fast_manual_check": true,
-    "stop_fast_manual_max_age": 30
+    "stop_fast_manual_max_age": 30,
+    "stop_ask_first_enabled": true,
+    "stop_ask_wait_seconds": 60
   }
 }

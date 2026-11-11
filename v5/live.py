@@ -79,6 +79,9 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             # 2026-11-11 사용자 지시(PIEVERSE 01:23 손절 미끄러짐): 셋 다 기본 꺼짐, 배포·설정 때 켠다.
             'stop_floor_enabled': False,  # 손절을 '판정 시세 −stop_floor_pct' 바닥가 지정가로. stop_floor_wait_seconds 안에 다 안 팔리면 남은 수량 시장가
             'stop_floor_pct': 0.005, 'stop_floor_wait_seconds': 30,  # 2026-11-11 사용자: 30초
+            # 2026-11-11 사용자 "그렇게 적용해": 손절 판정 시 먼저 매도 1호가 post_only 지정가로 stop_ask_wait_seconds 대기,
+            # 다 안 팔리면 남은 수량을 바닥가 손절(꺼져 있으면 시장가)로. 실거래 38건 재계산 +5,160원(즉시 시장가 대비, 최악 1건 −700원).
+            'stop_ask_first_enabled': False, 'stop_ask_wait_seconds': 60,
             'min_bid_depth_enabled': False,  # 매수 전: 최고 매수호가 −min_bid_depth_pct 이내 매수 잔량 금액이 매수금액×min_bid_depth_mult 미만이면 매수 안 함
             'min_bid_depth_pct': 0.005, 'min_bid_depth_mult': 10,
             'stop_fast_manual_check': False,  # 위험 청산 때 최근(stop_fast_manual_max_age초) 직접 주문 확인이 통과했고 잔고=장부·잠김 0이면 주문 이력 재조회 생략
@@ -969,6 +972,50 @@ class Live:
         if manual: return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · {volume:g}개 · 최대 {wait / 60:.0f}분, 안 팔리면 취소(시장가 전환 없음)'
         return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · 최대 {wait / 60:.0f}분, 안 팔리면 시장가'
 
+    def _place_stop_ask(self, market, volume, px):
+        """매도호가 손절(2026-11-11 사용자 지시): 손절 판정 때 매도 1호가에 post_only 지정가 매도를 걸고 stop_ask_wait_seconds 기다린다.
+        다 안 팔리면 manage_resting이 취소하고 남은 수량을 바닥가 손절(꺼져 있으면 시장가)로 넘긴다.
+        호가 조회 실패·최소금액 미달·post_only 거절(이미 체결될 가격)이면 None → 호출자가 바닥가/시장가 손절."""
+        if self.market_has_uncertain_order(market): return None
+        self.assert_unprotected(market)
+        if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
+        wait = float(self.cfg.get('stop_ask_wait_seconds', 60))
+        if not (math.isfinite(wait) and 0 < wait <= 600): return None
+        t_scan = time.monotonic()
+        checked = self.scan_manual_orders(market, True, volume)
+        if checked is not None: volume = checked
+        t_scanned = time.monotonic()
+        try:
+            ask = upbit.orderbooks([market]).get(market, {}).get('ask')
+        except SessionLost:
+            raise
+        except Exception:
+            return None
+        if type(ask) not in (int, float) or not math.isfinite(ask) or ask <= 0: return None
+        volume = float(upbit.vol8(volume))
+        if volume * ask < 5000: return None
+        pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'ask', 'market': market, 'amount': volume,
+                   'reason': '손절', 'time': now_iso(), 'atr': None, 'atr_r': None,
+                   'resting': {'price': ask, 'tick': upbit.tick_size(ask), 'volume': volume, 'deadline': time.time() + wait,
+                               'placed': time.time(), 'manual': False, 'stop_ask': True, 'trigger_px': px}}
+        slot = ('rest', market)
+        self._set_pending(pending, slot)
+        self.save()
+        try:
+            self.assert_unprotected(market)
+            t_send = time.monotonic()
+            order = upbit.limit_sell_post_only(market, ask, volume, identifier=pending['identifier'])
+            self._record_risk_timing(market, '매도호가 손절', t_scan, t_scanned, t_send, time.monotonic())
+        except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
+            self._set_pending(None, slot); self.save()
+            self.record({'event': '주문 전송 차단·거부', 'market': market, 'identifier': pending['identifier'], 'reason': str(error)[:300]})
+            if isinstance(error, upbit.OrderRejected): return None
+            raise
+        if order.get('uuid'):
+            pending['uuid'] = order['uuid']; self.save()
+        self.record({'event': '매도호가 손절 주문', 'market': market, 'trigger_px': px, 'price': ask, 'volume': volume, 'wait_s': wait})
+        return f'{market[4:]} 손절: 매도호가 {ask:,.8g}원 지정가(판정 시세 {px:,.8g}원) · {wait:.0f}초 안에 안 팔리면 바닥가 손절'
+
     def _place_stop_floor(self, market, volume, px):
         """바닥가 손절(2026-11-11 사용자 지시): 판정 시세 px의 (1−stop_floor_pct)를 바닥으로 일반 지정가 매도를 건다.
         바닥 이상 매수 호가는 즉시 체결되고, 남은 수량은 바닥가에 걸려 있다가 stop_floor_wait_seconds 뒤 manage_resting이
@@ -1025,6 +1072,8 @@ class Live:
             if self.is_protected(m): why = '사용자 보호 지정'
             elif rest.get('stop_floor'):   # 바닥가 손절: 이미 손절선 아래이므로 기한만 본다
                 if time.time() >= rest['deadline']: why = '바닥가 대기 만료'
+            elif rest.get('stop_ask'):     # 매도호가 손절: 기한만 본다(손절선 아래라는 이유로 취소하지 않음)
+                if time.time() >= rest['deadline']: why = '매도호가 대기 만료'
             elif live_px and pos and px <= self.stop_limit(pos) * 1.005: why = '손절선 근접'
             elif live_px and not rest.get('manual') and px <= rest['price'] * (1 - float(self.cfg.get('resting_sell_drop_pct', 0.005))): why = '가격 하락 중'
             elif time.time() >= rest['deadline']: why = '대기 시간 만료'
@@ -1036,7 +1085,8 @@ class Live:
         _, f0, fee0 = self._fill(order)
         if not self._apply_pending(order, slot): return
         pos = self.d['positions'].get(m)
-        msg = f'{m[4:]} {"바닥가 손절" if rest.get("stop_floor") else "지정가"} 매도 {f0 - fee0:,.0f}원 체결'
+        label = '바닥가 손절' if rest.get('stop_floor') else '매도호가 손절' if rest.get('stop_ask') else '지정가'
+        msg = f'{m[4:]} {label} 매도 {f0 - fee0:,.0f}원 체결'
         manual_expired = bool(rest.get('manual')) and why == '대기 시간 만료'
         if manual_expired: msg += ' · 수동 지정가 기한 만료로 취소(시장가 전환 없음, 남은 수량은 보유 그대로)'
         if pos and pos.get('qty', 0) > 0 and why != '사용자 보호 지정' and not manual_expired and self.cfg['enabled'] and not self.is_protected(m):
@@ -1045,9 +1095,15 @@ class Live:
                 vol = min(pos['qty'], bal)
                 px = prices.get(m) or 0
                 if vol > 0 and (px <= 0 or vol * px >= 5000):
-                    o = self._trade('ask', m, vol, pending['reason'] + f' (지정가 미체결분 시장가: {why or "종료"})', risk=True)
-                    v, f1, fee1 = self._fill(o)
-                    msg += f' + 시장가 {f1 - fee1:,.0f}원({why})'
+                    floor_msg = None
+                    if rest.get('stop_ask') and self.cfg.get('stop_floor_enabled') is True and px > 0:
+                        floor_msg = self._place_stop_floor(m, vol, px)   # 남은 수량은 바닥가 손절로(급락 바닥 회피 유지)
+                    if floor_msg:
+                        msg += f' · 남은 수량 {floor_msg}'
+                    else:
+                        o = self._trade('ask', m, vol, pending['reason'] + f' (지정가 미체결분 시장가: {why or "종료"})', risk=True)
+                        v, f1, fee1 = self._fill(o)
+                        msg += f' + 시장가 {f1 - fee1:,.0f}원({why})'
             except SessionLost: raise
             except Exception as ex: msg += f' · 시장가 전환 실패 {type(ex).__name__}: {str(ex)[:80]}'
         self.record({'event': '지정가 매도 종료', 'market': m, 'filled_krw': f0, 'note': msg})
@@ -1674,9 +1730,13 @@ class Live:
             if volume * prices[m] < 5000: continue
             g = pos.get('profit_guard_stop') if self.cfg.get('profit_guard_enabled') else None
             why = '이익보호' if g is not None and self.stop_limit(pos) == g else '손절'
-            if why == '손절' and self.cfg.get('stop_floor_enabled') is True:
+            if why == '손절' and (self.cfg.get('stop_ask_first_enabled') is True or self.cfg.get('stop_floor_enabled') is True):
                 try:
-                    msg = self._place_stop_floor(m, volume, prices[m])
+                    msg = None
+                    if self.cfg.get('stop_ask_first_enabled') is True:
+                        msg = self._place_stop_ask(m, volume, prices[m])
+                    if not msg and self.cfg.get('stop_floor_enabled') is True:
+                        msg = self._place_stop_floor(m, volume, prices[m])
                 except SessionLost:
                     raise
                 except Exception as error:

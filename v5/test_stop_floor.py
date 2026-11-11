@@ -187,5 +187,83 @@ class RiskTiming(Base):
         self.assertIsNone(rows[1]['ms']['합계'])
 
 
+class StopAskFirst(Base):
+    def setUp(self):
+        super().setUp()
+        self.lv.cfg.update(stop_ask_first_enabled=True, stop_ask_wait_seconds=60,
+                           stop_floor_enabled=True, stop_floor_pct=0.005, stop_floor_wait_seconds=30)
+        self.book = {'KRW-A': {'ask': 80.1, 'bid': 80.0, 'units': []}}
+
+    def test_defaults_off(self):
+        self.assertIs(live.DEFAULTS['stop_ask_first_enabled'], False)
+
+    def test_stop_rests_post_only_at_best_ask(self):
+        with patch.object(upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '100'}]), \
+                patch.object(upbit, 'orderbooks', return_value=self.book), \
+                patch.object(upbit, 'limit_sell_post_only', return_value={'uuid': 'P1', 'state': 'wait'}) as po, \
+                patch.object(upbit, 'limit_sell') as ls, patch.object(upbit, 'market_sell') as ms:
+            self.lv.stop_check({'KRW-A': 80.})
+        self.assertEqual(po.call_args.args[:3], ('KRW-A', 80.1, 100.))
+        ls.assert_not_called(); ms.assert_not_called()
+        r = self.lv.d['resting_orders']['KRW-A']
+        self.assertTrue(r['resting']['stop_ask']); self.assertEqual(r['reason'], '손절')
+
+    def test_post_only_rejection_goes_to_floor(self):
+        with patch.object(upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '100'}]), \
+                patch.object(upbit, 'orderbooks', return_value=self.book), \
+                patch.object(upbit, 'limit_sell_post_only', side_effect=upbit.OrderRejected(400, 'x', 'reject')), \
+                patch.object(upbit, 'limit_sell', return_value={'uuid': 'F1', 'state': 'wait'}) as ls, \
+                patch.object(upbit, 'market_sell') as ms:
+            self.lv.stop_check({'KRW-A': 80.})
+        self.assertEqual(ls.call_args.args[:2], ('KRW-A', 79.6))
+        ms.assert_not_called()
+        self.assertTrue(self.lv.d['resting_orders']['KRW-A']['resting']['stop_floor'])
+
+    def _rest(self, deadline):
+        self.lv.d['resting_orders'] = {'KRW-A': {
+            'identifier': 'v5-y', 'uuid': 'P1', 'side': 'ask', 'market': 'KRW-A', 'amount': 100., 'reason': '손절',
+            'time': 't', 'atr': None, 'atr_r': None,
+            'resting': {'price': 80.1, 'tick': .1, 'volume': 100., 'deadline': deadline, 'placed': 0,
+                        'manual': False, 'stop_ask': True, 'trigger_px': 80.}}}
+
+    def test_waits_while_below_stop_before_deadline(self):
+        self._rest(10**12)
+        wait = {'uuid': 'P1', 'market': 'KRW-A', 'side': 'ask', 'state': 'wait', 'executed_volume': '0', 'trades': []}
+        with patch.object(upbit, 'get_order', return_value=wait), patch.object(upbit, 'cancel_order') as cancel:
+            self.lv.manage_resting({'KRW-A': 70.})
+        cancel.assert_not_called()
+
+    def test_expiry_hands_remainder_to_floor_stop(self):
+        self._rest(0)
+        part = {'uuid': 'P1', 'market': 'KRW-A', 'side': 'ask', 'state': 'cancel', 'paid_fee': '1.6',
+                'executed_volume': '40', 'trades': [{'volume': '40', 'funds': '3204'}]}
+        with patch.object(upbit, 'get_order', return_value=dict(part, state='wait')), \
+                patch.object(upbit, 'cancel_order') as cancel, patch.object(self.lv, '_wait', return_value=part), \
+                patch.object(upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '60'}]), \
+                patch.object(upbit, 'limit_sell', return_value={'uuid': 'F1', 'state': 'wait'}) as ls, \
+                patch.object(upbit, 'market_sell') as ms:
+            self.lv.manage_resting({'KRW-A': 85.})
+        cancel.assert_called_once_with('P1')
+        self.assertEqual(ls.call_args.args[:3], ('KRW-A', 84.5, 60.))   # 85 × 0.995 내림
+        ms.assert_not_called()
+        self.assertTrue(self.lv.d['resting_orders']['KRW-A']['resting']['stop_floor'])
+        self.assertAlmostEqual(self.lv.d['positions']['KRW-A']['qty'], 60.)
+
+    def test_expiry_without_floor_sells_market(self):
+        self.lv.cfg['stop_floor_enabled'] = False
+        self._rest(0)
+        part = {'uuid': 'P1', 'market': 'KRW-A', 'side': 'ask', 'state': 'cancel', 'paid_fee': '0',
+                'executed_volume': '0', 'trades': []}
+        done = {'uuid': 'M1', 'market': 'KRW-A', 'side': 'ask', 'state': 'done', 'paid_fee': '4',
+                'executed_volume': '100', 'trades': [{'volume': '100', 'funds': '8500'}]}
+        with patch.object(upbit, 'get_order', return_value=dict(part, state='wait')), \
+                patch.object(upbit, 'cancel_order'), patch.object(self.lv, '_wait', side_effect=[part, done]), \
+                patch.object(upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '100'}]), \
+                patch.object(upbit, 'market_sell', return_value=done) as ms:
+            self.lv.manage_resting({'KRW-A': 85.})
+        ms.assert_called_once()
+        self.assertNotIn('KRW-A', self.lv.d['positions'])
+
+
 if __name__ == '__main__':
     unittest.main()

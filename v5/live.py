@@ -639,7 +639,9 @@ class Live:
 
     def _record_risk_timing(self, market, reason, t_scan, t_scanned, t_send, t_acked):
         """위험 청산(손절 등) 판정→거래소 접수까지 단계별 소요(ms). 2026-11-11 PIEVERSE 6초 지연 원인 측정용. 기록 실패는 무시."""
-        t0 = getattr(self, '_risk_t0', None)
+        # stop_check가 찍은 판정 시각은 한 번만 쓴다. 다른 경로(계단 보호·지정가 미체결분 등)의 위험 청산이
+        # 예전 판정 시각을 이어 써서 수백 초로 잘못 기록되던 문제(11-11 ERA 512,902ms) 방지.
+        t0, self._risk_t0 = getattr(self, '_risk_t0', None), None
         ms = lambda a, b: round((b - a) * 1000) if a is not None else None
         try:
             self.record({'event': '위험 청산 소요', 'market': market, 'reason': str(reason)[:60],

@@ -175,5 +175,17 @@ class FastManualCheck(unittest.TestCase):
         self.assertEqual(self.calls, ['KRW-A', 'KRW-A'])
 
 
+class RiskTiming(Base):
+    def test_judgment_time_is_used_once(self):
+        rows = []
+        with patch.object(self.lv, 'record', side_effect=rows.append):
+            self.lv._risk_t0 = 100.0
+            self.lv._record_risk_timing('KRW-A', '손절', 100.1, 100.2, 100.3, 101.0)
+            self.lv._record_risk_timing('KRW-A', '계단 보호', 500.0, 500.1, 500.2, 501.0)
+        self.assertEqual(rows[0]['ms']['합계'], 1000)
+        self.assertIsNone(rows[1]['ms']['판정→확인시작'])
+        self.assertIsNone(rows[1]['ms']['합계'])
+
+
 if __name__ == '__main__':
     unittest.main()

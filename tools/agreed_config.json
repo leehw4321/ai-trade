@@ -56,7 +56,8 @@
         -9,
         1
       ]
-    ]
+    ],
+    "drop2h_block_pct": 0.06
   },
   "live": {
     "adopted_trail_start_r": 1.0,

@@ -233,7 +233,21 @@ def deploy(approved_by, app=None, src=None, launch=None, config_patch=None):
         log('롤백 후 재시작 ' + ('성공' if ok2 else '실패: ' + why2.strip()[:200] + ' — 수동 확인 필요'), app)
         return 2
     log('배포 완료' + ('' if was_running else ' (봇이 꺼져 있어 코드만 적용, 시작은 하지 않음)'), app)
+    if was_running:
+        lease_after_restart(app)
     return 0
+
+
+def lease_after_restart(app):
+    """재시작한 봇이 실행권을 다시 받았는지 기록한다(2026-11-11: 정지 중 장부 수정으로 실행권을 못 받고 4시간 대기한 사고)."""
+    try:
+        import lease_check
+        cfg = json.loads((app / 'config.json').read_text(encoding='utf-8-sig'))
+        level, msg = lease_check.report(app, cfg.get('live', {}).get('enabled', False), (app / 'bot.lock').exists())
+    except Exception as ex:
+        level, msg = 'warn', f'실행권 확인 불가({type(ex).__name__})'
+    log(('[문제] ' if level == 'bad' else '재시작 후 ') + msg, app)
+    return level
 
 
 def head():

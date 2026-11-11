@@ -102,6 +102,13 @@ def status(_):
         if ar.exists():
             a = json.loads(ar.read_text(encoding='utf-8'))
             print(f'  계좌 인수: {a.get("adopted_at")} · 범위 {a.get("scope")} · 이력 복원 {a.get("past_history_restored")}')
+        try:  # 2026-11-11: 봇이 켜져 있어도 실행권이 없으면 주문(손절 포함)을 못 한다. 반드시 함께 보여 준다.
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import lease_check
+            level, msg = lease_check.report(d, live.get('enabled', False), (d / 'bot.lock').exists())
+            print('  ' + ('[문제] ' if level == 'bad' else '') + msg)
+        except Exception as ex:
+            print(f'  실행권 확인 불가({type(ex).__name__})')
         for f in ('bot.stdout.log',):
             lf = d / 'data' / f
             if lf.exists():

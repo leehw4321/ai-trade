@@ -6,7 +6,7 @@
   4h10 직전 4시간 ≤ −10%  관찰만
 
 기록 대상: 정시 주문안에서 매수 신호(순위·상승률)가 있고, '급락 중' 말고 다른 차단이 없는 후보(missed_ledger의 blocks 기준).
-  같은 종목은 앞 기록의 6시간 창이 끝나기 전에는 다시 기록하지 않는다(같은 장면을 여러 번 세지 않음).
+  같은 종목은 앞 기록의 6시간 창이 끝나기 전에는 다시 기록하지 않는다(같은 장면을 여러 번 세지 않음). 단 그 사이 새 기준이 걸리면 기록한다.
 '샀다면' 결과: 그 정시 신호 종가에 7만 원어치 샀다고 보고, 이후 15분봉으로 손절(stop_max_pct) → 이익보호(arm·giveback) → 6시간 종가 순으로 판다.
   같은 봉에서 고가·저가 순서는 모르므로 손절을 먼저 본다(보수). 수수료 왕복 0.1%. 실제 체결·슬리피지는 반영하지 않는다(모의).
 막은 효과 = −(걸린 후보의 '샀다면' 손익 합). 양수면 막아서 이득.
@@ -54,18 +54,23 @@ def record(data_dir, slot, ranked, missed_rows, now=None):
     s = load(data_dir)
     s['since'] = s.get('since') or now
     by = {r['market']: r for r in ranked}
-    busy = {o['m'] for o in s['obs'] if o['t'] + HOLD_H * 3600 > slot}
+    busy = {}   # 6시간 창이 안 끝난 종목 → 이미 기록된 기준들. 새 기준이 걸리면 다시 기록한다(먼저 통과 후보로 잡혀 급락 차단이 빠지는 것 방지)
+    for o in s['obs']:
+        if o['t'] + HOLD_H * 3600 > slot: busy.setdefault(o['m'], set()).update(o['hits'])
     added = 0
     for row in missed_rows:
         m = row['market']
-        if not row.get('signal') or m in busy or not isinstance(row.get('close'), (int, float)) or row['close'] <= 0:
+        if not row.get('signal') or not isinstance(row.get('close'), (int, float)) or row['close'] <= 0:
             continue
         if any(b != '급락 중(2시간)' for b in row.get('blocks') or []):
             continue
         r = by.get(m) or {}
+        h = hits(r.get('r2'), r.get('r4'))
+        if m in busy and set(h) <= busy[m]:
+            continue
         s['obs'].append({'m': m, 't': slot, 'px': row['close'], 'rank': row.get('rank'), 'r2': r.get('r2'), 'r4': r.get('r4'),
-                         'hits': hits(r.get('r2'), r.get('r4')), 'bought': row.get('outcome') == '매수'})
-        busy.add(m); added += 1
+                         'hits': h, 'bought': row.get('outcome') == '매수'})
+        busy.setdefault(m, set()).update(h); added += 1
     save(data_dir, s)
     return added
 

@@ -65,6 +65,13 @@ class Watch(unittest.TestCase):
         self.assertEqual(dw.record(self.d, 1000 + 3600, ranked, rows), 0)        # 6시간 안 같은 종목은 다시 세지 않음
         self.assertEqual(dw.record(self.d, 1000 + 7 * 3600, ranked, rows), 2)
 
+    def test_later_drop_hit_recorded_even_if_seen_clean(self):
+        row = [{'market': 'KRW-P', 'signal': True, 'close': 10, 'blocks': [], 'outcome': '후보였으나 미매수(자리·현금·후보 수)'}]
+        self.assertEqual(dw.record(self.d, 0, [{'market': 'KRW-P', 'r2': 0.0, 'r4': 0.0}], row), 1)
+        row[0]['blocks'] = ['급락 중(2시간)']
+        self.assertEqual(dw.record(self.d, 3600, [{'market': 'KRW-P', 'r2': -0.07, 'r4': 0.0}], row), 1)
+        self.assertEqual(dw.record(self.d, 7200, [{'market': 'KRW-P', 'r2': -0.08, 'r4': 0.0}], row), 0)
+
     def test_simulate_stop_guard_time(self):
         flat = [(100, 100.5, 99.5, 100)] * 24
         self.assertEqual(dw.simulate(100, bars_from([(100, 100, 96, 97)] + flat), 0, 0.035, 0.03, 0.3)[1], '손절')

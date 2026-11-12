@@ -28,6 +28,8 @@ import exit_watch
 import step_watch
 import rank_defer
 import drop_watch
+import pause_watch
+import trend_shadow
 import regime_compare
 import market_state as ms
 import entry_flags_review
@@ -880,6 +882,14 @@ class Bot:
                 watch_line = rank_defer.render(self.defer_watch, float(self.live.cfg.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS)),
                                                since=self.live.cfg.get('rank_loss_defer_since')) + watch_line
             watch_line = drop_watch.render(DATA, getattr(self.p, 'drop2h_block_pct', 0) or None) + watch_line   # 급락 중 매수 보류(2026-11-12) 맨 위
+            watch_line = pause_watch.render(DATA) + watch_line   # 최근 성적 매수 휴식 관찰(2026-11-12)
+            try:   # 주요 코인 추세 모의(2026-11-12): 실패해도 다른 표시는 유지
+                tk = {m: float(t['trade_price']) for m, t in upbit.tickers(trend_shadow.MARKETS).items()}
+                ts_ = trend_shadow.update(DATA, lambda m: upbit.completed_candles(m, 1440, 60), lambda m: tk[m])
+                bot_real = sum(x['pnl'] for x in pause_watch.trips(DATA / 'exchange_orders.jsonl') if x['close'] >= ts_['since'])
+                watch_line = trend_shadow.render(DATA, tk, bot_real) + watch_line
+            except Exception as ex:
+                watch_line = f'<div class=sub>추세 모의 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),

@@ -34,7 +34,7 @@
     "bot_capital_divisor": 0,
     "reentry_profit_hours": 4,
     "reentry_loss_hours": 24,
-    "reentry_dip_atr": 0,
+    "reentry_dip_atr": 0.5,
     "regime_slots": [
       [
         0.03,

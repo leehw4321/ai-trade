@@ -87,6 +87,12 @@ def reentry_note(last, p, now):
     return None
 
 
+# 현황 맨 위 관찰창 아이콘(2026-11-13 사용자 지시 '봇에 아이콘을 만들어줘'). observe.html은 owner_watch.py가 같은 data 폴더에 쓴다
+OBSERVE_BTN = ("<a href='observe.html' target=_blank title='실행권·실제 계좌 보유·최근 체결을 보는 관찰창(조회 전용, 새 창)' "
+               "style='font-size:17px;font-weight:700;padding:10px 20px;margin-left:10px;background:#2b5c8a;color:#fff;border-radius:8px;"
+               "text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.25);display:inline-block'>👁 관찰창</a>")
+
+
 def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None,
                  prices=None, entry_of=None, entries=None, sold=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
@@ -963,7 +969,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
 {notices.banner(notices.active(DATA / 'notices.json'), self.notice_action())}
-<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
+<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{OBSERVE_BTN}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
 <div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 1회 매수 {('봇 자금 ÷ ' + format(p.bot_capital_divisor, 'g')) if getattr(p, 'bot_capital_divisor', 0) else '총자산 비례'} · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·
@@ -1074,6 +1080,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
     def run(self):
         subprocess.Popen([sys.executable, str(ROOT / 'account_sync.py')],
                          cwd=str(ROOT), creationflags=subprocess.CREATE_NO_WINDOW)
+        try:  # 관찰창(조회 전용, 2026-11-13 사용자 지시): 봇과 함께 켠다. 이미 켜져 있으면 owner_watch가 스스로 끝난다
+            subprocess.Popen([sys.executable, str(ROOT / 'owner_watch.py')], cwd=str(ROOT), creationflags=subprocess.CREATE_NO_WINDOW)
+        except OSError as ex:
+            self.log('관찰창 시작 실패(무시): ' + type(ex).__name__)
         if not all(lg.ready for lg in self.ledgers.values()):
             self.init_t0()
         self.align_timeframe(time.time())

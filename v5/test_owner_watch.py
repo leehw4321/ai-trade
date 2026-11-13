@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 import owner_watch as ow
 
 NOW = 1_800_000_000.0
@@ -30,6 +31,13 @@ class JudgeTest(unittest.TestCase):
         h = ow.holdings_from(acct, {'KRW-DOGE'})
         self.assertEqual([x['market'] for x in h], ['KRW-B', 'KRW-DOGE'])
         self.assertAlmostEqual(h[0]['stop'], 96.5); self.assertIsNone(h[1]['stop'])
+
+
+class IconTest(unittest.TestCase):
+    def test_status_header_has_observer_icon(self):  # 사용자 지시 2026-11-13 '봇에 아이콘을 만들어줘'
+        import bot
+        self.assertIn("href='observe.html'", bot.OBSERVE_BTN)
+        self.assertIn('{OBSERVE_BTN}', Path(bot.__file__).read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':

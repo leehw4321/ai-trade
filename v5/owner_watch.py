@@ -7,7 +7,7 @@
   pythonw owner_watch.py          계속 갱신(중복 실행 방지: data/owner_watch.lock)
   python owner_watch.py --once    한 번만 쓰고 끝
 보는 것: 실행권 기록(GitHub, 30초) · 실제 계좌 보유(account_sync가 쓰는 data/account_live.json, 멈췄으면 직접 조회)
-        · 미체결 주문(30초) · 최근 6시간 체결(60초).
+        · 미체결 주문(30초) · 최근 12시간 거래(60초, 매수·매도를 한 줄로 묶어 수익금액·수익률. 2026-11-13 사용자 지시).
 판단(judge): 실행권 만료·주인 없음 = 위험, 추정 손절가 아래로 3분 넘게 안 팔린 종목·실행권 갱신 지연 = 주의.
 """
 import datetime as dt
@@ -26,7 +26,9 @@ LOCK = DATA / 'owner_watch.lock'
 KST = dt.timezone(dt.timedelta(hours=9))
 STOP_PCT = 0.035        # 손절 상한(strategy.stop_max_pct). 실제 손절가는 이익보호로 더 높을 수 있어 '추정'
 BELOW_ALERT = 180       # 추정 손절가 아래에서 이만큼(초) 안 팔리면 주의
-RENEW_LATE = 150        # 실행권 기록 갱신이 이만큼(초) 없으면 주의(정상은 약 2분마다 갱신)
+RENEW_LATE = 150
+SHOW_HOURS = 12         # 최근 거래 표 범위(사용자 지시 2026-11-13: 6시간 → 12시간)
+HISTORY_HOURS = 48      # 그 매도의 매수를 찾으려고 받는 기간        # 실행권 기록 갱신이 이만큼(초) 없으면 주의(정상은 약 2분마다 갱신)
 e = html.escape
 
 
@@ -123,8 +125,36 @@ def read_open():
 def read_closed():
     import pnl
     now = dt.datetime.now(KST)
-    rows = pnl.closed_between(now - dt.timedelta(hours=6), now + dt.timedelta(minutes=1))
-    return sorted([o for o in rows if float(o.get('executed_volume') or 0) > 0], key=lambda o: o['created_at'], reverse=True)
+    rows = pnl.closed_between(now - dt.timedelta(hours=HISTORY_HOURS), now + dt.timedelta(minutes=1))   # 12시간 전 매도의 매수를 찾으려고 더 길게 받는다
+    return [o for o in rows if float(o.get('executed_volume') or 0) > 0]
+
+
+def trips(orders, since):
+    """체결 주문을 종목별 평균원가로 묶어 한 줄씩: 매도마다 {'market','buy_time','buy_px','sell_time','sell_px','pnl','pct'}
+    (pnl은 매수·매도 수수료 포함), 남은 보유는 sell_time=None. since(epoch) 이후 매도·매수만 돌려준다. 최신이 위."""
+    pos, out = {}, []
+    for o in sorted(orders, key=lambda o: o['created_at']):
+        m, v = o['market'], float(o['executed_volume'])
+        f, fee, ts = float(o.get('executed_funds') or 0), float(o.get('paid_fee') or 0), dt.datetime.fromisoformat(o['created_at']).timestamp()
+        q, cost, bq, bf, bt = pos.get(m, (0.0, 0.0, 0.0, 0.0, None))
+        if o['side'] == 'bid':
+            pos[m] = (q + v, cost + f + fee, bq + v, bf + f, bt or ts)
+            continue
+        part = min(v, q)
+        row = {'market': m, 'sell_time': ts, 'sell_px': f / v if v else None, 'buy_time': bt, 'buy_px': bf / bq if bq else None}
+        if part > 0:
+            c = cost * part / q
+            row.update(pnl=(f - fee) * part / v - c, pct=((f - fee) * part / v - c) / c if c else None)
+            left = q - part
+            pos[m] = (left, cost - c, bq * left / q, bf * left / q, bt) if left * (bf / bq if bq else 0) >= 5000 else (0.0, 0.0, 0.0, 0.0, None)
+        else:
+            row.update(pnl=None, pct=None)   # 매수가 조회 기간 밖
+        out.append(row)
+    for m, (q, cost, bq, bf, bt) in pos.items():
+        if q > 0 and bq and bf / bq * q >= 5000:
+            out.append({'market': m, 'buy_time': bt, 'buy_px': bf / bq, 'sell_time': None, 'sell_px': None, 'pnl': None, 'pct': None})
+    keep = [r for r in out if (r['sell_time'] or r['buy_time'] or 0) >= since]
+    return sorted(keep, key=lambda r: r['sell_time'] or r['buy_time'], reverse=True)
 
 
 def protected():
@@ -150,8 +180,8 @@ def holdings_from(account, prot):
     return sorted(out, key=lambda h: -h['value'])
 
 
-CSS = """:root{--bg:#f7f7f5;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--line:#e3e2dd;--ok:#1f7a4d;--warn:#a86400;--bad:#b3261e;--okb:#e6f4ec;--warnb:#fff3dc;--badb:#fde8e6}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--fg:#ececea;--mut:#9a9a94;--card:#1f1f1d;--line:#33332f;--ok:#5cc28d;--warn:#f0b351;--bad:#ff8a80;--okb:#173325;--warnb:#3a2c12;--badb:#3d1c1a}}
+CSS = """:root{--bg:#f7f7f5;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--line:#e3e2dd;--ok:#1f7a4d;--warn:#a86400;--bad:#b3261e;--okb:#e6f4ec;--red:#d22;--blue:#1756c9;--warnb:#fff3dc;--badb:#fde8e6}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--fg:#ececea;--mut:#9a9a94;--card:#1f1f1d;--line:#33332f;--ok:#5cc28d;--warn:#f0b351;--bad:#ff8a80;--okb:#173325;--red:#ff6b6b;--blue:#6ea8ff;--warnb:#3a2c12;--badb:#3d1c1a}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 'Malgun Gothic',system-ui,sans-serif}
 main{max-width:1000px;margin:0 auto;padding:16px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px}
 .sub{color:var(--mut);font-size:12px}.lamp{border-radius:10px;padding:14px 16px;margin:12px 0;border:1px solid var(--line)}
@@ -159,7 +189,7 @@ main{max-width:1000px;margin:0 auto;padding:16px}h1{font-size:20px;margin:0 0 4p
 .lamp b{font-size:17px}.lamp ul{margin:6px 0 0 18px;padding:0}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}th{font-size:12px;color:var(--mut);font-weight:600}
-td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}.up{color:var(--bad)}.dn{color:#1f5fbf}tr.below td{background:var(--badb)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}.up{color:var(--red)}.dn{color:var(--blue)}tr.below td{background:var(--badb)}
 .wrap{overflow-x:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .kv{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px}.kv div:first-child{font-size:12px;color:var(--mut)}
 .guide{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}.guide li{margin:3px 0}"""
@@ -184,12 +214,15 @@ def render(now, level, head, why, lease, lease_err, holdings, acct_src, acct_age
                    f"<td class=n>{fmt(float(o['price'])) if o.get('price') else '시장가'}</td><td class=n>{float(o.get('remaining_volume') or 0):,.8g}</td></tr>"
                    for o in (opens or [])) or "<tr><td colspan=6 class=sub>없음</td></tr>"
     crow = []
-    for o in (closed or [])[:25]:
-        v, f = float(o['executed_volume']), float(o.get('executed_funds') or 0)
-        crow.append(f"<tr><td>{e(o['created_at'][5:16].replace('T', ' '))}</td><td>{e(o['market'][4:])}</td>"
-                    f"<td class='{'up' if o['side'] == 'bid' else 'dn'}'>{'매수' if o['side'] == 'bid' else '매도'}</td>"
-                    f"<td class=n>{fmt(f / v) if v else '—'}</td><td class=n>{f:,.0f}</td><td>{e(o.get('time_in_force') or o.get('ord_type') or '')}</td></tr>")
-    crow = ''.join(crow) or "<tr><td colspan=6 class=sub>최근 6시간 체결 없음</td></tr>"
+    hm = lambda ts: dt.datetime.fromtimestamp(ts, KST).strftime('%m-%d %H:%M') if ts else '—'
+    for r in trips(closed or [], now - SHOW_HOURS * 3600)[:40]:
+        cls = sign(r['pnl'])
+        money = '보유 중' if r['sell_time'] is None else ('—' if r['pnl'] is None else f"{r['pnl']:+,.0f}원")
+        pct = '' if r['pct'] is None else f"{r['pct']:+.2%}"
+        crow.append(f"<tr><td>{e(r['market'][4:])}</td><td>{hm(r['buy_time'])}</td><td class=n>{fmt(r['buy_px'])}</td>"
+                    f"<td>{hm(r['sell_time'])}</td><td class=n>{fmt(r['sell_px'])}</td>"
+                    f"<td class='n {cls}'><b>{money}</b></td><td class='n {cls}'><b>{pct}</b></td></tr>")
+    crow = ''.join(crow) or f"<tr><td colspan=7 class=sub>최근 {SHOW_HOURS}시간 거래 없음</td></tr>"
     L = lease or {}
     lease_cells = [('실행권 보유 PC', e(L.get('pc') or '없음') + (' (이 PC)' if L.get('pc') == socket.gethostname() else '')),
                    ('마지막 갱신', (ago(now - L['updated']) + ' 전') if L.get('updated') else '—'),
@@ -208,8 +241,8 @@ def render(now, level, head, why, lease, lease_err, holdings, acct_src, acct_age
 {''.join(rows) or '<tr><td colspan=9 class=sub>5,000원 이상 보유 없음</td></tr>'}</table></div>
 <div class=sub>추정 손절가 = 평단 −{STOP_PCT:.1%}(손절 상한). 실거래 봇의 실제 손절가는 그 PC 장부에만 있고, 이익보호·본전 잠금으로 더 높을 수 있다. 빨간 줄 = 현재가가 추정 손절가 이하.</div>
 <h2>미체결 주문</h2><div class=wrap><table><tr><th>접수</th><th>코인</th><th>방향</th><th>방식</th><th class=n>가격</th><th class=n>남은 수량</th></tr>{orow}</table></div>
-<h2>최근 6시간 체결 <span class=sub>(실거래 봇이 움직이고 있는지 보는 곳)</span></h2>
-<div class=wrap><table><tr><th>접수</th><th>코인</th><th>방향</th><th class=n>평균가</th><th class=n>금액</th><th>방식</th></tr>{crow}</table></div>
+<h2>최근 {SHOW_HOURS}시간 거래 <span class=sub>(매수·매도 한 줄 · 수수료 포함 · 실거래 봇이 움직이고 있는지 보는 곳)</span></h2>
+<div class=wrap><table><tr><th>코인</th><th>매수 시각</th><th class=n>매수가</th><th>매도 시각</th><th class=n>매도가</th><th class=n>수익금액</th><th class=n>수익률</th></tr>{crow}</table></div>
 <h2>실행권을 가져와야 할 때</h2><div class=guide><ul>
 <li><b>가져올 상황</b>: 위 램프가 빨강(실행권 만료·주인 없음)이고 집 PC를 바로 확인할 수 없을 때. 노랑은 먼저 집 PC 상태(전원·인터넷·봇 창)를 확인한다.</li>
 <li><b>방법</b>: 바탕화면 <b>「자동거래 이 PC에서 시작」</b>. 확인창 한 번 뒤 최신 코드 받기 → 집 봇에 양도 요청 → 계좌 인수 → 이 PC 봇 시작. 손절가는 현재가 기준으로 다시 잡힌다.</li>

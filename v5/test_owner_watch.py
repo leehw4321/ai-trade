@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from pathlib import Path
 import owner_watch as ow
@@ -31,6 +32,28 @@ class JudgeTest(unittest.TestCase):
         h = ow.holdings_from(acct, {'KRW-DOGE'})
         self.assertEqual([x['market'] for x in h], ['KRW-B', 'KRW-DOGE'])
         self.assertAlmostEqual(h[0]['stop'], 96.5); self.assertIsNone(h[1]['stop'])
+
+
+class TripsTest(unittest.TestCase):
+    def o(self, m, side, when, vol, funds, fee):
+        return {'market': m, 'side': side, 'created_at': f'2026-11-13T{when}:00+09:00', 'executed_volume': str(vol),
+                'executed_funds': str(funds), 'paid_fee': str(fee)}
+
+    def test_buy_sell_on_one_row_with_profit_including_fees(self):
+        rows = ow.trips([self.o('KRW-A', 'bid', '12:01', 610, 65880, 33), self.o('KRW-A', 'ask', '12:13', 610, 62220, 31),
+                         self.o('KRW-B', 'bid', '12:20', 1000, 10000, 5)], 0)
+        self.assertEqual([r['market'] for r in rows], ['KRW-B', 'KRW-A'])
+        b, a = rows
+        self.assertIsNone(b['sell_time'])                                   # 아직 보유: 매수만
+        self.assertAlmostEqual(a['buy_px'], 108); self.assertAlmostEqual(a['sell_px'], 102)
+        self.assertAlmostEqual(a['pnl'], 62220 - 31 - 65913)               # 수수료 포함
+        self.assertLess(a['pct'], 0)
+
+    def test_window_and_unknown_buy(self):
+        rows = ow.trips([self.o('KRW-A', 'ask', '12:13', 10, 1000, 1)], 0)
+        self.assertIsNone(rows[0]['pnl'])                                   # 매수가 조회 기간 밖
+        old = dt.datetime(2026, 11, 13, 12, 30, tzinfo=ow.KST).timestamp()
+        self.assertEqual(ow.trips([self.o('KRW-A', 'ask', '12:13', 10, 1000, 1)], old), [])
 
 
 class IconTest(unittest.TestCase):

@@ -88,7 +88,7 @@ def reentry_note(last, p, now):
 
 
 def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None,
-                 prices=None, entry_of=None):
+                 prices=None, entry_of=None, entries=None, sold=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -107,7 +107,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             cls, tag = 'rk-held', '보유' + (f" · 묶임({s.get('state', '')})" if s else '') + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
         elif rank <= p.M and rs > 0 and reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now):
             # 재매수 금지 중인 후보는 '투자 대상'으로 세지 않는다(주문안이 사지 않는다). 이유와 해제 시각을 적는다.
-            cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now) + trade_prices(last_sells[m], m, entry_of)
+            cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now)
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
             cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
         elif rank <= scan and rs >= p.chase_rs_cap > 0:
@@ -119,6 +119,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         else:
             cls, tag = '', ''
         tag = (tag + note) if tag else note.lstrip(' ·')
+        tag += price_note(m, m in held, (entries or {}).get(m), (prices or {}).get(m), newer_sell((last_sells or {}).get(m), (sold or {}).get(m)), p, entry_of,
+                          time.time() if now is None else now)
+        tag = tag.lstrip(' ·')
         btn = ''
         if can_promote and m not in held and rank <= scan and p.chase_rs_cap > 0 and p.chase_rs_cap <= rs < co.ext_cap(p):
             act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
@@ -135,6 +138,31 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{name}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
+
+
+def price_note(m, held, entry, px, last, p, entry_of, now):
+    """순위표 '구분' 칸 끝에 붙이는 단가(사용자 지시 2026-11-10, 범위 확대 2026-11-13: 모든 종목에 매수·매도 단가).
+    보유: '매수 평단 → 현재 손익률'. 미보유이고 최근 reentry_window_hours 안에 판 종목: '매수 평단 → 매도가 (손익률)'.
+    재매수 금지 중이든 풀렸든 같다. 표시 전용, 주문 무영향."""
+    try:
+        if held:
+            if isinstance(entry, (int, float)) and entry > 0:
+                cur = f" (현재 {px / entry - 1:+.2%})" if isinstance(px, (int, float)) and px > 0 else ''
+                return f" · 매수 {fmt_price(entry)}{cur}"
+            return ''
+        if last and 0 <= now - float(last['time']) < float(p.reentry_window_hours) * 3600:
+            return trade_prices(last, m, entry_of)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        pass
+    return ''
+
+
+def newer_sell(a, b):
+    """봇 장부의 마지막 매도와 거래소 체결 기록의 마지막 매도 중 최근 것(실행권 없는 PC는 장부가 멈춰 있어 체결 기록이 최신)."""
+    try:
+        return a if not b or (a and float(a['time']) >= float(b['time']) - 60) else b
+    except (KeyError, TypeError, ValueError):
+        return a or b
 
 
 def trade_prices(last, m, entry_of=None):
@@ -168,7 +196,7 @@ def history_entries(path):
             if e['side'] == 'bid':
                 pos[e['coin']] = (q + v, c + float(e['funds'] + e['fee']))
             elif q > 0:
-                out.setdefault('KRW-' + e['coin'], []).append((e['time'].timestamp(), c / q))
+                out.setdefault('KRW-' + e['coin'], []).append((e['time'].timestamp(), c / q, float(e['funds']) / v if v else 0.0))
                 left = max(0.0, q - v)
                 pos[e['coin']] = (left, c * left / q) if left * c / q >= 1 else (0.0, 0.0)
     except Exception:
@@ -177,9 +205,15 @@ def history_entries(path):
     return out
 
 
+def recent_sells(path):
+    """거래소 체결 기록의 종목별 마지막 매도: {종목: {'time', 'price'(평균 체결가), 'entry'(직전 매수 평단)}}. 표시 전용."""
+    return {m: {'time': rows[-1][0], 'price': rows[-1][2], 'entry': rows[-1][1]}
+            for m, rows in history_entries(path).items() if rows and rows[-1][2] > 0}
+
+
 def entry_lookup(path):
     def find(m, t):
-        rows = [e for ts, e in history_entries(path).get(m, []) if t - 3 * 3600 <= ts <= t + 120]
+        rows = [e for ts, e, _ in history_entries(path).get(m, []) if t - 3 * 3600 <= ts <= t + 120]
         return rows[-1] if rows else None
     return find
 
@@ -769,6 +803,14 @@ class Bot:
 <div class=cols><div><h3>보유 종목</h3><table><tr><th>종목</th><th class=n>평가액</th><th class=n>진입가</th><th class=n>현재가</th><th class=n>손절가</th><th class=n>손익</th></tr>{pos_rows}</table></div>
 <div><h3>최근 모의거래 (실제 주문 아님)</h3><table><tr><th>시각</th><th>구분</th><th>종목</th><th class=n>금액</th><th>사유</th><th class=n>손익</th><th class=n>손익률</th></tr>{tr_rows}</table></div></div></section>"""
 
+    def entry_prices(self):
+        """종목별 매수 평단(순위표 표시용). 봇 장부(원가÷수량)를 먼저, 없으면 실제 계좌 평단."""
+        out = {m: c['avg'] for m, c in ((getattr(self, 'real', None) or {}).get('coins') or {}).items() if c.get('avg')}
+        for m, pos in self.live.d.get('positions', {}).items():
+            if pos.get('qty'):
+                out[m] = pos['cost'] / pos['qty']
+        return out
+
     def held_markets(self, prices):
         """평가 5,000원 이상 보유 종목(실제 계좌 + 봇 관리 장부)."""
         held = {m for m, c in ((self.real or {}).get('coins') or {}).items() if c['qty'] * prices.get(m, 0) >= 5000}
@@ -834,7 +876,7 @@ class Bot:
             rank_px = {r['market']: r.get('close') for r in d.get('ranking', [])}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
                                can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {}),
-                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json')) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json'), entries=self.entry_prices(), sold=recent_sells(DATA / 'pnl' / 'orders.json')) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]

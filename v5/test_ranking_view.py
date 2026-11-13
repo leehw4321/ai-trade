@@ -76,6 +76,22 @@ class ReentryNoteView(unittest.TestCase):
                                entry_of=lambda m, t: 100.0).split('</tr>')[0]
         self.assertIn('매수 100 → 매도 95.5', row)
 
+    def test_every_held_and_recently_sold_row_shows_unit_prices(self):
+        # 사용자 지시(2026-11-10, 11-13 재지시): 순위표에 종목별 매수 단가·매도 단가. 재매수 금지 행에만 붙어 '실종'됐던 회귀 방지.
+        rk = [{'market': 'KRW-H', 'rs': .05, 'rank': 1}, {'market': 'KRW-S', 'rs': -.02, 'rank': 12},
+              {'market': 'KRW-O', 'rs': -.03, 'rank': 13}]
+        last = {'KRW-S': {'time': self.NOW - 20 * 3600, 'price': 110.0, 'profit': True, 'reason': '이익보호', 'entry': 100.0},
+                'KRW-O': {'time': self.NOW - 30 * 3600, 'price': 90.0, 'profit': False, 'reason': '손절', 'entry': 100.0}}
+        rows = bot.ranking_rows(rk, {'KRW-H'}, set(), self.P, last_sells=last, now=self.NOW,
+                                prices={'KRW-H': 105.0}, entries={'KRW-H': 100.0}).split('</tr>')
+        self.assertIn('보유 · 매수 100 (현재 +5.00%)', rows[0])          # 보유: 매수 평단과 현재 손익
+        self.assertIn('매수 100 → 매도 110', rows[1])                     # 순위 밖·금지 풀린 최근 매도도 표시
+        self.assertNotIn('매도 90', rows[2])                              # 재매수 기간(24시간) 지난 매도는 생략
+        # 실행권 없는 PC: 봇 장부엔 옛 매도만 있어도 거래소 체결 기록의 최근 매도를 보여 준다
+        sold = {'KRW-O': {'time': self.NOW - 600, 'price': 102.0, 'entry': 100.0}}
+        rows = bot.ranking_rows(rk, set(), set(), self.P, last_sells=last, now=self.NOW, sold=sold).split('</tr>')
+        self.assertIn('매수 100 → 매도 102', rows[2])
+
     def test_profit_exit_waits_then_needs_a_dip_then_expires(self):
         last = {'KRW-A': {'time': self.NOW - 3600, 'price': 100.0, 'profit': True, 'reason': '이익보호'}}
         self.assertIn('3.0시간 남음', self.rows(last)[0])

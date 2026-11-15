@@ -66,11 +66,49 @@ def record_virtual(data_dir, buys, now=None):
     for m, krw, px in buys:
         if m in held or len(open_) >= SLOTS or not (isinstance(px, (int, float)) and px > 0):
             continue
-        v = {'t': now, 'm': m, 'krw': int(krw), 'px': float(px)}
+        v = {'t': now, 'm': m, 'krw': int(krw), 'px': float(px), 'pause': s.get('since')}
         s['virtual'].append(v); open_.append(v); held.add(m); n += 1
     if n:
-        save(data_dir, s)
+        save(data_dir, s); write_csv(data_dir, s)
     return n
+
+
+def simulate(px, bars, start, stop_pct, arm, give):
+    """drop_watch.simulate와 같은 규칙(손절 → 이익보호 → 최대 6시간). 반환 (수익률, 사유, 매도 시각, 매도가) 또는 None."""
+    hold = drop_watch.HOLD_H * 3600
+    xs = [(dt.datetime.fromisoformat(b['t']).timestamp(), b) for b in bars]
+    xs = [(t, b) for t, b in xs if start <= t < start + hold]
+    if len(xs) < drop_watch.HOLD_H * 4 - 1:
+        return None
+    stop, peak = px * (1 - stop_pct), px
+    for t, b in xs:
+        if b['l'] <= stop:
+            out = min(stop, b['o']); return out / px - 1 - drop_watch.FEE2, '손절', t + 900, out
+        peak = max(peak, b['h'])
+        if arm > 0 and peak >= px * (1 + arm) and b['c'] <= px + (peak - px) * (1 - give):
+            return b['c'] / px - 1 - drop_watch.FEE2, '이익보호', t + 900, b['c']
+    t, b = xs[-1]
+    return b['c'] / px - 1 - drop_watch.FEE2, '6시간', t + 900, b['c']
+
+
+CSV = 'buy_pause_trades.csv'
+
+
+def write_csv(data_dir, s):
+    """엑셀에서 바로 여는 가상 거래 내역(UTF-8 BOM). 실패해도 무시."""
+    def f(t):
+        return dt.datetime.fromtimestamp(t, KST).strftime('%Y-%m-%d %H:%M') if t else ''
+    rows = ['휴식 시작,매수 시각,코인,금액,매수가,매도 시각,매도가,사유,수익금액,수익률']
+    for v in s['virtual']:
+        r = v.get('ret')
+        rows.append(','.join(str(x) for x in (f(v.get('pause')), f(v['t']), v['m'][4:], v['krw'], v['px'], f(v.get('out_t')),
+                                              v.get('out_px', ''), v.get('why', '진행'),
+                                              round(r * v['krw']) if isinstance(r, (int, float)) else '',
+                                              f'{r:.4f}' if isinstance(r, (int, float)) else '')))
+    try:
+        (Path(data_dir) / CSV).write_text('\n'.join(rows) + '\n', encoding='utf-8-sig')
+    except OSError:
+        pass
 
 
 def resolve(data_dir, candles, stop_pct, arm, give, now=None):
@@ -81,15 +119,15 @@ def resolve(data_dir, candles, stop_pct, arm, give, now=None):
         if 'ret' in v or v['t'] + drop_watch.HOLD_H * 3600 + 900 > now:
             continue
         try:
-            res = drop_watch.simulate(v['px'], candles(v['m']), v['t'], stop_pct, arm, give)
+            res = simulate(v['px'], candles(v['m']), v['t'], stop_pct, arm, give)
         except Exception:
             res = None
         if res is None and now - v['t'] > 40 * 3600:
             v['ret'], v['why'] = None, '자료 없음'; n += 1
         elif res is not None:
-            v['ret'], v['why'] = res; n += 1
+            v['ret'], v['why'], v['out_t'], v['out_px'] = res; n += 1
     if n:
-        save(data_dir, s)
+        save(data_dir, s); write_csv(data_dir, s)
     return n
 
 
@@ -146,7 +184,35 @@ def render(data_dir, action, trips, now=None):
         border = '#1f6feb'
     if not action:
         head += "<span class=sub>(버튼은 실행권이 있는 PC의 봇 화면에서만 동작)</span>"
+    table = history_table(vs)
     return (f"<div style='margin:6px 0;padding:8px 12px;border:2px solid {border};border-radius:8px;font-size:15px'>{head}<br>{body}"
             "<div class=sub style='margin-top:3px'>쉬는 동안 봇 자동 매수만 막음(손절·이익보호·순위 매도·직접 매수는 그대로) · "
             f"가상 매수 = 봇이 사려던 때 현재가·주문 금액, 15분봉으로 손절·이익보호·최대 6시간 모의(동시 {SLOTS}개) · "
-            "다시 살 신호는 참고용, 재개는 버튼으로 직접" + (f" · 최근 가상: {recent}" if recent else '') + "</div></div>")
+            "다시 살 신호는 참고용, 재개는 버튼으로 직접" + (f" · 최근 가상: {recent}" if recent else '') + f"</div>{table}</div>")
+
+
+def history_table(vs, limit=200):
+    """쉬는 동안 가상 거래 전체 내역(휴식 구간별 합계 + 최근 limit건). 수익 빨강·손실 파랑."""
+    if not vs:
+        return ''
+    def f(t):
+        return dt.datetime.fromtimestamp(t, KST).strftime('%m-%d %H:%M') if t else '—'
+    def money(r, krw):
+        if not isinstance(r, (int, float)):
+            return '<td class=n>—</td><td class=n>—</td>'
+        c = '#d22' if r > 0 else '#1756c9' if r < 0 else 'inherit'
+        return f"<td class=n style='color:{c}'>{r * krw:+,.0f}원</td><td class=n style='color:{c}'>{r:+.2%}</td>"
+    groups = {}
+    for v in vs:
+        g = groups.setdefault(v.get('pause'), [0, 0, 0.])
+        g[0] += 1
+        if isinstance(v.get('ret'), (int, float)):
+            g[1] += 1; g[2] += v['ret'] * v['krw']
+    gl = ' · '.join(f"{f(k)} 시작 휴식: {a}건(결과 {b}) 샀다면 {c:+,.0f}원" for k, (a, b, c) in sorted(groups.items(), key=lambda x: x[0] or 0))
+    rows = ''.join(f"<tr><td>{f(v['t'])}</td><td>{v['m'][4:]}</td><td class=n>{v['krw']:,}</td><td class=n>{v['px']:,.8g}</td>"
+                   f"<td>{f(v.get('out_t')) if v.get('out_t') else '—'}</td><td class=n>{format(v['out_px'], ',.8g') if v.get('out_px') else '—'}</td>"
+                   f"<td>{v.get('why', '진행 중')}</td>{money(v.get('ret'), v['krw'])}</tr>" for v in vs[-limit:][::-1])
+    return (f"<details style='margin-top:4px'><summary>가상 거래 내역 {len(vs)}건 — 눌러서 열기</summary>"
+            f"<div class=sub>{gl} · 전체 내역 파일: data/{CSV}(엑셀로 열림)</div>"
+            "<table><tr><th>매수 시각</th><th>코인</th><th class=n>금액</th><th class=n>매수가</th><th>매도 시각</th><th class=n>매도가</th>"
+            f"<th>사유</th><th class=n>수익금액</th><th class=n>수익률</th></tr>{rows}</table></details>")

@@ -42,9 +42,13 @@ class PauseState(unittest.TestCase):
         self.assertEqual(n, 1)
         v = bp.load(self.d)['virtual'][0]
         self.assertEqual(v['why'], '손절'); self.assertAlmostEqual(v['ret'], -0.035 - drop_watch.FEE2)
+        self.assertEqual((v['out_t'], v['out_px'], v['pause']), (900, 96.5, 0))       # 매도 시각·가격, 휴식 구간 저장
+        csv = (self.d / bp.CSV).read_text(encoding='utf-8-sig').splitlines()
+        self.assertEqual(len(csv), 2); self.assertIn(',A,100000,100.0,', csv[1]); self.assertIn('손절,-3600,', csv[1])
         act = {'port': 1, 'token': 't'}
         html = bp.render(self.d, act, [], now=8 * 3600)
         self.assertIn('매수 쉬는 중', html); self.assertIn('/resume_buy', html); self.assertIn('쉰 효과 +3,600원', html)
+        self.assertIn('가상 거래 내역 1건', html); self.assertIn('96.5', html); self.assertIn('-3,600원', html)
         trips = [{'close': k, 'pnl': 1000} for k in range(19)]
         self.assertIn('다시 살 신호', bp.render(self.d, act, trips, now=8 * 3600))      # 실거래 19건 +19,000 + 가상 −3,600
         bp.set_paused(self.d, False, now=9 * 3600)

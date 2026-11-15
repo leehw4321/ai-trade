@@ -4,7 +4,7 @@
 
 - [ ] 1. `git pull` (ai-trade)
 - [ ] 2. `python tools/deploy_v5.py --apply --patch tools/patches/ledger_relay_20261111.json`
-      → 코드 5개(매수 쉬기·다시 시작 버튼, 가상 거래 내역) + 설정 session.ledger_relay=true. 집 PC와 같은 버전이 된다.
+      → 매수 쉬기·다시 시작 버튼, 가상 거래 내역, ATR 부족 종목 건너뛰기(11-15 21:57) + 설정 session.ledger_relay=true. 집 PC와 같은 버전이 된다.
 - [ ] 3. `python tools/take_over.py --enroll` → 회사 PC를 암호화 장부 수신 PC로 등록(PC마다 한 번).
       등록 전에는 집 PC가 실행권을 넘길 때 회사 PC가 장부를 풀 수 없다(기존처럼 계좌 새 인수).
 - [ ] 4. `python tools/ai_session.py status` 로 실행권이 집 PC(DESKTOP-DLN2HJJ)에 그대로인지 확인.

@@ -112,6 +112,23 @@ def effective_slots(base, market_index):
     return base.slots
 
 
+def atr_ready(entry_ok, ranked, scan, tf, ok_cache, fetch):
+    """상위 scan개 후보 중 손절 ATR(tf분봉 Wilder 14)을 계산할 수 없는 종목을 entry_ok에서 뺀 새 집합.
+    계산된 종목은 ok_cache에 넣어 다시 조회하지 않는다(상장 뒤 자료는 늘기만 한다)."""
+    out = set(entry_ok)
+    for r in ranked[:scan]:
+        m = r['market']
+        if m not in out or m in ok_cache:
+            continue
+        a = st.wilder_atr(fetch(m, tf) or [])
+        if a is not None and math.isfinite(a) and a > 0:
+            ok_cache.add(m)
+        else:
+            out.discard(m)
+        time.sleep(0.12)
+    return out
+
+
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
              promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
@@ -570,6 +587,12 @@ class Shadow:
         self.market_index = st.market_index({m: b for m, b in bars.items() if m in uni}, self.base.regime_bars,
                                             self.base.regime_min_markets)
         self.rs_out = {m: st.relative_strength(b, self.base.L) for m, b in bars.items() if m not in uni}
+        try:   # 손절 ATR 자료가 없는 종목(신규 상장 등)은 매수 후보에서 뺀다(2026-11-15 SANC: 주문안마다 막히며 자리만 차지)
+            entry_ok = atr_ready(entry_ok, self.base_ranked, (self.base.entry_scan or self.base.entry_top) + 3,
+                                 int(self.cfg.get('live', {}).get('stop_tf', 240)), self.__dict__.setdefault('_atr_ok', set()),
+                                 lambda m, tf: upbit.completed_candles(m, tf, 100))
+        except Exception as ex:
+            print(f'[{now_iso()}] 손절 ATR 확인 실패(후보 그대로): {type(ex).__name__}: {ex}', flush=True)
         self.entry_ok = entry_ok
         need_books = set()
         plans = {}

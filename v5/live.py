@@ -89,6 +89,10 @@ DEFAULTS = {'enabled': False, 'auto_proposal': False, 'max_order_krw': 30000, 'm
             'stop_fast_manual_max_age': 30}  # 봇이 관리하는 동시 보유(보호 종목·5천원 미만 제외)가 이 수 이상이면 알림만 낸다(주문 제한 없음, 0이면 끔)
 
 
+class EntrySkip(ValueError):
+    """주문을 내기 전 매수 점검에서 막힘(추격 상한·손절 ATR 자료 부족 등). 주문안의 그 종목만 건너뛰고 나머지는 계속한다(2026-11-15 SANC)."""
+
+
 def parse(text):
     """'매도 ONG 100%; 매수 BTC 20000원' -> [('sell','KRW-ONG',100.0), ('buy','KRW-BTC',20000)]. 형식 오류는 ValueError."""
     orders = []
@@ -591,10 +595,10 @@ class Live:
         if side == 'bid':
             if validate_entry:
                 why = self.entry_chase_block(market, entry_context)
-                if why: raise ValueError(why)
+                if why: raise EntrySkip(why)
             atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
             if atr is None or not math.isfinite(atr) or atr <= 0:
-                raise ValueError('손절 ATR 자료 부족·무효: 매수 보류')
+                raise EntrySkip('손절 ATR 자료 부족·무효: 매수 보류')
             if self.cfg.get('r_from_15m'):
                 try: atr_r = st.wilder_atr(upbit.completed_candles(market, 15, 100))
                 except Exception: atr_r = None
@@ -608,7 +612,7 @@ class Live:
             # Provenance and ATR lookups precede the final executable quote check.
             book = upbit.orderbooks([market]).get(market, {})
             why = self.entry_chase_block(market, entry_context, book.get('ask'))
-            if why: raise ValueError(why)
+            if why: raise EntrySkip(why)
         self.assert_unprotected(market)  # ATR/quote requests may have taken time.
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r}
@@ -872,8 +876,12 @@ class Live:
             if m in rest_ms and strict:
                 done.append(self._rest_buy(m, krw, plan[0], context))
                 continue
-            o = (self._trade('bid', m, krw, plan[0], entry_context=context, validate_entry=True)
-                 if strict else self._trade('bid', m, krw, plan[0]))
+            try:
+                o = (self._trade('bid', m, krw, plan[0], entry_context=context, validate_entry=True)
+                     if strict else self._trade('bid', m, krw, plan[0]))
+            except EntrySkip as ex:   # 주문 전 점검에서 막힘: 이 종목만 건너뛴다(예전에는 주문안 전체가 중단돼 뒤 종목도 못 샀다)
+                done.append(f'{m[4:]} 매수 안 함: {ex}')
+                continue
             v, funds, fee = self._fill(o)
             if v <= 0:
                 done.append(f'{m[4:]} 매수 미체결 ({o["state"]})')

@@ -25,6 +25,7 @@ import rotation_policy as rotation
 import chase_override as co
 import upbit
 import asset_protection
+import buy_pause
 import continuity
 import manual_protection
 from paper import now_iso
@@ -781,6 +782,18 @@ class Live:
         protected = self.protected_markets()
         protected_orders = [m for _, m, _ in orders if m in protected]
         orders = [(side, m, amount) for side, m, amount in orders if m not in protected]
+        paused_blocked = []
+        if automatic and buy_pause.is_paused(self.folder.parent):
+            # 사용자 매수 쉬기(2026-11-15 화면 버튼): 자동 매수만 막고 가상 매수로 기록한다. 매도는 그대로.
+            paused_blocked = [(m, amount) for side, m, amount in orders if side == 'buy']
+            orders = [o for o in orders if o[0] != 'buy']
+            if paused_blocked:
+                try:
+                    px = {m: t['trade_price'] for m, t in upbit.tickers([m for m, _ in paused_blocked]).items()}
+                    n = buy_pause.record_virtual(self.folder.parent, [(m, krw, px.get(m)) for m, krw in paused_blocked])
+                except Exception as ex:
+                    n = f'기록 실패 {type(ex).__name__}'
+                self.record({'event': '사용자 매수 쉬기로 차단', 'markets': [m for m, _ in paused_blocked], 'virtual': n})
         regime_blocked = []
         if automatic and getattr(self.p, 'halt_new_buys', False):
             regime_blocked = [m for side, m, _ in orders if side == 'buy']
@@ -802,6 +815,8 @@ class Live:
             # Reject before the first account request or order; old generators cannot sell then rebuy.
             return '실행 거부: 동일 주문안 매도·매수 종목 충돌 ' + ', '.join(sorted(sold_markets & bought_markets))
         if not orders:
+            if paused_blocked:
+                return '매수 쉬는 중: 가상 매수로 기록 ' + ', '.join(sorted(m[4:] for m, _ in paused_blocked))
             if regime_blocked:
                 return '장세 필터: 신규 매수 차단 ' + ', '.join(sorted(set(regime_blocked)))
             return ('사용자 보호 종목 주문 제외: ' + ', '.join(sorted(set(protected_orders)))) if protected_orders else '주문 없음 (매도 없음·매수 없음)'
@@ -1134,6 +1149,7 @@ class Live:
         """대기 중 매수 조건이 무너졌는지(2026-11-06 사용자 지시). 사유 문자열 또는 None. 무너지면 취소하고 남은 금액은 사지 않는다."""
         if self.is_protected(m): return '사용자 보호 지정'
         if self.d.get('halted'): return '손실 중단선 도달'
+        if buy_pause.is_paused(self.folder.parent): return '사용자 매수 쉬기'
         pos = self.d['positions'].get(m)
         live_px = type(px) in (int, float) and math.isfinite(px) and px > 0
         if pos and live_px and px <= self.stop_limit(pos) * 1.005: return '손절선 근접'

@@ -29,6 +29,7 @@ import step_watch
 import rank_defer
 import drop_watch
 import pause_watch
+import buy_pause
 import trend_shadow
 import regime_compare
 import market_state as ms
@@ -938,6 +939,15 @@ class Bot:
                 watch_line = trend_shadow.render(DATA, tk, bot_real) + watch_line
             except Exception as ex:
                 watch_line = f'<div class=sub>추세 모의 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
+            try:   # 매수 쉬기·다시 시작 버튼(2026-11-15 사용자 지시): 맨 위. 가상 매수 결과도 여기서 채운다
+                lc = self.live.cfg
+                buy_pause.resolve(DATA, lambda m: upbit.completed_candles(m, 15, 200), self.p.stop_max_pct,
+                                  float(lc.get('profit_guard_arm_pct', 0.02)), float(lc.get('profit_guard_giveback', 0.4)))
+                srv_b = getattr(self, 'manual_server', None)
+                act = {'port': srv_b.port, 'token': srv_b.token} if srv_b and self.can_act() else None
+                watch_line = buy_pause.render(DATA, act, pause_watch.trips(DATA / 'exchange_orders.jsonl')) + watch_line
+            except Exception as ex:
+                watch_line = f'<div class=sub>매수 쉬기 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),
@@ -1093,7 +1103,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         stop_iv = int(self.live.cfg.get('stop_check_seconds', 3)) if self.live.cfg['enabled'] else self.p.stop_seconds
         self.manual_server = None
         if True:
-            kinds={'grant', 'obs', 'refresh', 'notice_ack'}
+            kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
@@ -1251,6 +1261,19 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 if req.kind == 'refresh':  # 화면 즉시 새로고침(주문과 무관)
                     self._refresh_now = True
                     req.finish(True, '화면을 새로 만드는 중입니다.')
+                    continue
+                if req.kind in ('pause_buy', 'resume_buy'):  # 매수 쉬기·다시 시작(2026-11-15 사용자 지시). 주문 없음, 다음 주문안부터 적용
+                    if not self.can_act():
+                        req.finish(False, '이 PC에는 실행권이 없어 매수 쉬기를 바꿀 수 없습니다. 실행권이 있는 PC의 봇 화면에서 누르세요.')
+                        continue
+                    ok, msg = buy_pause.set_paused(DATA, req.kind == 'pause_buy')
+                    req.finish(True, msg)
+                    if ok:
+                        self.log(('매수 쉬기 시작' if req.kind == 'pause_buy' else '매수 다시 시작') + ' (화면 버튼)')
+                        try: self.live.share(('사용자가 화면 버튼으로 신규 자동 매수를 쉼. 손절·이익보호는 계속, 사려던 매수는 가상 기록.'
+                                              if req.kind == 'pause_buy' else '사용자가 화면 버튼으로 신규 자동 매수를 다시 시작함.'))
+                        except Exception: pass
+                    self._refresh_now = True
                     continue
                 if req.kind == 'grant':
                     ok, msg = self.request_grant()

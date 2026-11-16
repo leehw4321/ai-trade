@@ -104,5 +104,17 @@ class RealAgreedFile(unittest.TestCase):
         self.assertNotIn('enabled', l)
 
 
+class StartBotPassesKeys(unittest.TestCase):
+    """2026-11-16: start_bot이 키 환경을 넘기지 않아 봇이 키 없이 실행권을 잡고 주문이 13분간 실패했다."""
+    def test_every_process_gets_key_env(self):
+        env = {'UPBIT_ACCESS_KEY': 'a', 'UPBIT_SECRET_KEY': 'b'}
+        with mock.patch.object(t, 'key_env', return_value=env), mock.patch.object(t.subprocess, 'Popen') as popen, \
+                mock.patch.object(t, 'bot_running', return_value=True), mock.patch.object(Path, 'unlink'):
+            self.assertTrue(t.start_bot())
+        self.assertTrue(popen.call_args_list)
+        for call in popen.call_args_list:
+            self.assertIs(call.kwargs.get('env'), env)
+
+
 if __name__ == '__main__':
     unittest.main()

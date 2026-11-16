@@ -1342,12 +1342,39 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         print('매도:', sells or '없음', '/ 매수 후보:', buys or '없음', '/ 보류:', unknown or '없음')
 
 
+def pid_alive_text(pid):
+    return subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True, text=True,
+                          encoding='mbcs', errors='replace').stdout or ''
+
+
+KEYS_MISSING = ('업비트 API 키를 찾지 못해 실행권을 받지 않습니다(손절 포함 주문 불가). '
+                '.env 위치를 확인하고 봇을 다시 켜 주세요.')
+
+
+def initial_claim(guard, options, keys=None):
+    """시작할 때 실행권 판단. 남의 실행권은 빼앗지 않는다(버튼으로만 받는다). 실거래인데 키가 없으면 받지 않는다."""
+    try:
+        if options['live_enabled'] and not all(upbit._keys() if keys is None else keys):
+            # 키 없이 실행권을 잡으면 다른 PC도 주문하지 못하고 이 PC 주문은 모두 실패한다(2026-11-16 09:48~10:01 사고).
+            raise SessionLost(KEYS_MISSING)
+        got = guard.acquire(confirm=lambda: False) if options['live_enabled'] else False
+        if not options['live_enabled']:
+            guard.reason = '이 PC의 실거래 설정이 꺼져 있어 실행권을 받지 않습니다.'
+    except SessionLost as ex:
+        got, guard.reason = False, str(ex)
+    if not got and not guard.reason:
+        guard.reason = '다른 PC가 실행권을 갖고 있어 이 PC는 지켜보기만 합니다.'
+    return got
+
+
 def single_instance():
     try:
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         pid = LOCK.read_text().strip()
-        if pid and pid in subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True, text=True).stdout:
+        # tasklist는 OEM 코드 페이지(한글 cp949)로 출력한다. Python 3.15 기본 UTF-8로 읽으면 stdout이 None이 되어
+        # 비정상 종료 뒤 남은 잠금 파일이 있을 때 봇이 시작하자마자 죽는다(2026-11-16 블루스크린 뒤 사고).
+        if pid and pid in pid_alive_text(pid):
             sys.exit('이미 실행 중입니다.')
         LOCK.unlink()
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -1368,14 +1395,7 @@ if __name__ == '__main__':
             _, cfg = load_params()
             options = dict(cfg.get('session', {}), live_enabled=cfg.get('live', {}).get('enabled', False))
             guard = SessionGuard(ROOT, options)
-            try:
-                got = guard.acquire(confirm=lambda: False) if options['live_enabled'] else False  # 시작할 때 남의 실행권을 빼앗지 않는다(버튼으로만 받는다)
-                if not options['live_enabled']:
-                    guard.reason = '이 PC의 실거래 설정이 꺼져 있어 실행권을 받지 않습니다.'
-            except SessionLost as ex:
-                got, guard.reason = False, str(ex)
-            if not got and not guard.reason:
-                guard.reason = '다른 PC가 실행권을 갖고 있어 이 PC는 지켜보기만 합니다.'
+            initial_claim(guard, options)
             upbit.ORDER_GUARD = guard.assert_owner
             guard.check_now()
             guard.start()

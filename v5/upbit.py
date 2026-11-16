@@ -13,7 +13,9 @@ import uuid
 
 BASE = 'https://api.upbit.com'
 ROOT = Path(__file__).resolve().parent
-ENV_FILES = [ROOT / '.env', ROOT.parent / '.env']
+# 실행 사본은 '코인 트레이딩/v5-app/v5'라 키(.env)가 두 단계 위에 있다. 실행 경로와 무관하게 찾도록 세 단계까지 본다
+# (2026-11-16: take_over가 키 없이 봇을 켜 13분간 주문 실패).
+ENV_FILES = [ROOT / '.env', ROOT.parent / '.env', ROOT.parent.parent / '.env']
 ORDER_GUARD = None
 
 

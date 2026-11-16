@@ -741,7 +741,8 @@ if __name__ == '__main__':
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         pid = LOCK.read_text().strip()
-        if pid and pid in subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True, text=True).stdout:
+        if pid and pid in (subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], capture_output=True, text=True,
+                                          encoding='mbcs', errors='replace').stdout or ''):  # 한글 출력(cp949), 2026-11-16 사고
             sys.exit('이미 실행 중입니다.')
         LOCK.unlink()
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)

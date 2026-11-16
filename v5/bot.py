@@ -923,20 +923,20 @@ class Bot:
         fold = lambda title, body: f'<details><summary class=lg>{title} — 눌러서 열기</summary>{body}</details>'
         try:
             if not hasattr(self, 'exit_watch'): self.exit_watch = exit_watch.Watch(DATA)
-            watch_line = exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl', live_hours=self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None) + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected)
+            watch_line = wfold('records', exit_watch.render(self.exit_watch, DATA / 'regime_watch.jsonl', live_hours=self.live.cfg.get('stagnation_exit_hours') if self.live.cfg.get('stagnation_exit_enabled') else None) + regime_compare.render(DATA / 'regime_watch.jsonl', DATA / 'pnl' / 'orders.json', self.live.is_protected))
             if not hasattr(self, 'step_watch'): self.step_watch = step_watch.Watch(DATA)
-            watch_line = step_watch.render(self.step_watch, live=bool(self.live.cfg.get('step_stop_enabled'))) + watch_line   # 실험 비교를 맨 위에
+            watch_line = wfold('step', step_watch.render(self.step_watch, live=bool(self.live.cfg.get('step_stop_enabled')))) + watch_line   # 실험 비교를 맨 위에
             if self.live.cfg.get('rank_loss_defer_enabled') is True:
                 if not hasattr(self, 'defer_watch'): self.defer_watch = rank_defer.Watch(DATA)
-                watch_line = rank_defer.render(self.defer_watch, float(self.live.cfg.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS)),
-                                               since=self.live.cfg.get('rank_loss_defer_since')) + watch_line
-            watch_line = drop_watch.render(DATA, getattr(self.p, 'drop2h_block_pct', 0) or None) + watch_line   # 급락 중 매수 보류(2026-11-12) 맨 위
-            watch_line = pause_watch.render(DATA) + watch_line   # 최근 성적 매수 휴식 관찰(2026-11-12)
+                watch_line = wfold('defer', rank_defer.render(self.defer_watch, float(self.live.cfg.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS)),
+                                               since=self.live.cfg.get('rank_loss_defer_since'))) + watch_line
+            watch_line = wfold('drop', drop_watch.render(DATA, getattr(self.p, 'drop2h_block_pct', 0) or None)) + watch_line   # 급락 중 매수 보류(2026-11-12) 맨 위
+            watch_line = wfold('pause', pause_watch.render(DATA)) + watch_line   # 최근 성적 매수 휴식 관찰(2026-11-12)
             try:   # 주요 코인 추세 모의(2026-11-12): 실패해도 다른 표시는 유지
                 tk = {m: float(t['trade_price']) for m, t in upbit.tickers(trend_shadow.MARKETS).items()}
                 ts_ = trend_shadow.update(DATA, lambda m: upbit.completed_candles(m, 1440, 60), lambda m: tk[m])
                 bot_real = sum(x['pnl'] for x in pause_watch.trips(DATA / 'exchange_orders.jsonl') if x['close'] >= ts_['since'])
-                watch_line = trend_shadow.render(DATA, tk, bot_real) + watch_line
+                watch_line = wfold('trend', trend_shadow.render(DATA, tk, bot_real)) + watch_line
             except Exception as ex:
                 watch_line = f'<div class=sub>추세 모의 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
             try:   # 매수 쉬기·다시 시작 버튼(2026-11-15 사용자 지시): 맨 위. 가상 매수 결과도 여기서 채운다
@@ -950,6 +950,8 @@ class Bot:
                 watch_line = f'<div class=sub>매수 쉬기 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
         except Exception as ex:
             watch_line = f'<div class=sub>기록 모드 요약 오류: {e(type(ex).__name__)}</div>'
+        if 'class=wf ' in watch_line:
+            watch_line += WFOLD_JS
         market = ms.render(ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),
                            tiers=getattr(p, 'regime_slots', None), base_slots=p.slots)
         blocks = self.live_block(prices) + ranking + protection_top + obs_panel + self.pnl_block() + self.real_block(prices) +             fold('운영 기록 (봇 판단·모의 장부)', f'<section><ul>{ev}</ul></section>') +             fold('모의(가상) 장부 — 실제 거래 아님 · 전략 실험용', paper)
@@ -975,6 +977,7 @@ h1{{margin:0;font-size:22px}} h2{{margin:0 0 6px;font-size:14px;color:var(--mute
 section{{background:var(--card);border:1px solid var(--line);padding:14px 16px;overflow-x:auto}}
 table{{border-collapse:collapse;width:100%;font-size:14px}} td,th{{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}}
 th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;font-variant-numeric:tabular-nums}}
+{WFOLD_CSS}
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .muted{{color:var(--muted)}} .warn{{color:var(--up)}}
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
@@ -1349,6 +1352,28 @@ def pid_alive_text(pid):
 
 KEYS_MISSING = ('업비트 API 키를 찾지 못해 실행권을 받지 않습니다(손절 포함 주문 불가). '
                 '.env 위치를 확인하고 봇을 다시 켜 주세요.')
+
+
+def wfold(key, html):
+    """실험·관찰 상자를 접을 수 있게 감싼다(2026-11-16 사용자 지시 "이 창들은 접을수 있으면 좋겠어").
+    접으면 첫 줄(제목·상태)만 보이고, 상태는 브라우저(localStorage)에 상자별로 기억해 3분 자동 갱신 뒤에도 유지한다."""
+    return f"<div class=wf data-k='{key}'>{html}</div>" if html else ''
+
+
+WFOLD_CSS = ('.wf{position:relative}.wf>div:first-child{padding-right:84px!important}'
+             '.wf.shut>div:first-child{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;cursor:pointer;padding-top:5px!important;padding-bottom:0!important;margin-bottom:9px}'
+             '.wf.shut>div:first-child div{display:none}.wf.shut>div~div{display:none}'
+             '.wf>.tg{position:absolute;right:10px;top:12px;font-size:12px;padding:1px 8px;border:1px solid var(--line);'
+             'border-radius:6px;background:var(--card);color:var(--muted);cursor:pointer}.wf.shut>.tg{top:6px}.wf[data-k=records]>.tg{top:0}')
+WFOLD_JS = ("<div class=sub style='text-align:right'><a href='#' id=wfAll>실험·관찰 창 모두 접기/펼치기</a></div>"
+            "<script>(function(){var ws=[].slice.call(document.querySelectorAll('.wf'));function set(w,s){"
+            "w.classList.toggle('shut',s);w._b.textContent=s?'펼치기 ▾':'접기 ▴';try{localStorage.setItem('wfShut:'+w.dataset.k,s?'1':'0')}catch(e){}}"
+            "ws.forEach(function(w){var b=document.createElement('button');b.className='tg';w._b=b;w.appendChild(b);var s=false;"
+            "try{s=localStorage.getItem('wfShut:'+w.dataset.k)==='1'}catch(e){}set(w,s);"
+            "b.onclick=function(ev){ev.stopPropagation();set(w,!w.classList.contains('shut'))};"
+            "w.addEventListener('click',function(){if(w.classList.contains('shut'))set(w,false)})});"
+            "var a=document.getElementById('wfAll');if(a)a.onclick=function(ev){ev.preventDefault();"
+            "var open=ws.some(function(w){return !w.classList.contains('shut')});ws.forEach(function(w){set(w,open)})}})()</script>")
 
 
 def initial_claim(guard, options, keys=None):

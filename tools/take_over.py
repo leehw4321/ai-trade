@@ -42,6 +42,16 @@ def box(kind, text):
         root.destroy()
 
 
+def show(page):
+    """봇 화면을 크롬으로 연다(실행본 open_page). .html 파일 기본 연결이 IE/엣지인 PC가 있어 os.startfile을 쓰지 않는다(2026-11-16)."""
+    try:
+        sys.path.insert(0, str(APP))
+        from open_page import open_page
+        open_page(page)
+    except Exception:
+        os.startfile(str(page))
+
+
 def bot_running():
     lock = APP / 'bot.lock'
     if not lock.exists():
@@ -315,7 +325,7 @@ def main():
     elif bot_running():
         say('이 PC 봇이 이미 실행 중')
         if not a.check:
-            os.startfile(APP / 'data' / 'status.html')
+            show(APP / 'data' / 'status.html')
         return
     st = lease()
     other = bool(st.get('owner')) and time.time() < st.get('expires', 0) + 30
@@ -364,7 +374,7 @@ def main():
         if a.button:
             set_grant('done' if ok else 'failed', '이 PC에서 실거래를 시작했습니다.' if ok else f'봇이 시작되지 않았습니다. 기록: {LOG.name}')
             return
-        os.startfile(APP / 'data' / 'status.html')
+        show(APP / 'data' / 'status.html')
         box('showinfo' if ok else 'showwarning',
             '이 PC에서 실거래를 시작했습니다.' if ok else f'봇이 시작되지 않았습니다. 기록: {LOG}')
     except Exception as ex:

@@ -16,7 +16,12 @@ def main():
     for _ in range(30):   # 첫 화면이 써질 때까지 최대 15초
         if out.exists() and time.time() - out.stat().st_mtime < 20: break
         time.sleep(0.5)
-    os.startfile(str(out))
+    try:  # 크롬으로 연다(.html 기본 연결이 IE/엣지인 PC가 있다, 2026-11-16)
+        sys.path.insert(0, str(APP))
+        from open_page import open_page
+        open_page(out)
+    except Exception:
+        os.startfile(str(out))
 
 
 if __name__ == '__main__':

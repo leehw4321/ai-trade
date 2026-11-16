@@ -104,6 +104,22 @@ class RealAgreedFile(unittest.TestCase):
         self.assertNotIn('enabled', l)
 
 
+class ShowUsesChrome(unittest.TestCase):
+    """2026-11-16: .html 기본 연결이 IE/엣지인 PC에서 os.startfile로 열어 크롬이 아닌 창이 떴다."""
+    def test_show_goes_through_open_page_not_startfile(self):
+        fake = mock.Mock()
+        with mock.patch.dict(sys.modules, {'open_page': mock.Mock(open_page=fake)}), \
+                mock.patch.object(t.os, 'startfile', create=True) as sf:
+            t.show(Path('x/status.html'))
+        fake.assert_called_once_with(Path('x/status.html'))
+        sf.assert_not_called()
+
+    def test_no_direct_startfile_for_pages(self):
+        for name in ('take_over.py', 'open_observer.py'):
+            src = (Path(t.__file__).resolve().parent / name).read_text(encoding='utf-8')
+            self.assertIn('open_page', src)
+
+
 class StartBotPassesKeys(unittest.TestCase):
     """2026-11-16: start_bot이 키 환경을 넘기지 않아 봇이 키 없이 실행권을 잡고 주문이 13분간 실패했다."""
     def test_every_process_gets_key_env(self):

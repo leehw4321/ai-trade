@@ -32,6 +32,11 @@ def main():
     for args, lock in ((['bot.py'], 'bot.lock'), (['shadow.py'], 'shadow.lock'), (['exit_study.py'], 'exit_study.lock')):
         if (APP / args[0]).exists() and not alive(lock):
             subprocess.Popen([str(PYW)] + args, cwd=APP, creationflags=flags, close_fds=True)
+    (APP / 'account_sync_stop.txt').unlink(missing_ok=True)
+    # 조회 전용 도우미(2026-11-18): 각자 잠금으로 한 개만 돈다. 배포 뒤 꺼진 채 남던 것.
+    for args in (['account_sync.py'], ['trade_history.py', '--loop', '300']):
+        if (APP / args[0]).exists():
+            subprocess.Popen([str(PYW)] + args, cwd=APP, creationflags=flags, close_fds=True)
     # PnL is a separate GET-only worker, with the same workspace credentials.
     # Count Python processes only; the old PowerShell query counted itself.
     sys.path.insert(0, str(APP))

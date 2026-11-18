@@ -132,5 +132,24 @@ class StartBotPassesKeys(unittest.TestCase):
             self.assertIs(call.kwargs.get('env'), env)
 
 
+class HelpersStarted(unittest.TestCase):
+    """2026-11-18: 배포 뒤 계좌 동기화·체결 기록 수집이 다시 켜지지 않아 관찰창·계좌 화면이 멈췄다."""
+    def test_take_over_starts_trade_history(self):
+        env = {}
+        with mock.patch.object(t, 'key_env', return_value=env), mock.patch.object(t.subprocess, 'Popen') as popen,                 mock.patch.object(t, 'bot_running', return_value=True), mock.patch.object(Path, 'unlink'),                 mock.patch.object(Path, 'exists', return_value=True):
+            t.start_bot()
+        scripts = [c.args[0][1] for c in popen.call_args_list]
+        self.assertIn('account_sync.py', scripts)
+        self.assertIn('trade_history.py', scripts)
+
+    def test_launchers_start_helpers(self):
+        here = Path(t.__file__).resolve().parent
+        for f in (here / 'launch_v5.py', here.parents[1] / '코인 트레이딩' / 'launch_v5.py'):
+            if f.exists():
+                s = f.read_text(encoding='utf-8')
+                self.assertIn("account_sync.py", s, f)
+                self.assertIn("'trade_history.py'", s, f)
+
+
 if __name__ == '__main__':
     unittest.main()

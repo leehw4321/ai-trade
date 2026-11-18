@@ -8,6 +8,7 @@ import time
 import msvcrt
 
 import upbit
+from fsutil import replace_retry
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
@@ -39,7 +40,7 @@ def snapshot():
 def atomic(path, content):
     temp = path.with_suffix(path.suffix + '.tmp')
     temp.write_text(content, encoding='utf-8')
-    os.replace(temp, path)
+    replace_retry(temp, path)  # 2026-11-18 PermissionError로 프로세스가 죽었다
 
 
 def performance(assets):
@@ -117,7 +118,10 @@ def run():
                 atomic(DATA / 'account_live.json', json.dumps(data, ensure_ascii=False, indent=2))
             except Exception as ex:
                 error = f'{type(ex).__name__}: {ex}'
-            atomic(DATA / 'account_live.html', render(data, error))
+            try:
+                atomic(DATA / 'account_live.html', render(data, error))
+            except OSError:
+                pass  # 화면 파일 쓰기 실패로 동기화를 멈추지 않는다
             time.sleep(5 if not error else 15)
 
 

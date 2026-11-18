@@ -248,7 +248,8 @@ def start_bot():
         (APP / name).unlink(missing_ok=True)
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     env = key_env()  # 2026-11-16: 키를 넘기지 않아 봇이 키 없이 실행권을 잡고 주문이 13분간 실패했다
-    for args in (['bot.py'], ['shadow.py'], ['account_sync.py'], ['exit_study.py'], ['pnl.py', '--loop', '300']):
+    for args in (['bot.py'], ['shadow.py'], ['account_sync.py'], ['exit_study.py'], ['pnl.py', '--loop', '300'],
+                 ['trade_history.py', '--loop', '300']):
         if (APP / args[0]).exists():
             subprocess.Popen([str(PYW)] + args, cwd=APP, env=env, creationflags=flags, close_fds=True)
     for _ in range(90):

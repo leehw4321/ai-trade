@@ -99,6 +99,25 @@ def find_keys(upbit):
             upbit.ENV_FILES.append(f)
 
 
+_LOCK = None
+
+
+def single_instance(data):
+    """--loop 상시 수집기는 한 개만. 잠금 파일을 프로세스가 끝날 때까지 잡는다(account_sync와 같은 방식)."""
+    global _LOCK
+    import msvcrt
+    data.mkdir(parents=True, exist_ok=True)
+    f = (data / 'trade_history.lock').open('a+b')
+    f.seek(0); f.write(b'0'); f.flush(); f.seek(0)
+    try:
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        f.close()
+        return False
+    _LOCK = f
+    return True
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', default=str(HERE / 'data'))
@@ -112,6 +131,8 @@ def main(argv=None):
     if a.env:
         upbit.ENV_FILES.append(Path(a.env))
     path = Path(a.data) / 'exchange_orders.jsonl'
+    if a.loop and not single_instance(Path(a.data)):
+        return 0   # 이미 다른 수집기가 돌고 있다(실행기가 매번 켜도 중복되지 않게, 2026-11-18)
     while True:
         try:
             n = sync(path, lambda: fetch_closed(upbit))

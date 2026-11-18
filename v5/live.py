@@ -21,6 +21,7 @@ import datetime as dt
 import math
 
 import strategy as st
+from fsutil import replace_retry
 import rotation_policy as rotation
 import chase_override as co
 import upbit
@@ -180,7 +181,7 @@ class Live:
     def save(self):
         tmp = self.file.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.d, ensure_ascii=False, indent=1), encoding='utf-8')
-        tmp.replace(self.file)
+        replace_retry(tmp, self.file)  # 2026-11-18: 잠깐 열린 파일 때문에 저장이 한 주기 밀리던 것(PermissionError)
 
     @property
     def protection_file(self):

@@ -945,7 +945,10 @@ class Bot:
                                   float(lc.get('profit_guard_arm_pct', 0.02)), float(lc.get('profit_guard_giveback', 0.4)))
                 srv_b = getattr(self, 'manual_server', None)
                 act = {'port': srv_b.port, 'token': srv_b.token} if srv_b and self.can_act() else None
-                watch_line = buy_pause.render(DATA, act, pause_watch.trips(DATA / 'exchange_orders.jsonl')) + watch_line
+                g_ = getattr(self, 'session_guard', None)
+                snap_ = g_.snapshot() if g_ is not None else None
+                away = (snap_['other_pc'] or '?') if snap_ and not snap_['owner'] else None   # 실행권 없는 PC: 실제 상태 함께 표시(2026-11-19)
+                watch_line = buy_pause.render(DATA, act, pause_watch.trips(DATA / 'exchange_orders.jsonl'), elsewhere=away) + watch_line
             except Exception as ex:
                 watch_line = f'<div class=sub>매수 쉬기 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
         except Exception as ex:

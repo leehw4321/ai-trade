@@ -7,6 +7,7 @@
 파일: data/buy_pause.json (봇만 쓴다. live.json과 별개라 실행권 체크섬과 무관)
 """
 import datetime as dt
+import html
 import json
 import os
 import time
@@ -152,8 +153,10 @@ def _button(action, kind, label, color, ask):
             ".catch(function(){r.textContent=' 봇에 연결하지 못함';b.disabled=false})}})()</script>")
 
 
-def render(data_dir, action, trips, now=None):
-    """action: {'port','token'} 또는 None(버튼 없음). trips: pause_watch.trips 결과."""
+def render(data_dir, action, trips, now=None, elsewhere=None):
+    """action: {'port','token'} 또는 None(버튼 없음). trips: pause_watch.trips 결과.
+    elsewhere: 이 PC에 실행권이 없을 때 실행권 PC 이름(없으면 None). 쉬기 상태는 PC마다 따로 저장돼 실행권과 함께 넘어가지 않으므로
+    실행권 없는 PC에서는 이 상자가 실제 계좌 상태가 아님을 밝히고, 쉬기 뒤 실제 계좌 매수를 함께 보여 준다(2026-11-19 사용자 지시)."""
     now = time.time() if now is None else now
     s = load(data_dir)
     k, tot = recent_sum(s, trips, now)
@@ -184,11 +187,31 @@ def render(data_dir, action, trips, now=None):
         border = '#1f6feb'
     if not action:
         head += "<span class=sub>(버튼은 실행권이 있는 PC의 봇 화면에서만 동작)</span>"
+    if elsewhere is not None:
+        head = notice(s, trips, elsewhere) + head.replace('⏸ 매수 쉬는 중', '⏸ 이 PC 기록: 쉬는 중')
     table = history_table(vs)
     return (f"<div style='margin:6px 0;padding:8px 12px;border:2px solid {border};border-radius:8px;font-size:15px'>{head}<br>{body}"
             "<div class=sub style='margin-top:3px'>쉬는 동안 봇 자동 매수만 막음(손절·이익보호·순위 매도·직접 매수는 그대로) · "
             f"가상 매수 = 봇이 사려던 때 현재가·주문 금액, 15분봉으로 손절·이익보호·최대 6시간 모의(동시 {SLOTS}개) · "
             "다시 살 신호는 참고용, 재개는 버튼으로 직접" + (f" · 최근 가상: {recent}" if recent else '') + f"</div>{table}</div>")
+
+
+def notice(s, trips, pc):
+    """실행권 없는 PC의 안내 줄. 실제 계좌 매수 = 거래소 체결 기록에서 쉬기 시작 뒤 매수로 시작한 왕복."""
+    pc = html.escape(str(pc or '?'))
+    if not s['paused']:
+        return (f"<div style='background:#fff4e5;border-radius:6px;padding:4px 8px;margin-bottom:4px'>⚠ 실행권은 <b>{pc}</b> PC에 있습니다. "
+                "쉬기 상태는 PC마다 따로 저장되므로 쉬기·다시 시작은 그 PC 화면에서 확인·조작하세요.</div>")
+    since = s['since']
+    after = [x for x in trips if x['open'] >= since]
+    pnl = sum(x['pnl'] for x in after)
+    last = max((x['open'] for x in after), default=None)
+    real = (f"쉬기 시작 뒤 실제 계좌가 산 거래 {len(after)}건(끝난 것) · 합 <b style='color:{'#b42318' if pnl > 0 else '#1f6feb'}'>{pnl:+,.0f}원</b>"
+            f" · 마지막 매수 {dt.datetime.fromtimestamp(last, KST):%m-%d %H:%M} → <b>실제 계좌는 매수 중</b>" if after
+            else '쉬기 시작 뒤 실제 계좌 매수 기록 없음(끝난 거래 기준)')
+    return (f"<div style='background:#fff4e5;border-radius:6px;padding:4px 8px;margin-bottom:4px'>⚠ 실행권은 <b>{pc}</b> PC에 있습니다. "
+            "아래 '쉬는 중'은 <b>이 PC에만 저장된 상태</b>라 실제 계좌에 적용되지 않습니다(쉬기 상태는 실행권과 함께 넘어가지 않음). "
+            f"가상 매수 기록도 이 PC가 실행권을 잃은 뒤 멈춥니다. │ {real}</div>")
 
 
 def history_table(vs, limit=200):

@@ -30,6 +30,7 @@ import rank_defer
 import drop_watch
 import pause_watch
 import buy_pause
+import pause_advice
 import trend_shadow
 import regime_compare
 import market_state as ms
@@ -948,7 +949,13 @@ class Bot:
                 g_ = getattr(self, 'session_guard', None)
                 snap_ = g_.snapshot() if g_ is not None else None
                 away = (snap_['other_pc'] or '?') if snap_ and not snap_['owner'] else None   # 실행권 없는 PC: 실제 상태 함께 표시(2026-11-19)
-                watch_line = buy_pause.render(DATA, act, pause_watch.trips(DATA / 'exchange_orders.jsonl'), elsewhere=away) + watch_line
+                trips_ = pause_watch.trips(DATA / 'exchange_orders.jsonl')
+                watch_line = buy_pause.render(DATA, act, trips_, elsewhere=away) + watch_line
+                try:   # 쉬기/거래 추천 창(2026-11-21 사용자 지시): 매수 쉬기 상자 바로 위, 표시 전용
+                    watch_line = pause_advice.render(DATA, trips_, ms.load(DATA / 'market_state.json'), ms.load(DATA / 'fng.json'),
+                                                     elsewhere=away) + watch_line
+                except Exception as ex:
+                    watch_line = f'<div class=sub>쉬기/거래 추천 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
             except Exception as ex:
                 watch_line = f'<div class=sub>매수 쉬기 표시 오류: {e(type(ex).__name__)}</div>' + watch_line
         except Exception as ex:

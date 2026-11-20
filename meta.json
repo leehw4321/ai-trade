@@ -1,0 +1,11 @@
+{
+ "format": 1,
+ "checkpoint": "f0ce97d0226cbc96498e62d96cdebca231c801a37addc8692159ca8089a4b47c",
+ "pc": "DESKTOP-DLN2HJJ",
+ "time": "2026-11-21T01:09:52+09:00",
+ "ciphertext_sha256": "c5af8adc9a3bb3469366d52264b13cfc9117408491045e478e24cdbb1bc20987",
+ "recipients": [
+  "DESKTOP-DLN2HJJ-00287f062990.pem",
+  "home-DESKTOP-DLN2HJJ.pem"
+ ]
+}

@@ -890,8 +890,10 @@ class Bot:
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]
         ev = ''.join(f"<li><span class=t>{e(x['time'][5:16].replace('T', ' '))} {e(x['who'])}</span>{e(x['msg'])}</li>" for x in events)             or '<li class=muted>기록 없음</li>'
         now = time.time()
-        slot = int(now // 3600) * 3600 + (0 if now % 3600 < 60 else 3600)
+        S_ = rotation.slot_seconds(self.p) if rotation.enabled(self.p) else 3600   # 매수 주기(2026-11-22 buy_slot_minutes)
+        slot = int(now // S_) * S_ + (0 if now % S_ < 60 else S_)
         next_buy = dt.datetime.fromtimestamp(slot + 60, KST).strftime('%H:%M')
+        buy_every = '매시 1분' if S_ == 3600 else f'{S_ // 60}분마다 · 순위 매도는 매시'
         # 실제 거래·계좌(위)와 모의(가상) 장부(아래, 접어 둠)를 구분한다. 모의 장부는 실제 거래가 아니며 옛 규칙으로 20:45에 진입한 뒤 거의 멈춰 있다.
         paper = self.block(f"모의 장부 P10 · 계좌의 {d['fraction']:.0%} 가상 배정 ({d['A0']:,}원)", self.ledgers['P10'], prices) + \
             self.block(f"모의 장부 ALL · 계좌 평가액만큼 가상 현금 ({self.ledgers['ALL'].d['A0']:,}원, 실제 계좌 인수 아님)", self.ledgers['ALL'], prices)
@@ -992,7 +994,7 @@ th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;f
 ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;border-bottom:1px solid var(--line)}} .t{{color:var(--muted);margin-right:10px;font-variant-numeric:tabular-nums}}
 </style><main>
 {notices.banner(notices.active(DATA / 'notices.json'), self.notice_action())}
-<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{OBSERVE_BTN}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} (매시 1분) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
+<header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{OBSERVE_BTN}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} ({buy_every}) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
 <div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 1회 매수 {('봇 자금 ÷ ' + format(p.bot_capital_divisor, 'g')) if getattr(p, 'bot_capital_divisor', 0) else '총자산 비례'} · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·

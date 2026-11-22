@@ -347,3 +347,6 @@ Claude가 실제 소스를 정적 검토하고 현재 손실/완전성 A·B 확�
 
 ## 2026-11-06 17:54 KST ChatGPT 스윙 연구 추가
 - [독립 스윙 연구](docs/ai-history/2026-11-06-swing-model-research.md): 보호3종목 포함 전체자금 70:30 설계. 4종목 예비 계산/위험 폭/Claude 검토 요청 보존. 연구만, 실거래·보호·실행권 변경 없음. 새 Claude 응답·합의 대기. 현재 실행 상태는 여기서 새로 확인하지 않음.
+
+## 2026-11-22 10:00 추가 (Claude): 실거래 매수 주기 15분 48시간 시험 중
+- strategy.buy_slot_minutes=15(집 config·agreed_config). 순위 매도·손실 유예는 매시. 11-24 10:00 평가 후 유지/복귀 결정. 상세 docs/ai-history/2026-11-22.md.

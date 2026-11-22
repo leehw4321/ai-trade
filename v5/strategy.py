@@ -62,6 +62,9 @@ class Params:
     rotation_confirmations: int = 1  # 2 is research-only, not the rollout value
     # 사용자 지시(2026-11-05): False면 이미 산 종목을 순위(유지 순위 밖·상대강도 음수·거래대금 상위 밖)로 팔지 않고 손절·이익보호로만 판다.
     rank_exit: bool = True
+    # 실거래 매수 주문안 주기(분, 사용자 지시 2026-11-22 '48시간 시험'). 15·30·60만 허용(15분봉 마감과 맞음), 그 밖은 60.
+    # 순위 매도와 손실 유예 판단은 주기와 관계없이 정시에만 한다. 모의 장부(P10 등)는 계속 매시.
+    buy_slot_minutes: int = 60
     # 사용자 지시(2026-11-05 '다'): rank_exit=False일 때 매수 후보가 있는데 자리·현금이 모자라면 묶임(손실 중) 한 종목을 모자란 만큼 판다.
     swap_stuck_loss: bool = False
     exclude: list = field(default_factory=lambda: ['KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'])

@@ -37,10 +37,24 @@ def saved_loss_budget(cfg, ledger):
     return amount  # Same fixed-limit fallback when a stored percent basis is absent.
 
 
-def slot(now):
+def slot(now, seconds=HOUR):
     if not finite(now) or now < 0:
         raise ValueError('Invalid rotation clock')
-    return int(now // HOUR) * HOUR
+    return int(now // seconds) * seconds
+
+
+def slot_seconds(p):
+    """실거래 주문안 슬롯 길이(초). buy_slot_minutes가 15·30·60이고 판단 봉(tf)의 배수일 때만 그 값, 아니면 1시간."""
+    m = getattr(p, 'buy_slot_minutes', 60)
+    tf = getattr(p, 'tf', 15)
+    if type(m) is int and m in (15, 30, 60) and type(tf) is int and tf > 0 and m % tf == 0:
+        return m * 60
+    return HOUR
+
+
+def hourly(closed):
+    """순위 매도·손실 유예 판단 시각인지(정시 마감 신호)."""
+    return finite(closed) and closed % HOUR == 0
 
 
 def policy_hash(p):
@@ -59,9 +73,10 @@ def intent_id(closed, market, side, digest):
 
 
 def envelope(p, closed, now):
-    if (type(closed) is not int or closed % HOUR or closed != slot(now)
+    sec = slot_seconds(p)
+    if (type(closed) is not int or closed % sec or closed != slot(now, sec)
             or not closed + SETTLE <= now < closed + p.tf * 60 + SETTLE):
-        raise ValueError('Rotation needs the current hourly completed exchange signal')
+        raise ValueError('Rotation needs the current slot completed exchange signal')
     digest = policy_hash(p)
     return {'version': VERSION, 'slot': closed, 'policy_hash': digest,
             'decision_id': decision_id(closed, digest)}

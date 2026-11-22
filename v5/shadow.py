@@ -47,36 +47,36 @@ SLOT_MAX_LATE = 600    # 이 시간이 지난 슬롯은 소급해서 만들지 �
 SLOT_FILE = DATA / 'plan_slot.json'
 
 
-def current_slot(now):
-    return int(now // SLOT_SECONDS) * SLOT_SECONDS
+def current_slot(now, seconds=SLOT_SECONDS):
+    return int(now // seconds) * seconds
 
 
-def slot_due(now, last_slot):
+def slot_due(now, last_slot, seconds=SLOT_SECONDS):
     """지금 만들어야 할 슬롯 시작 시각. 이미 처리했거나 시작 전·허용 지연 밖이면 None."""
-    slot = current_slot(now)
+    slot = current_slot(now, seconds)
     if slot > last_slot and SLOT_DELAY <= now - slot <= SLOT_MAX_LATE:
         return slot
     return None
 
 
-def load_last_slot(now, path=None):
+def load_last_slot(now, path=None, seconds=SLOT_SECONDS):
     """영속 기록된 마지막 슬롯. 파일이 없거나 손상·비정각·미래 값이면 현재 슬롯을 처리한 것으로 간주한다(중복 주문안보다 한 슬롯 건너뛰는 쪽이 안전).
 
     가동 시작에는 항상 현재 슬롯도 처리한 것으로 본다: 재시작이 허용 지연창 안에 있어도 새 판단을 만들지 않고 다음 정규 슬롯을 기다린다."""
     path = path or SLOT_FILE
-    now_slot = current_slot(now)
+    now_slot = current_slot(now, seconds)
     try:
         value = json.loads(path.read_text(encoding='utf-8'))['slot']
-        if type(value) in (int, float) and math.isfinite(value) and value % SLOT_SECONDS == 0 and 0 <= value <= now_slot:
+        if type(value) in (int, float) and math.isfinite(value) and value % seconds == 0 and 0 <= value <= now_slot:
             return max(int(value), now_slot)
     except (OSError, ValueError, KeyError, TypeError, OverflowError):
         pass
     return now_slot
 
 
-def plan_tick(now, last_slot, ready, claim, make):
+def plan_tick(now, last_slot, ready, claim, make, seconds=SLOT_SECONDS):
     """한 번의 반복에서 할 일. (새 last_slot, 상태). 신호가 아직 최신이 아니면 기록하지 않고 허용 지연 안에서 다시 시도한다."""
-    slot = slot_due(now, last_slot)
+    slot = slot_due(now, last_slot, seconds)
     if slot is None:
         return last_slot, None
     if not ready():
@@ -130,7 +130,7 @@ def atr_ready(entry_ok, ranked, scan, tf, ok_cache, fetch):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None):
+             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None, rank_sells=True):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -162,6 +162,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
                     stuck_out[m] = {'state': state, 'rank': r['rank'] if r else None, 'rs': rs,
                                     'pnl_pct': (v / cost - 1) if cost else None, 'value': v}
             reasons.append(f'{m[4:]} 유지: {kind} — 순위 매도 안 함, 손절·이익보호로만 매도 (사용자 지시)')
+            continue
+        if not rank_sells:   # 정시 아닌 매수 슬롯(buy_slot_minutes<60): 순위 매도는 정시에만(2026-11-22 사용자 선택)
+            reasons.append(f'{m[4:]} 유지: 순위 매도 판단은 정시에만 (이번은 매수만 보는 슬롯)')
             continue
         r = pos.get(m)
         rs = r['rs'] if r else rs_out.get(m)
@@ -495,16 +498,18 @@ class Shadow:
         co.reset_cooled(DATA, rs_of, self.base)  # 과열이 풀린 직접 지정은 지운다(다시 과열되면 원래 15% 규칙)
         promoted, protected = co.promoted(DATA), self.protected_markets()
         lc = self.cfg.get('live', {})
+        # 매수 주기를 1시간보다 짧게 한 경우 정시가 아닌 슬롯은 매수만 본다: 순위 매도·손실 유예(rank_defer.finish가 '순위 복귀'로 끝내 버림)를 건너뛴다.
+        rank_sells = not rotation.enabled(self.base) or rotation.hourly(self.signal_closed_at)
         defer = ({'state': rank_defer.load_state(DATA), 'pos': state.get('positions', {}), 'now': time.time(),
                   'hours': float(lc.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS))}
-                 if lc.get('rank_loss_defer_enabled') is True else None)
+                 if lc.get('rank_loss_defer_enabled') is True and rank_sells else None)
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,
                                  promoted=promoted, hot=hot, protected=protected,
                                  costs={m: p.get('cost') for m, p in state.get('positions', {}).items() if isinstance(p, dict)},
-                                 stuck_out=(stuck := {}), defer=defer)
+                                 stuck_out=(stuck := {}), defer=defer, rank_sells=rank_sells)
         if defer is not None:
             try:
                 sold = {'KRW-' + x for x in re.findall(r'매도 ([A-Z0-9]+) ', text)}
@@ -686,7 +691,8 @@ class Shadow:
         last_stop = last_snap = 0
         next_report = time.time() + 60
         slot_mode = bool(self.cfg.get('live', {}).get('slot_plans'))
-        last_slot = load_last_slot(time.time()) if slot_mode else None
+        slot_sec = rotation.slot_seconds(self.base) if rotation.enabled(self.base) else SLOT_SECONDS   # 매수 주기(2026-11-22)
+        last_slot = load_last_slot(time.time(), seconds=slot_sec) if slot_mode else None
         while not STOP.exists():
             now = time.time()
             try:
@@ -706,7 +712,7 @@ class Shadow:
                             return bool(self.base_ranked)
                         except ValueError:
                             return False
-                    last_slot, status = plan_tick(now, last_slot, ready, claim_slot, self.make_proposal)
+                    last_slot, status = plan_tick(now, last_slot, ready, claim_slot, self.make_proposal, slot_sec)
                     if status in ('made', 'failed'):
                         rotation.append_audit(SHADOW / 'rotation_audit.jsonl',
                             {'event': 'slot_attempt', 'slot': last_slot, 'status': status,
@@ -714,7 +720,7 @@ class Shadow:
                     if now >= next_report:
                         report(self.base, self.prop)
                         next_report = now + 3600
-                    if now < last_slot - SLOT_SECONDS:
+                    if now < last_slot - slot_sec:
                         print(f'시계 역행 의심: 현재 {now:.0f} < 기록 슬롯 {last_slot}. 새 주문안은 만들지 않는다.', flush=True)
                 elif now >= next_report and self.base_ranked:
                     try:

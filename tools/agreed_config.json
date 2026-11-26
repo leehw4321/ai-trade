@@ -59,7 +59,9 @@
     ],
     "drop2h_block_pct": 0,
     "buy_slot_minutes": 15,
-    "drop4h_block_pct": 0.1
+    "drop4h_block_pct": 0.1,
+    "chase_half_cap": 0.2,
+    "chase_half_size": 0.5
   },
   "live": {
     "adopted_trail_start_r": 1.0,

@@ -33,6 +33,8 @@ class Params:
     stop_max_pct: float = 0.08    # 손절가는 진입가(또는 인수 시점 가격)보다 이 비율 이상 멀리 두지 않음
     # 급락 중 매수 보류(사용자 지시 2026-11-12): 직전 2시간 등락이 −이 값 이하이면 신규 매수 보류. 0이면 끔. 근거: 실거래 148건 중 −6% 이하 5건 모두 손실(입증 아님, drop_watch로 관찰)
     drop2h_block_pct: float = 0.0
+    # 2026-11-26 사용자 지시(14일 관찰 재결정): 직전 4시간 등락이 −이 값 이하이면 신규 매수 보류. 0이면 끔. 관찰 18건 막은 효과 +13,817원(모의, 표본 작음)
+    drop4h_block_pct: float = 0.0
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
     entry_risk: float = 0.0   # 실거래 매수 위험(계좌 대비). 0이면 risk 사용. 모의 장부의 risk는 건드리지 않는다(D-47)
     size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
@@ -221,13 +223,23 @@ def recent_change(bars, minutes, tf):
         return None
 
 
-def drop_block(r, p):
-    """급락 중 매수 보류 사유(직전 2시간 등락 ≤ −drop2h_block_pct). 자료가 없으면 막지 않는다."""
-    lim = getattr(p, 'drop2h_block_pct', 0) or 0
-    r2 = r.get('r2')
-    if lim > 0 and isinstance(r2, (int, float)) and r2 <= -lim:
-        return f'직전 2시간 {r2:+.1%} ≤ −{lim:.0%} 급락 중'
+def drop_kind(r, p):
+    """걸린 급락 기준('2시간'/'4시간') 또는 None. 자료가 없으면 막지 않는다."""
+    for name, field, key in (('2시간', 'r2', 'drop2h_block_pct'), ('4시간', 'r4', 'drop4h_block_pct')):
+        lim = getattr(p, key, 0) or 0
+        v = r.get(field)
+        if lim > 0 and isinstance(v, (int, float)) and v <= -lim:
+            return name
     return None
+
+
+def drop_block(r, p):
+    """급락 중 매수 보류 사유(직전 2시간 ≤ −drop2h_block_pct 또는 직전 4시간 ≤ −drop4h_block_pct)."""
+    kind = drop_kind(r, p)
+    if not kind:
+        return None
+    field, key = ('r2', 'drop2h_block_pct') if kind == '2시간' else ('r4', 'drop4h_block_pct')
+    return f'직전 {kind} {r[field]:+.1%} ≤ −{getattr(p, key):.0%} 급락 중'
 
 
 def cap_stop(entry, stop, p):

@@ -188,7 +188,8 @@ def rebuild(baseline, events):
             p['qty'] += e['vol']
             p['cost'] += e['funds'] + e['fee']
             continue
-        if not p['known'] or not p['clean'] or p['qty'] + EPS < e['vol']:
+        # 보유 0에 체결량 0(또는 극소) 매도가 오면 아래 나눗셈이 0으로 나뉜다(2026-11-26 실행권 받기 중단 원인) → 수량 부족으로 처리
+        if not p['known'] or not p['clean'] or p['qty'] + EPS < e['vol'] or p['qty'] <= 0:
             why = '원가 불명' if not p['known'] else '체결 상세 불완전' if not p['clean'] else '수량 부족'
             sells.append(dict(e, realized=None, kind='미확정', why=why))
             p['qty'] = max(D(0), p['qty'] - e['vol'])

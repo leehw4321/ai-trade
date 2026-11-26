@@ -1,9 +1,9 @@
 """급락 중 매수 보류 관찰(사용자 지시 2026-11-12: '2시간 6% 선 즉시 적용, 나머지는 관찰, 봇 맨 위에 매일 결과, 2주 뒤 재결정').
 
 기준(직전 등락은 판단 때 방금 마감된 15분봉 종가 ÷ N시간 전 봉 시가 − 1, strategy.recent_change)
-  2h6  직전 2시간 ≤ −6%   실거래 적용(strategy.drop2h_block_pct = 0.06)
+  2h6  직전 2시간 ≤ −6%   11-12~11-26 실거래 적용 → 11-26 사용자 재결정으로 관찰만(drop2h_block_pct = 0)
   2h4  직전 2시간 ≤ −4%   관찰만
-  4h10 직전 4시간 ≤ −10%  관찰만
+  4h10 직전 4시간 ≤ −10%  11-26부터 실거래 적용(strategy.drop4h_block_pct = 0.10). 화면 [적용] 표시는 실제 설정값으로 정한다
 
 기록 대상: 정시 주문안에서 매수 신호(순위·상승률)가 있고, '급락 중' 말고 다른 차단이 없는 후보(missed_ledger의 blocks 기준).
   같은 종목은 앞 기록의 6시간 창이 끝나기 전에는 다시 기록하지 않는다(같은 장면을 여러 번 세지 않음). 단 그 사이 새 기준이 걸리면 기록한다.
@@ -21,6 +21,7 @@ from pathlib import Path
 RULES = (('2h6', 'r2', -0.06, '2시간 −6%', True), ('2h4', 'r2', -0.04, '2시간 −4%', False), ('4h10', 'r4', -0.10, '4시간 −10%', False))
 HOLD_H, SIZE, FEE2 = 6, 70000, 0.001
 DECIDE_DAYS = 14
+REVIEW_FROM = dt.datetime(2026, 11, 26, 14, 0, tzinfo=dt.timezone(dt.timedelta(hours=9))).timestamp()   # 11-26 재결정(4시간 −10% 적용) 뒤 다음 재결정 기준
 FILE = 'drop_watch.json'
 KST = dt.timezone(dt.timedelta(hours=9))
 
@@ -62,7 +63,7 @@ def record(data_dir, slot, ranked, missed_rows, now=None):
         m = row['market']
         if not row.get('signal') or not isinstance(row.get('close'), (int, float)) or row['close'] <= 0:
             continue
-        if any(b != '급락 중(2시간)' for b in row.get('blocks') or []):
+        if any(not b.startswith('급락 중(') for b in row.get('blocks') or []):
             continue
         r = by.get(m) or {}
         h = hits(r.get('r2'), r.get('r4'))
@@ -128,7 +129,8 @@ def summary(s):
     return rows, clean, days
 
 
-def render(data_dir, live_pct=None, now=None):
+def render(data_dir, live_pct=None, now=None, live4h_pct=None):
+    """live_pct/live4h_pct: 실거래에 적용 중인 2시간/4시간 기준(없으면 None). 같은 값의 규칙에 [적용]을 붙인다."""
     now = now or time.time()
     s = load(data_dir)
     since = s.get('since')
@@ -136,17 +138,19 @@ def render(data_dir, live_pct=None, now=None):
         return ("<div style='margin:6px 0;padding:8px 12px;border:2px solid #0e7490;border-radius:8px;font-size:15px'>"
                 "<b>🧪 급락 중 매수 보류</b> · 다음 정시 주문안부터 기록 시작</div>")
     rows, clean, days = summary(s)
-    left = since + DECIDE_DAYS * 86400 - now
-    due = dt.datetime.fromtimestamp(since + DECIDE_DAYS * 86400, KST).strftime('%m-%d')
+    review = max(since, REVIEW_FROM)
+    left = review + DECIDE_DAYS * 86400 - now
+    due = dt.datetime.fromtimestamp(review + DECIDE_DAYS * 86400, KST).strftime('%m-%d')
     when = dt.datetime.fromtimestamp(since, KST).strftime('%m-%d %H:%M')
     dd = f'재결정 {due} (D-{max(0, int(left // 86400) + (1 if left % 86400 else 0))})' if left > 0 else f'<b style=color:#b42318>재결정일 {due} 지남 → 결정 필요</b>'
     base = (f"통과 후보 {len(clean)}건 평균 {sum(o['ret'] for o in clean) / len(clean):+.2%}" if clean else '통과 후보 결과 대기')
     cells = []
-    for key, _, _, name, live in RULES:
+    for key, field, lim, name, _ in RULES:
         r = rows[key]
         eff = -r['pnl']
         col = '#1a7f37' if eff > 0 else '#b42318' if eff < 0 else 'inherit'
-        tag = '적용' + (f' {live_pct:.0%}' if live_pct else '') if live else '관찰'
+        cur = live_pct if field == 'r2' else live4h_pct
+        tag = f'적용 {cur:.0%}' if cur and abs(cur + lim) < 1e-9 else '관찰'
         body = (f"{r['n']}건(이익 {r['win']}) · 샀다면 {r['pnl']:+,.0f}원 → <b style='color:{col}'>막은 효과 {eff:+,.0f}원</b>"
                 if r['n'] else '끝난 건 없음')
         cells.append(f"<b>{name}</b>[{tag}] {body}" + (f" · 진행 {r['open']}" if r['open'] else ''))
@@ -156,4 +160,4 @@ def render(data_dir, live_pct=None, now=None):
             f"<b>🧪 급락 중 매수 보류</b> · {when}부터 · {dd}<br>" + ' │ '.join(cells) +
             f"<div class=sub style='margin-top:3px'>일별 막은 효과(2시간−6% / 2시간−4% / 4시간−10%): {day_txt}"
             f" · {base} · 샀다면 = 정시 신호 종가에 7만 원 매수, 15분봉으로 손절·이익보호·6시간(모의, 실제 체결 아님)"
-            " · 효과가 없으면 설정 strategy.drop2h_block_pct=0 으로 원래대로</div></div>")
+            " · 효과가 없으면 설정 strategy.drop2h_block_pct·drop4h_block_pct=0 으로 끔(11-26: 2시간 −6% → 4시간 −10%로 교체)</div></div>")

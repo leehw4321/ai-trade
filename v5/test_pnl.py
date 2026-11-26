@@ -45,6 +45,11 @@ class Cost(unittest.TestCase):
         self.assertEqual([s['realized'] for s in sells], [None, None])
         self.assertEqual([s['why'] for s in sells], ['원가 불명', '수량 부족'])
 
+    def test_zero_volume_sell_on_empty_position_does_not_divide_by_zero(self):
+        # 2026-11-26 실행권 받기 중단: 보유 0 종목에 체결량 0 매도 → decimal.DivisionByZero
+        _, sells = realize([order('s', 'ask', [('2026-11-03T11:00:00+09:00', 0, 0)], 0)])
+        self.assertEqual((sells[0]['realized'], sells[0]['why']), (None, '수량 부족'))
+
 
 class Periods(unittest.TestCase):
     def test_fill_time_not_order_time_and_week_month(self):

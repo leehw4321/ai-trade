@@ -29,6 +29,23 @@ class DropBlock(unittest.TestCase):
         self.assertIsNone(st.drop_block({'r2': None}, p))
         self.assertIsNone(st.drop_block({'r2': -0.5}, st.Params()))   # 기본은 꺼짐
 
+    def test_4h_block_only_when_set(self):
+        p = st.Params(drop4h_block_pct=0.10)
+        self.assertIn('4시간', st.drop_block({'r2': -0.07, 'r4': -0.10}, p))
+        self.assertIsNone(st.drop_block({'r2': -0.07, 'r4': -0.099}, p))      # 2시간 기준은 꺼짐
+        self.assertEqual(st.drop_kind({'r2': -0.07, 'r4': -0.12}, st.Params(drop2h_block_pct=0.06, drop4h_block_pct=0.10)), '2시간')
+        b = missed_ledger.blocks_for({'market': 'KRW-A', 'rank': 1, 'rs': 0.05, 'r2': 0.0, 'r4': -0.11},
+                                     st.Params(drop4h_block_pct=0.10, entry_top=3), set(), set(), {}, None, {'KRW-A'}, False, 3, 0)
+        self.assertEqual(b, ['급락 중(4시간)'])
+
+    def test_4h_blocked_row_still_observed_and_tagged(self):
+        rows = [{'market': 'KRW-A', 'signal': True, 'close': 10, 'blocks': ['급락 중(4시간)'], 'outcome': '차단'}]
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(dw.record(Path(d), 0, [{'market': 'KRW-A', 'r2': -0.07, 'r4': -0.12}], rows, now=0), 1)
+            html = dw.render(Path(d), None, now=3600, live4h_pct=0.10)
+            self.assertIn('4시간 −10%</b>[적용 10%]', html)
+            self.assertIn('2시간 −6%</b>[관찰]', html)
+
     def test_rank_rows_carry_r2_r4(self):
         p = st.Params(L=8, drop2h_block_pct=0.06)
         b = bars_from([(100, 101, 99, 100)] * 30 + [(100, 100, 90, 92)])

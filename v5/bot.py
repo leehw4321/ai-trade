@@ -933,7 +933,8 @@ class Bot:
                 if not hasattr(self, 'defer_watch'): self.defer_watch = rank_defer.Watch(DATA)
                 watch_line = wfold('defer', rank_defer.render(self.defer_watch, float(self.live.cfg.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS)),
                                                since=self.live.cfg.get('rank_loss_defer_since'))) + watch_line
-            watch_line = wfold('drop', drop_watch.render(DATA, getattr(self.p, 'drop2h_block_pct', 0) or None)) + watch_line   # 급락 중 매수 보류(2026-11-12) 맨 위
+            watch_line = wfold('drop', drop_watch.render(DATA, getattr(self.p, 'drop2h_block_pct', 0) or None,
+                                                         live4h_pct=getattr(self.p, 'drop4h_block_pct', 0) or None)) + watch_line   # 급락 중 매수 보류(2026-11-12) 맨 위
             watch_line = wfold('pause', pause_watch.render(DATA)) + watch_line   # 최근 성적 매수 휴식 관찰(2026-11-12)
             try:   # 주요 코인 추세 모의(2026-11-12): 실패해도 다른 표시는 유지
                 tk = {m: float(t['trade_price']) for m, t in upbit.tickers(trend_shadow.MARKETS).items()}

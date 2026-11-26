@@ -57,8 +57,9 @@
         1
       ]
     ],
-    "drop2h_block_pct": 0.06,
-    "buy_slot_minutes": 15
+    "drop2h_block_pct": 0,
+    "buy_slot_minutes": 15,
+    "drop4h_block_pct": 0.1
   },
   "live": {
     "adopted_trail_start_r": 1.0,

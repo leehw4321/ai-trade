@@ -24,7 +24,19 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent/'v5'))
 import asset_protection
 
-DEFAULT_OPENSSL = Path('C:/Program Files/Git/usr/bin/openssl.exe')
+def _find_openssl():
+    """기본 위치(C:/Program Files/Git)에 없으면 v5.ledger_relay와 같은 방법(PATH·git 옆 폴더)으로 찾는다(2026-11-26 회사 PC D:\\Git)."""
+    p = Path('C:/Program Files/Git/usr/bin/openssl.exe')
+    if p.exists():
+        return p
+    try:
+        import ledger_relay
+        return Path(ledger_relay.openssl())
+    except Exception:
+        return p
+
+
+DEFAULT_OPENSSL = _find_openssl()
 AUTH_ENVELOPED_DATA_OID = '1.2.840.113549.1.9.16.1.23'
 LEDGER_PATH = 'runtime/data/live/live.json'
 PROTECTION_PATH = 'runtime/data/user_protected_assets.json'

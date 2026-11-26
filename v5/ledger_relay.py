@@ -40,9 +40,15 @@ def openssl():
         if p.exists():
             return str(p)
     found = shutil.which('openssl')
-    if not found:
-        raise RelayError('openssl 없음')
-    return found
+    if found:
+        return found
+    git = shutil.which('git')   # 2026-11-26: 회사 PC는 Git이 D:\Git(…\cmd\git.exe) → 그 옆 usr/bin·mingw64/bin에서 찾는다
+    if git:
+        root = Path(git).resolve().parent.parent
+        for p in (root / 'usr' / 'bin' / 'openssl.exe', root / 'mingw64' / 'bin' / 'openssl.exe'):
+            if p.exists():
+                return str(p)
+    raise RelayError('openssl 없음')
 
 
 def _run(args, timeout=120, input=None):

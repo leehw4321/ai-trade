@@ -253,7 +253,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             if why:
                 reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
             else:
-                if r['rs'] >= base.chase_rs_cap > 0:
+                if co.is_half(r['market'], r['rs'], base, promoted, last):
+                    reasons.append(f'{r["market"][4:]} 과열 절반 매수 후보: 상대강도 {r["rs"]:+.1%} (상한 {base.chase_rs_cap:.0%}~{co.half_cap(base):.0%}, 금액 × {base.chase_half_size:g})')
+                elif r['rs'] >= base.chase_rs_cap > 0:
                     reasons.append(f'{r["market"][4:]} 과열 예외 매수 후보: ' + ('사용자 직접 지정' if r['market'] in promoted else '이익 청산 뒤 재진입 1회'))
                 picks.append(r)
     equity = sum(holdings.values()) + krw
@@ -303,7 +305,11 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
     for i, r in enumerate(picks):
         coin_room = max(0.0, base.coin_cap * equity - holdings.get(r['market'], 0.0))
         risk_room = unit_size if unit_size else float('inf')
-        amt = int(min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room) // 1000 * 1000)
+        amt = min(caps['max_order_krw'], room, cash / (len(picks) - i), coin_room, total_room, risk_room)
+        half = co.is_half(r['market'], r['rs'], base, promoted, (last_sells or {}).get(r['market']))
+        if half:   # 과열 절반 매수(2026-11-26): 1회 매수 금액(또는 한도 안 금액)의 chase_half_size배
+            amt = min(amt, (unit_size or amt) * base.chase_half_size)
+        amt = int(amt // 1000 * 1000)
         if amt < 5000:
             reasons.append(f'{r["market"][4:]} 매수 불가: 금액 부족 (누적 한도 잔여 {room:,.0f}원, 종목 한도 잔여 {coin_room:,.0f}원, 총투입 한도 잔여 {total_room:,.0f}원)')
             continue
@@ -311,7 +317,7 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
         cash -= amt
         room -= amt
         total_room -= amt
-        reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}')
+        reasons.append(f'{r["market"][4:]} 매수 {amt:,}원: 순위 {r["rank"]}위, 상대강도 {r["rs"]:+.1%}' + (' (과열 절반 금액)' if half else ''))
     parts = ([f'매도 {m[4:]} 100%' for m in sells] + [f'매도 {m[4:]} {p}%' for m, p in partial.items()]) or ['매도 없음']
     parts += [f'매수 {m[4:]} {a}원' for m, a in buys] or ['매수 없음']
     return '실행 주문안: ' + '; '.join(parts), reasons

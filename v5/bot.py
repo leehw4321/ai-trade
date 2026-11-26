@@ -118,7 +118,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now)
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
             cls, tag, picked = 'rk-target', f'직접 지정 매수 후보(상한 {co.EXT_CAP:.0%})', picked + 1
-        elif rank <= scan and rs >= p.chase_rs_cap > 0:
+        elif rank <= scan and co.is_half(m, rs, p, promoted, (last_sells or {}).get(m), now) and picked < want:
+            cls, tag, picked = 'rk-target', f'과열 절반 매수 후보({p.chase_rs_cap:.0%}~{co.half_cap(p):.0%}, 금액 × {p.chase_half_size:g})', picked + 1
+        elif rank <= scan and rs >= co.half_cap(p) > 0:
             cls, tag = 'rk-hot', '과열(매수 보류)'
         elif rank <= scan and rs > 0 and picked < want:
             cls, tag, picked = 'rk-target', '투자 대상(매수 후보)', picked + 1
@@ -998,7 +1000,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
 <header><div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px'><h1>자동거래 v5 {refresh_btn}{OBSERVE_BTN}{auto_ctl}</h1>{market}</div><div class=sub>{"<a href='swing_research.html' style='font-weight:700'>스윙 리서치창 ▶</a> · " if (DATA / 'swing_research.html').exists() else ''}갱신 {e(now_iso()[11:19])} (자동 <span id=rf-lbl>3분</span>, 오른쪽 위 선택으로 바꿈) · 다음 매수 판단 {next_buy} ({buy_every}) · 손절·이익보호는 3초마다 실시간</div>{watch_line}
 {f'<div class=warn>최근 오류: {e(self.error)}</div>' if self.error else ''}</header>
 {blocks}
-<div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 1회 매수 {('봇 자금 ÷ ' + format(p.bot_capital_divisor, 'g')) if getattr(p, 'bot_capital_divisor', 0) else '총자산 비례'} · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}) ·
+<div class=sub>지금 규칙: 거래대금 상위 {p.universe} · 상대강도 {p.L * p.tf // 60}시간 · {p.entry_scan or p.entry_top}위 안에서 사고 봇 보유 최대 {p.slots}종목 · 1회 매수 {('봇 자금 ÷ ' + format(p.bot_capital_divisor, 'g')) if getattr(p, 'bot_capital_divisor', 0) else '총자산 비례'} · 과열 상한 {p.chase_rs_cap:.0%}(직접 지정·이익 청산 뒤 재진입 {co.EXT_CAP:.0%}){(f' · {p.chase_rs_cap:.0%}~{co.half_cap(p):.0%}는 금액 × {p.chase_half_size:g}') if co.half_cap(p) != p.chase_rs_cap else ''} ·
 손절 최대 {p.stop_max_pct:.1%} · 이익보호 +{float(self.live.cfg.get('profit_guard_arm_pct') or 0):.0%}부터 {float(self.live.cfg.get('profit_guard_giveback') or 0):.0%} 반납 시 매도 ·
 본전 잠금 {('+' + format(float(self.live.cfg['breakeven_lock_pct']), '.1%')) if self.live.cfg.get('breakeven_lock_pct') else '꺼짐'} · 순위 매도 {'켜짐' if getattr(p, 'rank_exit', True) else '꺼짐(손절·이익보호로만 매도)'} ·
 묶임(손실 중) 부분 교체 {'켜짐' if getattr(p, 'swap_stuck_loss', False) else '꺼짐'} · 장세 필터 {'켜짐' if p.regime_filter else '꺼짐'}</div>

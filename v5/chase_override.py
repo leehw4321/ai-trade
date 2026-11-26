@@ -115,11 +115,26 @@ def reentry_ok(last, now=None):
     return 0 <= now - last['time'] < REENTRY_HOURS * 3600
 
 
+def half_cap(p):
+    """과열 절반 매수 상한(strategy.chase_half_cap). 꺼져 있거나 과열 상한 이하이면 과열 상한 그대로."""
+    cap, h = p.chase_rs_cap, getattr(p, 'chase_half_cap', 0)
+    if _finite(cap) and cap > 0 and _finite(h) and h > cap:
+        return h
+    return cap
+
+
+def is_half(market, rs, p, promoted_markets, last, now=None):
+    """절반 금액으로 사는 과열 구간인가: 과열 상한 이상 절반 상한 미만, 직접 지정·재진입 예외(전액)가 아닐 때."""
+    cap = p.chase_rs_cap
+    return (half_cap(p) != cap and _finite(rs) and cap <= rs < half_cap(p)
+            and market not in promoted_markets and not reentry_ok(last, now))
+
+
 def cap_for(market, p, promoted_markets, last, now=None):
-    """이 종목에 적용할 과열 상한."""
+    """이 종목에 적용할 과열 상한. 과열 절반 매수가 켜져 있으면 일반 종목도 그 상한까지 산다(금액은 shadow.proposal이 줄인다)."""
     if market in promoted_markets or reentry_ok(last, now):
-        return ext_cap(p)
-    return p.chase_rs_cap
+        return max(ext_cap(p), half_cap(p))
+    return half_cap(p)
 
 
 def hot_held(data_dir):

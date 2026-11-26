@@ -169,6 +169,24 @@ class Proposal(unittest.TestCase):
         self.assertIn('매수 A', text)
         self.assertNotIn('매수 B', text)
 
+    def test_half_zone_buys_half_size_and_20_percent_stays_blocked(self):
+        # 과열 절반 매수(2026-11-26): 15~20%는 금액 절반, 20% 이상은 그대로 보류, 15% 미만은 전액
+        from dataclasses import replace
+        self.p = replace(self.p, chase_half_cap=0.20, chase_half_size=0.5, bot_capital_divisor=10)
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .17}, {'market': 'KRW-B', 'rank': 2, 'rs': .20},
+                  {'market': 'KRW-C', 'rank': 3, 'rs': .05}]
+        text, reasons = self.plan(ranked, krw=1_000_000)
+        self.assertIn('매수 A 50000원', text)
+        self.assertIn('매수 C 100000원', text)
+        self.assertNotIn('매수 B', text)
+        self.assertTrue(any('과열 절반 금액' in r for r in reasons))
+        text, _ = self.plan(ranked, krw=1_000_000, promoted={'KRW-A': time.time()})   # 직접 지정은 전액
+        self.assertIn('매수 A 100000원', text)
+
+    def test_half_zone_off_by_default(self):
+        self.assertEqual(co.cap_for('KRW-A', self.p, {}, None), .15)
+        self.assertFalse(co.is_half('KRW-A', .17, self.p, {}, None))
+
     def test_profit_exit_reentry_skips_wait_and_dip_once(self):
         from unittest import mock
         mock.patch.object(co, 'REENTRY_ENABLED', True).start(); self.addCleanup(mock.patch.stopall)
@@ -229,6 +247,12 @@ class Receiver(unittest.TestCase):
     def test_receiver_allows_promoted_up_to_20_percent_from_its_own_file(self):
         self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
         co.promote(self.data, 'KRW-A', .17, self.worker.p, now=self.now)
+        self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
+        self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 120.))
+
+    def test_receiver_allows_half_zone_up_to_20_percent(self):
+        from dataclasses import replace
+        self.worker.p = replace(self.worker.p, chase_half_cap=0.20)
         self.assertIsNone(self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
         self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 120.))
 

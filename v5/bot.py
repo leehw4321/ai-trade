@@ -97,7 +97,7 @@ OBSERVE_BTN = ("<a href='observe.html' target=_blank title='실행권·실제 �
 
 
 def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None,
-                 prices=None, entry_of=None, entries=None, sold=None, streaks=None):
+                 prices=None, entry_of=None, entries=None, sold=None, streaks=None, released=()):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -114,7 +114,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         elif m in held:
             s = (stuck or {}).get(m)
             cls, tag = 'rk-held', '보유' + (f" · 묶임({s.get('state', '')})" if s else '') + (' · 과열 보유: 순위 매도 제외(손절·이익보호로만 매도)' if m in hot else '')
-        elif rank <= p.M and rs > 0 and reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now):
+        elif rank <= p.M and rs > 0 and m not in released and reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now):
             # 재매수 금지 중인 후보는 '투자 대상'으로 세지 않는다(주문안이 사지 않는다). 이유와 해제 시각을 적는다.
             cls, tag = 'rk-watch', reentry_note(last_sells[m], p, time.time() if now is None else now)
         elif rank <= scan and m in promoted and p.chase_rs_cap <= rs < co.ext_cap(p):
@@ -130,6 +130,8 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         else:
             cls, tag = '', ''
         tag = (tag + note) if tag else note.lstrip(' ·')
+        if m in released and m not in held:   # 화면 '재매수 해제' 1회(사용자 지시 2026-11-27)
+            tag = (tag + ' · ' if tag else '') + '재매수 금지 해제됨(1회, 다른 매수 조건은 그대로)'
         tag += price_note(m, m in held, (entries or {}).get(m), (prices or {}).get(m), newer_sell((last_sells or {}).get(m), (sold or {}).get(m)), p, entry_of,
                           time.time() if now is None else now)
         tag = tag.lstrip(' ·')
@@ -137,6 +139,9 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         if can_promote and m not in held and rank <= scan and p.chase_rs_cap > 0 and p.chase_rs_cap <= rs < co.ext_cap(p):
             act, label = ('unpromote', '지정 취소') if m in promoted else ('promote', '매수 대상으로')
             btn = f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
+        if can_promote and m not in held and rs > 0 and (m in released or reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now)):
+            act, label = ('reentry_unrelease', '해제 취소') if m in released else ('reentry_release', '재매수 해제')
+            btn += f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
         tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
         rest = (resting or {}).get(m)
         if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
@@ -340,7 +345,7 @@ def promote_script(api):
         return REST_CD
     return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
             "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
-            "if(a!='rest_extend'&&!confirm(a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "if(a!='rest_extend'&&!confirm(a=='reentry_release'?m.slice(4)+' 재매수 금지를 1회 해제합니다.\\n다른 매수 조건(순위·과열·급락·5분봉·경보)을 통과하면 다음 판단에서 삽니다.\\n주의: 과거 자료에서 매도 직후 재매수는 평균 손실이었습니다.\\n진행할까요?':a=='reentry_unrelease'?m.slice(4)+' 재매수 해제를 취소할까요?':a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
@@ -937,7 +942,8 @@ class Bot:
             rank_streaks = {}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
                                can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {}),
-                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json'), entries=self.entry_prices(), sold=recent_sells(DATA / 'pnl' / 'orders.json'), streaks=rank_streaks) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json'), entries=self.entry_prices(), sold=recent_sells(DATA / 'pnl' / 'orders.json'), streaks=rank_streaks,
+                               released=co.released_markets(DATA, self.live.d.get('last_sell', {}))) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]
@@ -1200,7 +1206,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -1391,6 +1397,12 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     else:
                         ok, msg = co.promote(DATA, req.market, row['rs'], self.p)
                     label = '과열 종목 직접 지정'
+                elif req.kind in ('reentry_release', 'reentry_unrelease'):   # 재매수 금지 1회 해제(사용자 지시 2026-11-27)
+                    if req.kind == 'reentry_release':
+                        ok, msg = co.release_reentry(DATA, req.market, self.live.d.get('last_sell', {}).get(req.market))
+                    else:
+                        ok, msg = co.unrelease_reentry(DATA, req.market)
+                    label = '재매수 금지 해제' if req.kind == 'reentry_release' else '재매수 해제 취소'
                 elif req.kind == 'rest_extend':   # 걸어 둔 지정가 매수 대기 +2분(사용자 지시 2026-11-27)
                     ok, msg = self.live.extend_resting(req.market)
                     label = '지정가 매수 대기 연장'

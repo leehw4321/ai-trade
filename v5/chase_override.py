@@ -115,6 +115,53 @@ def reentry_ok(last, now=None):
     return 0 <= now - last['time'] < REENTRY_HOURS * 3600
 
 
+RELEASE = 'reentry_release.json'
+
+
+def _sell_key(last):
+    """해제가 묶이는 매도 기록(시각). 그 종목을 다시 사고 또 팔면 시각이 바뀌어 해제가 저절로 사라진다(1회)."""
+    if isinstance(last, dict) and _finite(last.get('time')):
+        return round(float(last['time']), 3)
+    return None
+
+
+def is_released(data_dir, market, last):
+    """사용자가 화면에서 재매수 금지를 1회 해제한 종목인가(사용자 지시 2026-11-27 '재매수 해제 버튼 만들어').
+    해제는 재매수 대기·눌림 조건만 건너뛴다. 과열 상한·급락·5분봉·경보·손실 중단선 등 다른 매수 조건은 그대로다."""
+    row = _read(Path(data_dir) / RELEASE).get('markets', {})
+    v = row.get(market) if isinstance(row, dict) else None
+    key = _sell_key(last)
+    return isinstance(v, dict) and key is not None and v.get('sell_time') == key
+
+
+def released_markets(data_dir, last_sells):
+    rows = _read(Path(data_dir) / RELEASE).get('markets', {})
+    return {m for m in (rows if isinstance(rows, dict) else {}) if is_released(data_dir, m, (last_sells or {}).get(m))}
+
+
+def release_reentry(data_dir, market, last, now=None):
+    """(성공 여부, 안내문). 지금 매도 기록에 묶어 1회 해제를 저장한다. 묶인 매도와 다른(지난) 해제는 정리한다."""
+    key = _sell_key(last)
+    if key is None:
+        return False, f'{market[4:]}: 재매수 금지 기록이 없습니다.'
+    path = Path(data_dir) / RELEASE
+    rows = _read(path).get('markets', {})
+    rows = {m: v for m, v in (rows.items() if isinstance(rows, dict) else []) if isinstance(v, dict)}
+    rows[market] = {'sell_time': key, 'at': time.time() if now is None else now}
+    _write(path, {'markets': rows})
+    return True, f'{market[4:]}: 재매수 금지를 1회 해제했습니다. 다음 매수 판단부터 다른 조건을 통과하면 삽니다(한 번 사고 팔면 해제는 사라집니다).'
+
+
+def unrelease_reentry(data_dir, market):
+    path = Path(data_dir) / RELEASE
+    rows = _read(path).get('markets', {})
+    if not isinstance(rows, dict) or market not in rows:
+        return False, f'{market[4:]}: 재매수 해제 상태가 아닙니다.'
+    rows.pop(market)
+    _write(path, {'markets': rows})
+    return True, f'{market[4:]}: 재매수 해제를 취소했습니다(다시 재매수 금지).'
+
+
 def half_cap(p):
     """과열 절반 매수 상한(strategy.chase_half_cap). 꺼져 있거나 과열 상한 이하이면 과열 상한 그대로."""
     cap, h = p.chase_rs_cap, getattr(p, 'chase_half_cap', 0)

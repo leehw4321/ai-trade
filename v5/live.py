@@ -1231,7 +1231,8 @@ class Live:
                     or context.get('policy_hash') != rotation.policy_hash(self.p)):
                 return '신규 매수 순위·유지 범위·정책 불일치: 매수 보류'
             last = self.d.get('last_sell', {}).get(market)
-            why = None if co.reentry_ok(last) else rotation.fresh_reentry(last, self.p, context.get('signal_closed_at'))
+            why = (None if co.reentry_ok(last) or co.is_released(self.folder.parent, market, last)
+                   else rotation.fresh_reentry(last, self.p, context.get('signal_closed_at')))
             if why: return why
         if not isinstance(context, dict) or context.get('market') != market:
             return '매수 신호 출처 누락·종목 불일치: 매수 보류'
@@ -1271,6 +1272,7 @@ class Live:
             return '손실 중단선 도달로 신규 매수 중단 상태'
         last = self.d.get('last_sell', {}).get(m)
         again = co.reentry_ok(last)  # 이익 청산 뒤 재진입 1회: 대기·눌림 조건 없이 허용(사용자 지시 2026-11-05)
+        again = again or co.is_released(self.folder.parent, m, last)   # 화면 '재매수 해제' 1회(사용자 지시 2026-11-27)
         if last and not again:
             # Re-read the current durable state, not the producer's pre-sale snapshot.
             if type(last.get('time')) not in (int, float) or not math.isfinite(last['time']):

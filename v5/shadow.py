@@ -131,7 +131,7 @@ def atr_ready(entry_ok, ranked, scan, tf, ok_cache, fetch):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None, rank_sells=True, m5_streak=None):
+             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None, rank_sells=True, m5_streak=None, released=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -247,7 +247,9 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             continue
         if r['market'] in entry_ok and r['rs'] > 0:
             last = (last_sells or {}).get(r['market'])
-            again = co.reentry_ok(last)
+            again = co.reentry_ok(last) or r['market'] in (released or ())   # 화면 '재매수 해제' 1회(2026-11-27)
+            if r['market'] in (released or ()) and last:
+                reasons.append(f'{r["market"][4:]} 재매수 금지 사용자 해제(1회): 대기·눌림 조건 생략')
             why = (st.chase_block(r, base, co.cap_for(r['market'], base, promoted, last))
                    or st.drop_block(r, base)
                    or (st.reentry_block(r, last, time.time(), base) if last and not again else None)
@@ -550,6 +552,7 @@ class Shadow:
 
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
                                  m5_streak=m5_streak_now,
+                                 released=co.released_markets(DATA, state.get('last_sell')),
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,

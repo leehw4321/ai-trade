@@ -354,5 +354,40 @@ class FiveMinuteFall(Proposal):
         text, _ = self.plan(ranked, m5_streak=lambda m: -5)
         self.assertIn('매수 A', text)
 
+
+class ReentryRelease(Receiver):
+    """사용자 지시 2026-11-27 '재매수 해제 버튼 만들어': 재매수 금지를 1회 해제(매도 기록에 묶임)."""
+    def test_release_lets_live_buy_once_and_expires_with_the_next_sale(self):
+        last = {'time': self.now - 3600, 'price': 100., 'profit': False, 'reason': '손절'}
+        self.worker.d['last_sell'] = {'KRW-A': last}
+        self.assertIn('재진입', self.worker.buy_block('KRW-A', 10000, {}) or '')
+        ok, _ = co.release_reentry(self.data, 'KRW-A', last)
+        self.assertTrue(ok)
+        self.assertNotIn('재진입', self.worker.buy_block('KRW-A', 10000, {}) or '')
+        self.assertEqual(co.released_markets(self.data, self.worker.d['last_sell']), {'KRW-A'})
+        self.worker.d['last_sell']['KRW-A'] = dict(last, time=self.now - 60)   # 사고 다시 팔면 매도 기록이 바뀐다
+        self.assertFalse(co.is_released(self.data, 'KRW-A', self.worker.d['last_sell']['KRW-A']))
+        self.assertIn('재진입', self.worker.buy_block('KRW-A', 10000, {}) or '')
+
+    def test_unrelease_and_no_record(self):
+        last = {'time': self.now - 3600, 'price': 100., 'profit': False}
+        co.release_reentry(self.data, 'KRW-A', last)
+        self.assertTrue(co.unrelease_reentry(self.data, 'KRW-A')[0])
+        self.assertFalse(co.is_released(self.data, 'KRW-A', last))
+        self.assertFalse(co.release_reentry(self.data, 'KRW-B', None)[0])
+
+
+class ReentryReleaseProposal(Proposal):
+    def test_released_market_is_bought_despite_reentry_wait(self):
+        import time as _t
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .05}]
+        last = {'KRW-A': {'time': _t.time() - 3600, 'price': 100., 'profit': False}}
+        text, _ = self.plan(ranked, last_sells=last)
+        self.assertNotIn('매수 A', text)
+        text, reasons = self.plan(ranked, last_sells=last, released={'KRW-A'})
+        self.assertIn('매수 A', text)
+        self.assertTrue(any('사용자 해제' in r for r in reasons))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -33,3 +33,6 @@ debate_tools/*.html
 # 분석용 공개 시세 캐시(대용량, 재생성 가능)
 docs/ai-history/analysis/chase_cache.json
 tools/research/exit_study_out.json
+
+# Claude Code 개인 권한 설정(이 PC 전용, 공개 저장소에 올리지 않음)
+.claude/settings.local.json

@@ -146,7 +146,8 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
 
         px = (prices or {}).get(m)
         name = esc(m[4:]) + (f" <span class=sub>{fmt_price(px)}원</span>" if isinstance(px, (int, float)) and px > 0 else '')
-        name += bar_streak.render((streaks or {}).get(m) or {})   # 봉별 연속 상승·하락(사용자 지시 2026-11-27)
+        light = 'block' if cls == 'rk-alert' or rs <= 0 else 'buy' if cls == 'rk-target' else 'wait'
+        name += bar_streak.render((streaks or {}).get(m) or {}, light)   # 봉별 연속 상승·하락 + 5분·15분 신호등(사용자 지시 2026-11-27)
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{name}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)

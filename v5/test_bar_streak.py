@@ -34,6 +34,16 @@ class Streak(unittest.TestCase):
         self.assertEqual(s.get(['KRW-A']), {'KRW-A': {}})
         self.assertEqual(bs.render({}), '')
 
+    def test_lights_follow_buy_rule_and_5m_fall(self):
+        self.assertEqual(bs.light15('buy', 1), 'green')
+        self.assertEqual(bs.light15('buy', -2), 'red')        # 매수 후보라도 15분봉 2연속 하락
+        self.assertEqual(bs.light15('wait', 3), 'orange')
+        self.assertEqual(bs.light15('block', 3), 'red')
+        self.assertEqual([bs.light5(s) for s in (2, 0, -1, -2)], ['green', 'orange', 'orange', 'red'])
+        self.assertIn('<b class=up>매수 신호</b>', bs.render({5: 1, 15: 1}, 'buy'))
+        self.assertNotIn('<b class=up>매수 신호</b>', bs.render({5: -2, 15: 1}, 'buy'))   # SLX 11-27 11:46: 5분봉 2연속 하락 → 빨강
+        self.assertNotIn('<b class=up>매수 신호</b>', bs.render({5: 1, 15: 1}, 'wait'))
+
     def test_render(self):
         h = bs.render({1: 3, 5: -2, 15: 0})
         self.assertIn('1분 <span class=up>▲3</span>', h)

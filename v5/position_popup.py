@@ -128,7 +128,7 @@ var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(buy)doc.krw=
 fetch('http://127.0.0.1:'+A.port+(buy?'/buy':'/liquidate'),{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(doc)})
 .then(function(r){return r.json()}).then(function(d){$('pm-ask').hidden=true;$('pm-res').textContent=(d.ok?'✅ ':'⚠️ ')+d.message+(d.ok?' (표는 30초 안에 갱신됩니다)':'')})
 .catch(function(){$('pm-ask').hidden=true;$('pm-res').textContent='⚠️ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.'})}
-function show(m){var x=D[m];if(!x)return;var same=(cur===m&&!box.hidden);cur=m;if(!same)resetAct(x);
+function show(m){try{D=JSON.parse(el.textContent)}catch(e){}var x=D[m];if(!x)return;var same=(cur===m&&!box.hidden);cur=m;if(!same)resetAct(x);
 document.getElementById('pm-title').textContent=x.name+' ('+m+')';
 document.getElementById('pm-sub').textContent=(x.inherited?'계좌 인수 보유분':'봇 신규 매수')+' · '+x.entered+(x.held_hours==null?'':' · 보유 '+n(x.held_hours,1)+'시간');
 document.getElementById('pm-body').textContent='';

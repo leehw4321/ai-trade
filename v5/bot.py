@@ -14,6 +14,7 @@ import sys
 import time
 import traceback
 
+import live_page
 import manual_orders
 import position_popup
 import protection_panel
@@ -976,9 +977,10 @@ class Bot:
         auto_ctl = ("<span class=sub style='margin-left:14px'>자동 새로고침 <select id=rf-iv style='font-size:14px;padding:3px 4px'>"
                     "<option value=30>30초</option><option value=60>1분</option><option value=180>3분</option><option value=300>5분</option>"
                     "<option value=600>10분</option><option value=1800>30분</option><option value=0>끄기</option></select></span>"
+                    "<script>" + live_page.SCRIPT + "</script>"
                     "<script>(function(){var s=document.getElementById('rf-iv'),l=document.getElementById('rf-lbl'),t=null,v=180;"
                     "try{var x=parseInt(localStorage.getItem('rfIv'),10);if(x>=0&&x<=86400)v=x}catch(e){}"
-                    "function arm(){clearTimeout(t);if(l)l.textContent=v?(v>=60?(v/60)+'분':v+'초'):'꺼짐';if(v>0)t=setTimeout(function(){location.reload()},v*1000)}"
+                    "function arm(){clearTimeout(t);if(l)l.textContent=v?(v>=60?(v/60)+'분':v+'초'):'꺼짐';if(v>0)t=setTimeout(function(){window.__v5soft?window.__v5soft(arm):location.reload()},v*1000)}"
                     "var ok=false;for(var i=0;i<s.options.length;i++)if(+s.options[i].value===v)ok=true;"
                     "if(!ok){var o=document.createElement('option');o.value=v;o.textContent=(v/60)+'분';s.appendChild(o)}"
                     "s.value=v;s.onchange=function(){v=+s.value;try{localStorage.setItem('rfIv',v)}catch(e){}arm()};arm()})()</script>")
@@ -1071,6 +1073,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             for attempt in range(5):
                 try:
                     os.replace(temporary, DATA / 'status.html')
+                    live_page.write_js(page, DATA)   # 깜박임 없는 갱신용(2026-11-27)
                     break
                 except OSError:
                     if attempt == 4: raise

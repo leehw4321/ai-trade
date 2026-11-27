@@ -58,7 +58,7 @@ busy=true;board.querySelectorAll('button').forEach(b=>b.disabled=true);out.textC
 try{const r=await fetch('http://127.0.0.1:'+D.action.port+'/'+kind,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({market:m,token:D.action.token,confirm:true,revision:rev})});const data=await r.json();out.textContent=data.message||'보호 상태를 확인하세요.';if(data.ok){clear();setTimeout(()=>location.reload(),1500)}}catch(e){out.textContent='연결을 확인하고 화면을 새로고침하세요. 보호 해제가 성공했다고 가정하지 않습니다.'}
 finally{busy=false;board.querySelectorAll('button').forEach(b=>b.disabled=false)}
 }
-board.addEventListener('click',function(e){const b=e.target.closest('button[data-choice]');if(!b)return;const m=b.dataset.market;if(!D.rows[m])return;if(b.dataset.choice==='unprotect')choose(m);else send('protect',m,D.rows[m].revision)});
+board.addEventListener('click',function(e){const b=e.target.closest('button[data-choice]');if(!b)return;try{D=JSON.parse(raw.textContent)}catch(x){}const m=b.dataset.market;if(!D.rows[m])return;if(b.dataset.choice==='unprotect')choose(m);else send('protect',m,D.rows[m].revision)});
 document.getElementById('ap-no').onclick=clear;
 document.getElementById('ap-yes').onclick=function(){if(chosen)send('unprotect',chosen.market,chosen.revision)};
 try{const old=JSON.parse(sessionStorage.getItem('protectionAsk')||'null');if(old&&D.rows[old.market]&&D.rows[old.market].protected&&D.rows[old.market].revision===old.revision)choose(old.market);else sessionStorage.removeItem('protectionAsk')}catch(e){}

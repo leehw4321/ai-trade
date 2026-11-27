@@ -280,7 +280,10 @@ def compute(store, baseline, accounts, prices, at=None):
             'unrealized_rows': rows, 'unrealized_total': utotal, 'mismatch': mismatch,
             'recent': [{'time': s['time'].isoformat(timespec='minutes'), 'coin': s['coin'], 'source': s['source'],
                         'realized': None if s['kind'] == '미확정' else float(s['realized']), 'kind': s['kind'], 'why': s.get('why', '')}
-                       for s in sells[-15:]][::-1]}
+                       for s in sells[-RECENT_N:]][::-1]}
+
+
+RECENT_N = 40  # 화면 최근 실현손익 목록 길이(2026-11-27 사용자 "20개 이상 볼수있게")
 
 
 def run_once(folder=OUT):

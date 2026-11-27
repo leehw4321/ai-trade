@@ -126,9 +126,19 @@ def section(docs):
         return ''
     e = html.escape
     items = []
-    for i, d in enumerate(docs):
+    for d in docs:
         tag = '' if d.get('final') else ' · 진행 중(잠정)'
         body = ''.join(f'<div>{e(x)}</div>' for x in lines(d))
-        items.append(f"<details{' open' if i == 0 else ''}><summary><b>{e(d['day'])}</b>{tag} — {e(summary_line(d))}</summary>"
+        items.append(f"<details><summary><b>{e(d['day'])}</b>{tag} — {e(summary_line(d))}</summary>"
                      f"<div style='padding:6px 12px;line-height:1.6'>{body}</div></details>")
-    return f"<section><h2>일일 리포트</h2>{''.join(items)}</section>"
+    # 2026-11-27 사용자 지시 "일일 리포트 창이 계속 길어진다 접어서 정리": 전체를 한 줄로 접고(기본 접힘), 날짜별도 모두 접힘.
+    head = f"<b>{e(docs[0]['day'])}</b> — {e(summary_line(docs[0]))}"
+    return persisted_fold('dailyReport', f"일일 리포트 ({len(docs)}일) · 최신 {head}", ''.join(items))
+
+
+def persisted_fold(key, summary, body):
+    """접기 상자. 펼침 상태를 브라우저(localStorage)에 기억해 3분 자동 새로고침 뒤에도 유지한다. 기본은 접힘."""
+    return (f"<details id=fold-{key} class=pf><summary style='cursor:pointer;font-weight:600'>{summary} <span class=sub>— 눌러서 열기/접기</span></summary>{body}</details>"
+            f"<script>(function(){{var d=document.getElementById('fold-{key}');"
+            f"try{{if(localStorage.getItem('fold:{key}')==='1')d.open=true;}}catch(x){{}}"
+            f"d.addEventListener('toggle',function(){{try{{localStorage.setItem('fold:{key}',d.open?'1':'0')}}catch(x){{}}}});}})();</script>")

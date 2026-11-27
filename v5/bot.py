@@ -741,16 +741,19 @@ class Bot:
         if f.exists():
             orders = [json.loads(x) for x in f.read_text(encoding='utf-8').splitlines()[-200:] if x.strip()][::-1]
         ol = ''.join(f"<li><span class=t>{e(t[5:16].replace('T', ' '))}</span>{e(x)}</li>" for t, x in useful_events(orders))             or '<li class=muted>새 체결 없음 · 다음 정시 판단 대기</li>'
+        rlist = (s.get('recent') or [])[:40]  # 2026-11-27 사용자 지시: 접을 수 있게, 20개 이상
         recent = ''.join(
             f"<li><span class=t>{e(r['time'][5:16].replace('T', ' '))}</span>{e(r['coin'])} "
             f"{won(r['realized']) if r['realized'] is not None else '<span class=warn>미확정</span>'}</li>"
-            for r in (s.get('recent') or [])[:8]) or '<li class=muted>매도 체결 없음</li>'
+            for r in rlist) or '<li class=muted>매도 체결 없음</li>'
+        rsum = sum(r['realized'] for r in rlist if r['realized'] is not None)
+        recent_box = daily_report.persisted_fold('recentPnl', f"최근 실현손익 (매도 체결) {len(rlist)}건 · 합계 {won(rsum)}", f'<ul>{recent}</ul>')
         table = holdings_table(urows, protected, co.read_stuck(DATA), L['positions'], self.sell_line)
         return f"""<section><h2 class=lg>실거래 (봇 자동 실행)</h2>{self.ownership_html()}{halt}
 <div class=chips>{' · '.join(chips)}</div>
 <div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
-<div class=cols><div><h3>최근 실현손익 (매도 체결)</h3><ul>{recent}</ul></div><div><h3>실거래 기록</h3><ul>{ol}</ul></div></div>
+<div class=cols><div>{recent_box}</div><div><h3>실거래 기록</h3><ul>{ol}</ul></div></div>
 {position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
 
     def real_block(self, prices):

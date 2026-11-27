@@ -20,6 +20,7 @@ import protection_panel
 import observations
 import strategy as st
 import rotation_policy as rotation
+import bar_streak
 import chase_override as co
 import daily_equity
 import daily_report
@@ -96,7 +97,7 @@ OBSERVE_BTN = ("<a href='observe.html' target=_blank title='실행권·실제 �
 
 
 def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(), can_promote=False, stuck=None, resting=None, last_sells=None, now=None,
-                 prices=None, entry_of=None, entries=None, sold=None):
+                 prices=None, entry_of=None, entries=None, sold=None, streaks=None):
     """순위표 행. 바탕색: 보유=하늘색, 매수 불가 경보=붉은 파스텔, 투자 대상(매수 후보)=연두, 관찰=연노랑. '구분' 칸에도 적는다.
     매수 후보 = 현재 매수 규칙(상위 entry_top 안, 상승률 0 초과 chase_rs_cap 미만, 보유·매수 불가 경보 아님). 관찰 = 5위(유지 순위) 안 정상 종목.
     warned: {종목: 경보 정보} (집합이면 모두 매수 불가로 본다). 사용자 지시(2026-11-04): 경보 종목 중 매수 가능하면 '매수 후보'와
@@ -145,6 +146,7 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
 
         px = (prices or {}).get(m)
         name = esc(m[4:]) + (f" <span class=sub>{fmt_price(px)}원</span>" if isinstance(px, (int, float)) and px > 0 else '')
+        name += bar_streak.render((streaks or {}).get(m) or {})   # 봉별 연속 상승·하락(사용자 지시 2026-11-27)
         out.append(f"<tr class='{cls}'{tip}><td class=n>{rank}</td><td>{name}</td>"
                    f"<td class='n {'up' if rs >= 0 else 'dn'}'>{rs * 100:+.2f}%</td><td>{esc(tag)}{btn}</td></tr>")
     return ''.join(out)
@@ -923,9 +925,17 @@ class Bot:
             rank_px = {m: t['trade_price'] for m, t in upbit.tickers(rk_m).items()} if rk_m else {}
         except Exception:
             rank_px = {r['market']: r.get('close') for r in d.get('ranking', [])}
+        try:  # 봉별 연속 상승·하락: 관찰 순위(M) 안 + 보유 종목만, 새 봉이 마감됐을 때만 조회
+            if getattr(self, 'streaks', None) is None:
+                self.streaks = bar_streak.Streaks()
+            held_now = self.held_markets(prices)
+            st_m = [r['market'] for r in d.get('ranking', []) if r.get('rank', 99) <= max(p.M, p.entry_scan or 0) or r['market'] in held_now]
+            rank_streaks = self.streaks.get(st_m)
+        except Exception:
+            rank_streaks = {}
         rk_rows = ranking_rows(d.get('ranking', []), self.held_markets(prices), warned, p, promoted=co.promoted(DATA), hot=co.hot_held(DATA),
                                can_promote=bool(promote_api), stuck=co.read_stuck(DATA), resting=self.live.resting_info(), last_sells=self.live.d.get('last_sell', {}),
-                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json'), entries=self.entry_prices(), sold=recent_sells(DATA / 'pnl' / 'orders.json')) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
+                               prices=rank_px, entry_of=entry_lookup(DATA / 'pnl' / 'orders.json'), entries=self.entry_prices(), sold=recent_sells(DATA / 'pnl' / 'orders.json'), streaks=rank_streaks) or '<tr><td colspan=4 class=muted>첫 판단 전</td></tr>'
         rk_rows_script = promote_script(promote_api) + stuck_html(co.read_stuck(DATA))
         events = sorted([dict(x, who=n) for n, lg in self.ledgers.items() for x in lg.read_jsonl('events.jsonl', 40)
                          if not any(w in x.get('msg', '') for w in NOISE)], key=lambda x: x['time'])[-20:][::-1]
@@ -945,7 +955,7 @@ class Bot:
         except Exception as ex:  # 관찰 창 오류가 화면·거래를 막지 않는다
             obs_panel = f'<section><b>관찰·그림자 관리 창 오류: {html.escape(type(ex).__name__)}</b></section>'
         ranking = (f"<section><h2 class=lg>상대강도 순위 <span class=sub>({e(d.get('ranking_time', '-')[5:16].replace('T', ' '))} · 최근 {p.L * p.tf // 60}시간 수익률)</span></h2>"
-                   f"<table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L * p.tf // 60}시간</th><th>구분</th></tr>{rk_rows}</table>{rk_rows_script}"
+                   f"<table class=rk-table><tr><th class=n>#</th><th>종목</th><th class=n>{p.L * p.tf // 60}시간</th><th>구분</th></tr>{rk_rows}</table>{rk_rows_script}"
                    f"<div class=sub style='margin-top:8px'><span class='chip chip-held'>보유</span> <span class='chip chip-target'>매수 후보</span> "
                    f"<span class='chip chip-watch'>관찰</span> <span class='chip chip-hot'>과열(매수 보류 · 20% 미만은 커서를 올려 직접 지정)</span> "
                    f"<span class='chip chip-alert'>매수 불가 경보</span> · {p.entry_scan or p.entry_top}위 안에서 상승률 0~{p.chase_rs_cap:.0%}</div></section>")
@@ -1030,6 +1040,7 @@ h1{{margin:0;font-size:22px}} h2{{margin:0 0 6px;font-size:14px;color:var(--mute
 @media(max-width:820px){{.cols,.grid{{grid-template-columns:1fr}}}}
 section{{background:var(--card);border:1px solid var(--line);padding:14px 16px;overflow-x:auto}}
 table{{border-collapse:collapse;width:100%;font-size:14px}} td,th{{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}}
+.rk-table td:last-child{{white-space:normal;word-break:keep-all;overflow-wrap:anywhere;min-width:240px}}
 th{{color:var(--muted);font-weight:500;font-size:12.5px}} .n{{text-align:right;font-variant-numeric:tabular-nums}}
 {WFOLD_CSS}
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .muted{{color:var(--muted)}} .warn{{color:var(--up)}}

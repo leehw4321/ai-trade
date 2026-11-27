@@ -735,6 +735,9 @@ class Bot:
         chips.append(f"손실 중단선 여유 <b>{max(limit - loss, 0):,.0f}원</b> <span class=muted>(중단선 {limit:,.0f}원 · 지금 손익 {-loss:+,.0f}원)</span>")
         halt = f"<div class=warn>신규 매수 중단: {e(L['halted'])} · 재개: python tools/resume_trading.py</div>" if L['halted'] else ''
         cw = L.get('concurrent_warn') or {}
+        pm = getattr(self, '_plan_mismatch', None)
+        if pm and time.time() - pm['since'] >= 300:
+            halt += f"<div class=warn><b>주문 멈춤: 주문안(shadow.py) 설정 지문 {e(pm['plan'][:8])} ≠ 봇 {e(pm['bot'][:8])}</b> · {e(pm['since_iso'])}부터 모든 주문안 거절 중</div>"
         if cw.get('active'): halt += f"<div class=warn><b>동시 보유 경보: {int(cw.get('count', 0))}개</b> ({e(', '.join(m[4:] for m in cw.get('markets', [])))}) · 알림만, 주문 제한 없음</div>"
         orders = []
         f = DATA / 'live' / 'orders.jsonl'
@@ -1026,6 +1029,32 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
             try: temporary.unlink(missing_ok=True)
             except OSError: pass
 
+    def check_plan_fingerprint(self, now):
+        """shadow.py 주문안의 설정 지문이 봇과 다른지 본다. 다르면 모든 주문안이 거절돼 거래가 멈춘다
+        (2026-11-26 21:54~11-27 08:52 사고: 실행권 가져오기 중 shadow가 옛 설정으로 남아 약 11시간 주문 0건).
+        처음 보면 기록, 20분 넘게 계속되면 화면 경보·알림창. 판단·알림만 하고 주문·설정은 바꾸지 않는다."""
+        f = DATA / 'proposal.json'
+        try:
+            prop = json.loads(f.read_text(encoding='utf-8')) if f.exists() and now - f.stat().st_mtime <= 1800 else None
+        except (OSError, ValueError):
+            return
+        mm = rotation.proposal_mismatch(prop, self.live.p) if prop else None
+        old = getattr(self, '_plan_mismatch', None)
+        if mm is None:
+            if old: self.log(f"주문안 설정 지문 다시 일치 (어긋남 {old['since_iso']}부터)")
+            self._plan_mismatch = None
+            return
+        if not old or old['plan'] != mm[0]:
+            self._plan_mismatch = old = {'since': now, 'since_iso': now_iso()[:16], 'plan': mm[0], 'bot': mm[1], 'noticed': False}
+            self.log(f'주의: 주문안 설정 지문({mm[0][:8]})이 봇({mm[1][:8]})과 다름 · 이대로면 주문안이 모두 거절됨')
+        if not old['noticed'] and now - old['since'] >= 1200:
+            old['noticed'] = True
+            notices.add(DATA / 'notices.json', f"plan-mismatch-{int(old['since'])}", '주문 멈춤: 주문안과 봇 설정이 다릅니다',
+                        f"{old['since_iso']}부터 shadow.py 주문안 설정 지문({mm[0][:8]})이 봇({mm[1][:8]})과 달라 모든 주문안이 거절되고 있습니다.\n"
+                        'shadow.py는 설정·코드가 바뀌면 스스로 다시 켜집니다. 계속되면 봇도 같은 설정으로 다시 켜야 합니다(tools/deploy_v5.py --apply 또는 shadow.py 재시작).',
+                        'warn', now_iso(), popup=True)
+            self.log('주문안 설정 지문 어긋남 20분 지속 · 화면 경보')
+
     def run_reviews(self):
         """급변 표시 효과를 정해 둔 기준으로 판정해 화면 상단 공지로 알린다. 판정만 하고 주문·설정은 바꾸지 않는다."""
         path = DATA / 'notices.json'
@@ -1206,6 +1235,10 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     for lg in self.ledgers.values():
                         self.stop_check(lg, live)
                     last_stop = now
+                if now - getattr(self, '_fp_at', 0) >= 60:  # 주문안·봇 설정 지문 비교(2026-11-27 재발 방지)
+                    self._fp_at = now
+                    try: self.check_plan_fingerprint(now)
+                    except Exception as ex: self.log('주문안 지문 확인 오류(무시): '+type(ex).__name__)
                 if now - getattr(self, '_rev_at', 0) >= 3600:  # 검토 판정·공지(1시간마다, 시작 직후 한 번)
                     self._rev_at = now
                     try: self.run_reviews()

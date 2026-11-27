@@ -62,6 +62,16 @@ def policy_hash(p):
     return hashlib.sha256(json.dumps(asdict(p), sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def proposal_mismatch(prop, p):
+    """주문안 봉투의 설정 지문이 봇(p)과 다르면 (주문안 지문, 봇 지문), 같거나 봉투가 없으면 None.
+    지문이 다르면 validate가 모든 주문안을 거절한다(2026-11-26 21:54~11-27 08:52, 약 11시간 주문 0건 사고)."""
+    env = prop.get('rotation') if isinstance(prop, dict) else None
+    if not isinstance(env, dict) or not isinstance(env.get('policy_hash'), str):
+        return None
+    mine = policy_hash(p)
+    return None if env['policy_hash'] == mine else (env['policy_hash'], mine)
+
+
 def decision_id(closed, digest):
     return hashlib.sha256(f'{VERSION}:{closed}:{digest}'.encode()).hexdigest()
 

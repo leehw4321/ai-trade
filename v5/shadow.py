@@ -9,6 +9,7 @@ from dataclasses import replace
 import datetime as dt
 import html
 import itertools
+import hashlib
 import json
 import math
 import os
@@ -437,8 +438,32 @@ def share(md):
 
 
 # ---------- 운영 ----------
+# 이 파일들이 바뀌면 shadow는 스스로 다시 켠다(2026-11-27 재발 방지: 옛 설정으로 남은 shadow 때문에 약 11시간 주문 0건).
+WATCH_FILES = ('config.json', 'strategy.py', 'rotation_policy.py', 'shadow.py', 'bot.py')
+
+
+def fingerprint(root=ROOT, names=WATCH_FILES):
+    h = hashlib.sha256()
+    for n in names:
+        try:
+            body = (Path(root) / n).read_bytes()
+        except OSError:
+            body = b'<missing>'
+        h.update(n.encode() + b'\0' + hashlib.sha256(body).digest())
+    return h.hexdigest()
+
+
+def changed_stably(start, pending, now_fp):
+    """(다시 켤지, 새 보류값). 쓰는 중인 파일에 반응하지 않도록 같은 새 지문을 두 번 연속 볼 때만 다시 켠다."""
+    if now_fp == start:
+        return False, None
+    return now_fp == pending, now_fp
+
+
 class Shadow:
     def __init__(self):
+        self.fp0 = fingerprint()
+        self.fp_pending, self.restart = None, False
         self.base, self.cfg = load_params()
         self.vars = variants(self.base)
         self.ledgers = {n: Ledger(SHADOW / n) for n in self.vars}
@@ -699,8 +724,15 @@ class Shadow:
         slot_mode = bool(self.cfg.get('live', {}).get('slot_plans'))
         slot_sec = rotation.slot_seconds(self.base) if rotation.enabled(self.base) else SLOT_SECONDS   # 매수 주기(2026-11-22)
         last_slot = load_last_slot(time.time(), seconds=slot_sec) if slot_mode else None
+        last_fp = time.time()
         while not STOP.exists():
             now = time.time()
+            if now - last_fp >= 60:
+                last_fp = now
+                self.restart, self.fp_pending = changed_stably(self.fp0, self.fp_pending, fingerprint())
+                if self.restart:
+                    print(f'[{now_iso()}] 설정·코드 변경 감지 · 새 설정으로 다시 시작', flush=True)
+                    break
             try:
                 end = boundary(now - SETTLE, self.base.tf * 60)
                 if any((lg.d['last_4h'] or 0) < end for lg in self.ledgers.values()):
@@ -760,7 +792,14 @@ if __name__ == '__main__':
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     os.write(fd, str(os.getpid()).encode())
     os.close(fd)
+    sh = None
     try:
-        Shadow().run()
+        sh = Shadow()
+        sh.run()
     finally:
         LOCK.unlink(missing_ok=True)
+    if sh is not None and sh.restart and not STOP.exists():
+        with (DATA / 'shadow.stdout.log').open('ab') as out, (DATA / 'shadow.stderr.log').open('ab') as err:
+            subprocess.Popen([sys.executable, str(ROOT / 'shadow.py')], cwd=str(ROOT), env=os.environ.copy(),
+                             stdin=subprocess.DEVNULL, stdout=out, stderr=err, close_fds=True,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))

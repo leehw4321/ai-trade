@@ -1,5 +1,6 @@
 import io
 import sys
+import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -8,6 +9,18 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import take_over as t
+
+_SAFE = tempfile.TemporaryDirectory()
+
+
+def setUpModule():
+    """모든 테스트에서 실제 운용 폴더(v5-app/v5)를 가린다. 2026-11-27 테스트가 운용 shadow에 정지 파일을 써 세 번 멈췄다."""
+    app = Path(_SAFE.name) / 'app'
+    (app / 'data').mkdir(parents=True, exist_ok=True)
+    for name, val in (('APP', app), ('LOG', app / 'data' / 'takeover.log')):
+        p = mock.patch.object(t, name, val); p.start()
+        unittest.addModuleCleanup(p.stop)
+    unittest.addModuleCleanup(_SAFE.cleanup)
 
 
 def plan(lease, local):
@@ -124,12 +137,39 @@ class StartBotPassesKeys(unittest.TestCase):
     """2026-11-16: start_bot이 키 환경을 넘기지 않아 봇이 키 없이 실행권을 잡고 주문이 13분간 실패했다."""
     def test_every_process_gets_key_env(self):
         env = {'UPBIT_ACCESS_KEY': 'a', 'UPBIT_SECRET_KEY': 'b'}
+        svc = mock.Mock()
+        for name in ('bot.py', 'shadow.py', 'account_sync.py', 'exit_study.py', 'trade_history.py', 'pnl.py'):
+            (t.APP / name).write_text('', encoding='utf-8')   # 가짜 실행본(실제 운용 폴더 아님)
         with mock.patch.object(t, 'key_env', return_value=env), mock.patch.object(t.subprocess, 'Popen') as popen, \
-                mock.patch.object(t, 'bot_running', return_value=True), mock.patch.object(Path, 'unlink'):
+                mock.patch.object(t, 'bot_running', return_value=True), mock.patch.object(Path, 'unlink'), \
+                mock.patch.object(t, 'stop_shadow') as stop, mock.patch.dict(sys.modules, {'pnl_service': svc}):
             self.assertTrue(t.start_bot())
+        stop.assert_called_once()
         self.assertTrue(popen.call_args_list)
         for call in popen.call_args_list:
             self.assertIs(call.kwargs.get('env'), env)
+        self.assertIs(svc.ensure_running.call_args.kwargs.get('env'), env)
+        self.assertNotIn('pnl.py', [c.args[0][1] for c in popen.call_args_list])  # 중복 방지: pnl은 ensure_running으로만
+
+
+class StartBotRestartsShadow(unittest.TestCase):
+    """2026-11-26 21:52~11-27 08:52: 옛 설정으로 남은 shadow 때문에 주문안이 모두 거절됐다. 봇을 켤 때 shadow를 먼저 정상 종료한다.
+    실제 운용 폴더를 건드리지 않도록 APP을 임시 폴더로 바꾼다(2026-11-27 테스트가 운용 shadow를 두 번 멈춘 일)."""
+    def test_stop_shadow_writes_stop_file_when_running(self):
+        with tempfile.TemporaryDirectory() as d:
+            app = Path(d)
+            states = iter([True, True, False])
+            with mock.patch.object(t, 'APP', app), mock.patch.object(t, 'bot_running', side_effect=lambda n='bot.lock': next(states)), \
+                    mock.patch.object(t.time, 'sleep'):
+                self.assertTrue(t.stop_shadow())
+            self.assertTrue((app / 'stop_shadow.txt').exists())
+
+    def test_stop_shadow_noop_when_not_running(self):
+        with tempfile.TemporaryDirectory() as d:
+            app = Path(d)
+            with mock.patch.object(t, 'APP', app), mock.patch.object(t, 'bot_running', return_value=False):
+                self.assertTrue(t.stop_shadow())
+            self.assertFalse((app / 'stop_shadow.txt').exists())
 
 
 class HelpersStarted(unittest.TestCase):

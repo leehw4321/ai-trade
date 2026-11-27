@@ -52,8 +52,8 @@ def show(page):
         os.startfile(str(page))
 
 
-def bot_running():
-    lock = APP / 'bot.lock'
+def bot_running(name='bot.lock'):
+    lock = APP / name
     if not lock.exists():
         return False
     pid = lock.read_text().strip()
@@ -243,15 +243,38 @@ def apply_protection_principle():
     say('보호 목록: ' + out.strip().splitlines()[-1])
 
 
+def stop_shadow(wait=60):
+    """이미 돌고 있는 주문안 프로그램(shadow.py)을 정상 종료한다(강제 종료 없음).
+    2026-11-26 21:52 실행권 가져오기 중 먼저 켜진 shadow가 바뀌기 전 코드·설정으로 남았고, 뒤에 켠 shadow는 잠금 때문에 바로 끝났다.
+    봇과 주문안 설정 지문이 달라 11-27 08:52까지 약 11시간 모든 주문안이 거절됐다. 봇을 켤 때 shadow도 새 코드·설정으로 다시 켠다."""
+    if not bot_running('shadow.lock'):
+        return True
+    (APP / 'stop_shadow.txt').write_text('take_over restart\n', encoding='utf-8')
+    for _ in range(wait):
+        if not bot_running('shadow.lock'):
+            return True
+        time.sleep(1)
+    say('주의: shadow.py가 정상 종료되지 않아 예전 설정으로 남았을 수 있음(봇 화면 경보 확인)')
+    return False
+
+
 def start_bot():
+    stop_shadow()
     for name in ('stop.txt', 'stop_shadow.txt', '중지.txt'):
         (APP / name).unlink(missing_ok=True)
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     env = key_env()  # 2026-11-16: 키를 넘기지 않아 봇이 키 없이 실행권을 잡고 주문이 13분간 실패했다
-    for args in (['bot.py'], ['shadow.py'], ['account_sync.py'], ['exit_study.py'], ['pnl.py', '--loop', '300'],
+    for args in (['bot.py'], ['shadow.py'], ['account_sync.py'], ['exit_study.py'],
                  ['trade_history.py', '--loop', '300']):
         if (APP / args[0]).exists():
             subprocess.Popen([str(PYW)] + args, cwd=APP, env=env, creationflags=flags, close_fds=True)
+    # pnl.py는 잠금이 없어 누를 때마다 하나씩 늘었다(2026-11-27 4개 중복 발견). 이미 돌면 새로 켜지 않는 경로로 켠다.
+    try:
+        sys.path.insert(0, str(APP))
+        from pnl_service import ensure_running
+        ensure_running(APP, env=env, python=PY)
+    except Exception as ex:
+        say(f'손익 집계 시작 확인 실패(주문과 무관): {type(ex).__name__}')
     for _ in range(90):
         if bot_running():
             return True

@@ -1689,6 +1689,30 @@ class Live:
             self.record({'event': '손실 유예 본전 매도 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
             return False
 
+    def momentum_sell(self, market, why, price):
+        """하락 흐름 조기 손절(2026-11-27 사용자 지시, momentum_exit.py): 위험 청산 경로로 시장가 전량 매도.
+        반환 (성공 여부, 체결 정보 dict|None). 보류·실패면 다음 5분봉에서 다시 본다."""
+        if not self.cfg.get('momentum_exit_enabled') or not self.cfg['enabled'] or self.is_protected(market): return False, None
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0: return False, None
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False, None
+        if self.market_has_uncertain_order(market): return False, None
+        try:
+            balances = {r['currency']: r for r in upbit.accounts()}
+            volume = min(pos['qty'], float(balances.get(market[4:], {}).get('balance', 0)))
+            if volume * price < 5000: return False, None
+            self.record({'event': '하락 흐름 조기 손절 요청', 'market': market, 'why': why, 'price': price})
+            o = self._trade('ask', market, volume, '하락 흐름 조기 손절', risk=True)
+            v, funds, fee = self._fill(o)
+            if v <= 0: return False, None
+            self.share(f'{market[4:]} 하락 흐름 조기 손절 {funds - fee:,.0f}원 (실현 누적 {self.d["realized"]:+,.0f}원)')
+            return True, {'vol': v, 'funds': funds, 'fee': fee, 'avg': funds / v}
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '하락 흐름 조기 손절 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False, None
+
     def sweep_dust(self, market, markets, krw=DUST_BUY_KRW):
         """팔 수 없는 자투리(평가 5,000원 미만)를 없앤다(사용자 지시 2026-11-06). krw만큼 사서 자투리와 합친 뒤 잔고 전부를 판다.
         비용은 수수료 2회와 호가 차이(종목당 수~수십 원). 손절과 같은 주문 경로(_trade)를 쓰고, 보호 종목·장부 밖 잔고·잠긴 수량은 하지 않는다."""

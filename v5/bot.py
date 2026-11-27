@@ -16,6 +16,7 @@ import traceback
 
 import live_page
 import manual_orders
+import momentum_exit
 import position_popup
 import protection_panel
 import observations
@@ -1279,6 +1280,12 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                                                         live_sell=self.live.defer_sell if on else None)
                         except SessionLost: raise
                         except Exception as ex: self.log('손실 유예 오류(무시): ' + type(ex).__name__)
+                        try:  # 하락 흐름 조기 손절(2026-11-27 사용자 지시): 손실 1%↓ + 5분 2연속·15분·1시간 하락이면 손절가 전 매도
+                            if self.live.cfg.get('momentum_exit_enabled'):
+                                if not hasattr(self, 'momentum_watch'): self.momentum_watch = momentum_exit.Watch(DATA)
+                                self.momentum_watch.check(self.live.d['positions'], self.live.cfg, self.live.is_protected, self.live.momentum_sell)
+                        except SessionLost: raise
+                        except Exception as ex: self.log('하락 흐름 조기 손절 오류(무시): ' + type(ex).__name__)
                         if now - last_trail >= self.p.stop_seconds:
                             self.live.trail_check()
                             last_trail = now

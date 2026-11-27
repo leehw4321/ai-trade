@@ -131,7 +131,7 @@ def atr_ready(entry_ok, ranked, scan, tf, ok_cache, fetch):
 
 
 def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_sells=None, market_index=None, rotation_state=None, rotation_slot=None,
-             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None, rank_sells=True):
+             promoted=None, hot=None, protected=None, costs=None, stuck_out=None, defer=None, rank_sells=True, m5_streak=None):
     """C안 규칙을 실제 계좌에 그대로 적용한 주문안. 기존 보유도 신규 후보와 같은 기준으로 평가한다(사용자 지시).
 
     holdings: {종목: 평가액}. 반환: (주문안 문구, 사유 목록)
@@ -250,7 +250,8 @@ def proposal(holdings, ranked, rs_out, entry_ok, base, caps, krw, bought, last_s
             again = co.reentry_ok(last)
             why = (st.chase_block(r, base, co.cap_for(r['market'], base, promoted, last))
                    or st.drop_block(r, base)
-                   or (st.reentry_block(r, last, time.time(), base) if last and not again else None))
+                   or (st.reentry_block(r, last, time.time(), base) if last and not again else None)
+                   or (st.m5_block(m5_streak(r['market']), base) if m5_streak and getattr(base, 'm5_fall_block', 0) else None))
             if why:
                 reasons.append(f'{r["market"][4:]} 매수 보류: {why}')
             else:
@@ -534,7 +535,21 @@ class Shadow:
         defer = ({'state': rank_defer.load_state(DATA), 'pos': state.get('positions', {}), 'now': time.time(),
                   'hours': float(lc.get('rank_loss_defer_hours', rank_defer.DEFAULT_HOURS))}
                  if lc.get('rank_loss_defer_enabled') is True and rank_sells else None)
+        m5_cache = {}
+
+        def m5_streak_now(market):
+            """매수 후보마다 마감된 5분봉 연속 수(공개 봉). 조회 실패는 None(막지 않음, 이유에 남김)."""
+            if market not in m5_cache:
+                try:
+                    import bar_streak
+                    m5_cache[market] = bar_streak.streak([b['c'] for b in upbit.completed_candles(market, 5, count=12)])
+                except Exception as ex:
+                    m5_cache[market] = None
+                    print(f'[{now_iso()}] {market} 5분봉 조회 실패(매수 보류 판단 생략): {type(ex).__name__}', flush=True)
+            return m5_cache[market]
+
         text, reasons = proposal(holdings, self.base_ranked, self.rs_out, self.entry_ok, self.base, caps, krw, bought, state.get('last_sell'),
+                                 m5_streak=m5_streak_now,
                                  market_index=getattr(self, 'market_index', None),
                                  rotation_state=getattr(self, 'rotation_counts', None),
                                  rotation_slot=self.signal_closed_at,

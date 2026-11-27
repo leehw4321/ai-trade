@@ -66,7 +66,7 @@ def light15(state, s15):
 
 
 def light5(s5):
-    """5분 신호등(참고): 2연속 하락 = 빨강(과거 2주 후보에서 이때 산 것은 평균 −1.20%), 상승 중 = 초록, 보합·1봉 하락 = 주황."""
+    """5분 신호등: 2연속 하락 = 빨강(과거 2주 후보에서 이때 산 것은 평균 −1.20%), 상승 중 = 초록, 보합·1봉 하락 = 주황."""
     if not isinstance(s5, int):
         return None
     return 'red' if s5 <= -2 else 'green' if s5 >= 1 else 'orange'
@@ -94,6 +94,6 @@ def render(row, state=None):
     if not parts:
         return ''
     tip = ('신호등 15분: 초록=지금 매수 후보, 주황=대기(관찰·재매수 대기·과열·보유), 빨강=매수 불가·상승률 0 이하·15분봉 2연속 하락. '
-           '5분(참고, 아직 매수 규칙 아님): 초록=상승 중, 주황=보합·1봉 하락, 빨강=2연속 하락. 둘 다 초록이면 매수 신호. '
+           '5분: 초록=상승 중, 주황=보합·1봉 하락, 빨강=2연속 하락(설정 strategy.m5_fall_block=2이면 이번 회차 매수 보류). 둘 다 초록이면 매수 신호. '
            '▲▼ = 마감된 봉 종가를 직전 봉과 비교한 연속 상승·하락 수')
     return f" <div class=sub title='{tip}'>" + (lights_html(row, state) if state else '') + ' · '.join(parts) + '</div>'

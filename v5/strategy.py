@@ -39,6 +39,9 @@ class Params:
     drop2h_block_pct: float = 0.0
     # 2026-11-26 사용자 지시(14일 관찰 재결정): 직전 4시간 등락이 −이 값 이하이면 신규 매수 보류. 0이면 끔. 관찰 18건 막은 효과 +13,817원(모의, 표본 작음)
     drop4h_block_pct: float = 0.0
+    # 5분봉 연속 하락 매수 보류(사용자 지시 2026-11-27 '5분봉 2연속하락종목 매수보류'): 매수 직전 마감된 5분봉 종가가
+    # 이 수만큼 연속으로 직전 봉보다 낮으면 그 회차는 사지 않는다. 0이면 끔. 근거: 11-12~11-27 후보 417건 중 2연속 하락 72건 평균 −1.20%(나머지 −0.13%).
+    m5_fall_block: int = 0
     # 매수 후보 규칙(결정 D-42): 0이면 현재 동작(상위 entry_top 칸만 본다). entry_scan>entry_top이면 막힌 자리를 다음 순위 적격 종목으로 채운다.
     entry_risk: float = 0.0   # 실거래 매수 위험(계좌 대비). 0이면 risk 사용. 모의 장부의 risk는 건드리지 않는다(D-47)
     size_by_risk: bool = False  # True면 1회 매수 금액 ≤ risk×계좌 ÷ 최대 손절폭(stop_max_pct): 손절 시 손실을 계좌의 risk로 제한(D-45)
@@ -234,6 +237,14 @@ def drop_kind(r, p):
         v = r.get(field)
         if lim > 0 and isinstance(v, (int, float)) and v <= -lim:
             return name
+    return None
+
+
+def m5_block(streak, p):
+    """5분봉 연속 하락 매수 보류 사유. streak: 마감된 5분봉의 연속 수(+상승/−하락, bar_streak.streak). 모르면(None) 막지 않는다."""
+    n = getattr(p, 'm5_fall_block', 0) or 0
+    if n > 0 and isinstance(streak, int) and streak <= -n:
+        return f'5분봉 {-streak}연속 하락 중(≥{n}봉이면 이번 회차 매수 보류)'
     return None
 
 

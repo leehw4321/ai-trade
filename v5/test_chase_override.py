@@ -334,5 +334,25 @@ class Receiver(unittest.TestCase):
         self.assertIn('과열', self.worker.entry_chase_block('KRW-A', self.ctx, 117.5))
 
 
+
+
+class FiveMinuteFall(Proposal):
+    """사용자 지시 2026-11-27 '5분봉 2연속하락종목 매수보류'."""
+    def test_two_falling_5m_bars_hold_the_buy_and_next_candidate_is_used(self):
+        import strategy as st
+        self.p.m5_fall_block = 2
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .05}, {'market': 'KRW-B', 'rank': 2, 'rs': .04}]
+        text, reasons = self.plan(ranked, m5_streak={'KRW-A': -2, 'KRW-B': 1}.get)
+        self.assertNotIn('매수 A', text)
+        self.assertIn('매수 B', text)
+        self.assertTrue(any('A 매수 보류: 5분봉 2연속 하락' in r for r in reasons))
+        self.assertIsNone(st.m5_block(-1, self.p))
+        self.assertIsNone(st.m5_block(None, self.p))             # 조회 실패는 막지 않는다
+
+    def test_off_by_default(self):
+        ranked = [{'market': 'KRW-A', 'rank': 1, 'rs': .05}]
+        text, _ = self.plan(ranked, m5_streak=lambda m: -5)
+        self.assertIn('매수 A', text)
+
 if __name__ == '__main__':
     unittest.main()

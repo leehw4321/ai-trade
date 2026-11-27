@@ -102,6 +102,18 @@ class Resting(unittest.TestCase):
         self.lv.manage_resting({})
         self.assertEqual([m for m, _ in self.market_buys], ['KRW-CAP'])
 
+    def test_extend_button_adds_two_minutes_up_to_thirty(self):
+        """사용자 지시 2026-11-27: 지정가 매수 대기 +2분 버튼."""
+        self.place()
+        before = self.lv.d['resting_orders']['KRW-CAP']['resting']['deadline']
+        ok, msg = self.lv.extend_resting('KRW-CAP')
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.lv.d['resting_orders']['KRW-CAP']['resting']['deadline'], before + 120)
+        for _ in range(20):
+            self.lv.extend_resting('KRW-CAP')
+        self.assertLessEqual(self.lv.d['resting_orders']['KRW-CAP']['resting']['deadline'], self.now + 1800)
+        self.assertFalse(self.lv.extend_resting('KRW-NONE')[0])
+
     def test_near_stop_cancels_without_market_buy(self):
         self.place(); self._fill(200, 29200)
         self.lv.manage_resting({})

@@ -142,7 +142,8 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
             tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(rest['price'])}원"
             btn += (f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>"
-                    + (f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
+                    + (f" <button class=pr-btn data-act=rest_extend data-m='{esc(m)}' style='visibility:visible'>+2분</button>"
+                       f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
 
         px = (prices or {}).get(m)
         name = esc(m[4:]) + (f" <span class=sub>{fmt_price(px)}원</span>" if isinstance(px, (int, float)) and px > 0 else '')
@@ -339,7 +340,7 @@ def promote_script(api):
         return REST_CD
     return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
             "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
-            "if(!confirm(a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "if(a!='rest_extend'&&!confirm(a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
@@ -1199,7 +1200,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -1390,6 +1391,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     else:
                         ok, msg = co.promote(DATA, req.market, row['rs'], self.p)
                     label = '과열 종목 직접 지정'
+                elif req.kind == 'rest_extend':   # 걸어 둔 지정가 매수 대기 +2분(사용자 지시 2026-11-27)
+                    ok, msg = self.live.extend_resting(req.market)
+                    label = '지정가 매수 대기 연장'
                 elif req.kind == 'buy_now':   # 걸어 둔 지정가 매수를 즉시 시장가로(봇 주문의 연장이라 사용자 보호로 바꾸지 않는다)
                     ok, msg = self.live.request_resting_now(req.market)
                     label = '지정가 → 즉시 시장가'

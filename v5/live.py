@@ -1144,6 +1144,21 @@ class Live:
         p['resting']['deadline'] = 0; p['resting']['force'] = True; self.save()
         return True, f'{market[4:]} 지정가 취소 후 즉시 시장가 매수 요청'
 
+    REST_EXTEND_SECONDS = 120
+    REST_EXTEND_MAX = 1800   # 남은 시간은 최대 30분까지만 늘린다
+
+    def extend_resting(self, market, seconds=None):
+        """화면의 '+2분' 버튼(사용자 지시 2026-11-27): 걸어 둔 지정가 매수의 대기 시간을 늘린다. 가격·금액은 그대로."""
+        p = self.d.get('resting_orders', {}).get(market)
+        if not p or p.get('side') == 'ask': return False, '걸어 둔 지정가 매수가 없음'
+        rest, now = p['resting'], time.time()
+        if rest.get('force') or rest.get('deadline', 0) <= now: return False, '이미 대기 시간이 끝나 처리 중입니다'
+        new = min(rest['deadline'] + (seconds or self.REST_EXTEND_SECONDS), now + self.REST_EXTEND_MAX)
+        if new <= rest['deadline']: return False, f'남은 시간은 최대 {self.REST_EXTEND_MAX // 60}분까지만 늘릴 수 있습니다'
+        rest['deadline'] = new; self.save()
+        left = int(new - now)
+        return True, f'{market[4:]} 지정가 매수 대기 연장 · 남은 시간 {left // 60}:{left % 60:02d}'
+
     def manage_resting(self, prices, still_ok=None):
         """걸어 둔 지정가 매수 관리(3초마다, 손절 감시보다 먼저). 종목마다 따로 처리하고 한 종목 오류가 다른 종목을 막지 않는다.
         still_ok(종목, resting) → 매수 조건이 무너졌으면 사유 문자열(봇의 새 15분봉 판단: 순위·상승률·과열·장세 필터·경보)."""

@@ -290,12 +290,20 @@ RECENT_N = 40  # 화면 최근 실현손익 목록 길이(2026-11-27 사용자 "
 def run_once(folder=OUT):
     baseline = json.loads(BASELINE.read_text(encoding='utf-8'))
     store = Store(folder)
-    store.sync(kst(baseline['start']))
-    accounts = upbit.accounts()
     listed = upbit.krw_markets()
-    markets = ['KRW-' + r['currency'] for r in accounts if r['currency'] != 'KRW' and 'KRW-' + r['currency'] in listed]
-    prices = {m: t['trade_price'] for m, t in upbit.tickers(markets).items()} if markets else {}
-    summary = compute(store, baseline, accounts, prices)
+
+    def snapshot():
+        store.sync(kst(baseline['start']))
+        accounts = upbit.accounts()
+        markets = ['KRW-' + r['currency'] for r in accounts if r['currency'] != 'KRW' and 'KRW-' + r['currency'] in listed]
+        prices = {m: t['trade_price'] for m, t in upbit.tickers(markets).items()} if markets else {}
+        return compute(store, baseline, accounts, prices)
+
+    summary = snapshot()
+    if summary['mismatch']:
+        # 주문 동기화와 잔고 조회 사이에 체결이 끼면 그 종목 오늘 매도가 모두 '미확정(실제 잔고와 불일치)'으로 5분간 보였다
+        # (2026-11-27 19:09 BIGTIME 손절이 동기화 9초 뒤 체결). 한 번 더 동기화해 일시적 어긋남을 걸러 낸다.
+        summary = snapshot()
     tmp = Path(folder) / 'summary.tmp'
     tmp.write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding='utf-8')
     tmp.replace(Path(folder) / 'summary.json')

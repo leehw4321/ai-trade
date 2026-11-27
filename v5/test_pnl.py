@@ -161,6 +161,25 @@ class ReviewFixes(unittest.TestCase):
 
 class LoopLock(unittest.TestCase):
     """2026-11-27 중복 실행(회사 9개·집 4개) 재발 방지: --loop은 폴더마다 하나만."""
+    def test_run_once_resyncs_when_fill_lands_between_sync_and_balance(self):
+        import json, tempfile
+        sell = order('s', 'ask', [('2026-11-27T19:09:11+09:00', 1, 110)], 0)
+        buy = order('b', 'bid', [('2026-11-27T17:16:00+09:00', 1, 100)], 0)
+        calls = {'n': 0}
+
+        class FakeStore:
+            def __init__(self, folder): self.d = {'orders': {'b': buy}}
+            def sync(self, start):
+                calls['n'] += 1
+                if calls['n'] == 2: self.d['orders']['s'] = sell   # 두 번째 동기화에 매도가 들어온다
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(pnl, 'Store', FakeStore),                 mock.patch.object(pnl, 'BASELINE', Path(d) / 'b.json'),                 mock.patch.object(pnl.upbit, 'accounts', return_value=[{'currency': 'KRW', 'balance': '1', 'locked': '0'}]),                 mock.patch.object(pnl.upbit, 'krw_markets', return_value=['KRW-X']), mock.patch.object(pnl.upbit, 'tickers', return_value={}):
+            (Path(d) / 'b.json').write_text(json.dumps(BASE), encoding='utf-8')
+            out = pnl.run_once(d)
+        self.assertEqual(calls['n'], 2)
+        self.assertEqual(out['mismatch'], [])
+        self.assertEqual(out['recent'][0]['kind'], '확정')
+
     def test_second_loop_in_same_folder_is_refused_until_first_exits(self):
         import tempfile, subprocess, sys as _s
         with tempfile.TemporaryDirectory() as d:

@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 import pnl
+from pathlib import Path
 
 BASE = {'start': '2026-11-02T00:00:00+09:00', 'source': 't', 'krw': 0, 'holdings': {}}
 
@@ -154,6 +155,21 @@ class ReviewFixes(unittest.TestCase):
         pos, _ = realize([b])
         rows, total, mismatch = pnl.unrealized(pos, [{'currency': 'X', 'balance': '1', 'locked': '0'}], {'KRW-X': 10000})
         self.assertEqual((total, mismatch, rows[0]['unrealized'], rows[0]['why']), (0.0, [], None, '체결 상세 불완전'))
+
+
+
+
+class LoopLock(unittest.TestCase):
+    """2026-11-27 중복 실행(회사 9개·집 4개) 재발 방지: --loop은 폴더마다 하나만."""
+    def test_second_loop_in_same_folder_is_refused_until_first_exits(self):
+        import tempfile, subprocess, sys as _s
+        with tempfile.TemporaryDirectory() as d:
+            first = pnl.loop_lock(Path(d))
+            self.assertIsNotNone(first)
+            code = f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); import pnl; from pathlib import Path; print(pnl.loop_lock(Path({d!r})) is None)"
+            self.assertEqual(subprocess.run([_s.executable, '-c', code], capture_output=True, text=True).stdout.strip(), 'True')
+            first.close()
+            self.assertEqual(subprocess.run([_s.executable, '-c', code], capture_output=True, text=True).stdout.strip(), 'False')
 
 
 if __name__ == '__main__':

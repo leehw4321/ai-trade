@@ -21,6 +21,7 @@ from decimal import Decimal as D
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -301,10 +302,34 @@ def run_once(folder=OUT):
     return summary
 
 
+def loop_lock(folder):
+    """반복 실행(--loop)은 실행 폴더마다 하나만. 잠금 파일 핸들(프로세스가 끝나면 OS가 푼다) 또는 이미 돌고 있으면 None.
+    2026-11-27 회사 PC 9개·집 PC 4개 중복: 모의운영 시작.bat·예전 take_over가 확인 없이 켰고, 수정 전 코드로 남은 것이 0 나누기 오류를 계속 썼다.
+    켜는 쪽이 어디든 여기서 막는다."""
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    h = open(Path(folder) / 'loop.lock', 'a+b')
+    try:
+        if os.name == 'nt':
+            import msvcrt
+            h.seek(0)
+            msvcrt.locking(h.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        h.close()
+        return None
+    return h
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--loop', type=int, default=0)
     a = ap.parse_args()
+    _lock = loop_lock(OUT) if a.loop else None
+    if a.loop and _lock is None:
+        print('pnl.py --loop 이 이미 이 폴더에서 돌고 있어 끝냅니다(중복 방지).', file=sys.stderr)
+        sys.exit(0)
     while True:
         try:
             s = run_once()

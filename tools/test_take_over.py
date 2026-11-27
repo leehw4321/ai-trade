@@ -191,5 +191,22 @@ class HelpersStarted(unittest.TestCase):
                 self.assertIn("'trade_history.py'", s, f)
 
 
+class RunLock(unittest.TestCase):
+    """2026-11-27 11:51: 실행권 받기가 두 개 동시에 돌아 서로의 양도 요청을 덮어쓰고 둘 다 멈췄다 → 한 번에 하나만."""
+    def test_second_takeover_is_ignored_while_first_runs(self):
+        first = t.run_lock()
+        try:
+            self.assertIsNotNone(first)
+            self.assertIsNone(t.run_lock())
+            said = []
+            with mock.patch.object(t, 'say', said.append), \
+                    mock.patch.object(t, 'update_code', side_effect=AssertionError('must not run')), \
+                    mock.patch.object(sys, 'argv', ['x', '--button']):
+                t.main()
+            self.assertIn('이미 실행권 받기가 진행 중', said[0])
+        finally:
+            first.close()
+        again = t.run_lock(); self.assertIsNotNone(again); again.close()
+
 if __name__ == '__main__':
     unittest.main()

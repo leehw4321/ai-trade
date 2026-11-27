@@ -304,6 +304,25 @@ def stop_local_bot(wait=90):
     raise RuntimeError('이 PC 봇이 정상 종료되지 않았습니다(진행 중인 작업이 있을 수 있음). 잠시 뒤 다시 누르세요.')
 
 
+def run_lock():
+    """실행권 받기는 한 번에 하나만. 잠금 파일 핸들(프로세스가 끝나면 OS가 푼다) 또는 이미 진행 중이면 None."""
+    path = APP / 'data' / 'takeover.run.lock'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    h = open(path, 'a+b')
+    try:
+        if os.name == 'nt':
+            import msvcrt
+            h.seek(0)
+            msvcrt.locking(h.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        h.close()
+        return None
+    return h
+
+
 def shortcut():
     link = Path.home() / 'Desktop' / '자동거래 이 PC에서 시작.lnk'
     if link.exists():
@@ -330,6 +349,18 @@ def main():
         d = config_diff()
         print('\n'.join(f'{k}: 이 PC {x} / 합의 {y}' for k, x, y in d) or '차이 없음')
         return
+    lock = run_lock()
+    if lock is None:
+        # 버튼을 여러 번 누르거나 명령과 버튼이 겹쳐 두 개가 동시에 돌면 서로의 양도 요청을 덮어써 둘 다 멈췄다(2026-11-27 11:51).
+        say('이미 실행권 받기가 진행 중이라 이번 요청은 무시합니다.')
+        return
+    try:
+        _main(a)
+    finally:
+        lock.close()
+
+
+def _main(a):
     if a.button and not a.accept_config:
         d = config_diff()
         if d:  # 이 PC 봇을 멈추기도 전에 막는다(설정 차이로 실행권 이동 중단)

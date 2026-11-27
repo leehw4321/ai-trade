@@ -29,6 +29,7 @@ SELL_BLIND_MAX = 3 * 3600  # GitHub를 확인하지 못해도 마지막으로 �
 READ_RETRY_DELAYS = (1, 3)  # quick network errors on read-only calls are retried before giving up
 LEASE_MARGIN = 20  # stop trusting our own lease this many seconds before it expires
 CHECK_SECONDS = 30  # background ownership check; every order is still checked right before it is sent
+CLEAR_RETRY_SECONDS = 2  # 실행권 반납 쓰기가 충돌하면 다시 읽고 쓰기 전 대기
 
 
 class GitStore:
@@ -106,12 +107,22 @@ class GitStore:
                 raise error(f'GitHub 실행권 확인 실패({category}). 중복 실행 방지를 위해 주문을 중단합니다.')
             return result
 
+    def fetch_ref(self, ref):
+        """원격 ref를 받아 그 커밋 id. 같은 data/session_git를 봇·take_over·장부 전달이 함께 쓰므로 공용 FETCH_HEAD를 쓰지 않고
+        프로세스·스레드마다 다른 임시 ref로 받는다(2026-11-27: 동시에 fetch하면 FETCH_HEAD가 남의 결과로 바뀌어
+        rev-parse 실패(git_failure)·다른 브랜치 내용 읽기('올라온 장부 없음')로 실행권 이전이 중단됐다)."""
+        tmp = f'refs/fetch-tmp/{os.getpid()}-{threading.get_ident()}'
+        self.git('fetch', '--quiet', '--no-write-fetch-head', self.remote, f'+{ref}:{tmp}')
+        try:
+            return self.git('rev-parse', tmp).stdout.strip()
+        finally:
+            self.git('update-ref', '-d', tmp, check=False)
+
     def read(self):
         found = self.git('ls-remote', self.remote, REF).stdout.strip()
         if not found:
             return '', {}
-        self.git('fetch', '--quiet', self.remote, REF)
-        oid = self.git('rev-parse', 'FETCH_HEAD').stdout.strip()
+        oid = self.fetch_ref(REF)
         state = json.loads(self.git('show', oid + ':session.json').stdout)
         return oid, state
 
@@ -353,17 +364,34 @@ class SessionGuard:
     def _give_up(self, state, why):
         """실행권을 잃었거나 양도 요청을 받았다: 주문을 멈추고 대기 상태로 둔다(봇은 종료하지 않는다). 요청이 있으면 비워 준다."""
         if state.get('owner') == self.token and state.get('request'):
-            try:
-                oid, fresh = self.store.read()
-                if fresh.get('owner') == self.token:
-                    self.store.cas(oid, self.record(owner='', expires=0, request=fresh.get('request', ''),
-                                                    checkpoint=self._release_checkpoint()))
-            except SessionLost:
-                pass  # 비우지 못하면 요청한 쪽이 만료까지 기다린다. 이 PC는 어쨌든 주문하지 않는다.
+            self._clear_owner()
         self.acquired = False
         self.status = 'other'
         self.other_pc = str(state.get('pc') or '다른 PC')
         self.reason = why
+
+    def _clear_owner(self, tries=5):
+        """내 실행권을 비운다(요청자는 그대로 둔다). 장부 전달 올리기(수 초) 사이에 요청이 바뀌어 ref가 움직이면 한 번에 실패하므로
+        다시 읽고 다시 쓴다(2026-11-27 11:51: 반납 쓰기가 한 번 실패한 채 주문만 멈춰, 실행권이 만료될 때까지 양쪽 다 거래하지 않았다).
+        성공 또는 이미 내 것이 아니면 True."""
+        checkpoint = None
+        for i in range(tries):
+            try:
+                oid, fresh = self.store.read()
+                if fresh.get('owner') != self.token:
+                    return True
+                if checkpoint is None:
+                    checkpoint = self._release_checkpoint()   # 장부 전달은 한 번만 올린다
+                    oid, fresh = self.store.read()            # 올리는 동안 바뀌었을 수 있다
+                    if fresh.get('owner') != self.token:
+                        return True
+                if self.store.cas(oid, self.record(owner='', expires=0, request=fresh.get('request', ''), checkpoint=checkpoint)):
+                    return True
+            except SessionLost:
+                pass   # 비우지 못하면 요청한 쪽이 만료까지 기다린다. 이 PC는 어쨌든 주문하지 않는다.
+            if i < tries - 1:
+                time.sleep(CLEAR_RETRY_SECONDS)
+        return False
 
     def assert_owner(self, side=None):
         """주문 직전 확인. 실행권자가 아니면 NotOwner. 확인 자체를 못 하면 매수는 막고, 매도(손절)는 마지막 확인이 실행권자였을 때만 허용한다."""
@@ -448,9 +476,7 @@ class SessionGuard:
             try:
                 oid, state = self.store.read()
                 if self.acquired and state.get('owner') == self.token:
-                    self.store.cas(oid, self.record(owner='', expires=0,
-                        request=state.get('request', ''),
-                        checkpoint=self._release_checkpoint()))
+                    self._clear_owner()
                 elif state.get('request') == self.token:
                     # Failed/cancelled handoff must not reserve a connection forever.
                     self.store.cas(oid, dict(state, request=''))

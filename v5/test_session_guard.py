@@ -158,6 +158,33 @@ class GitStoreTests(unittest.TestCase):
             self.assertTrue(b.cas(oid, {'owner': 'b'}))
             self.assertEqual(a.read()[1]['owner'], 'b')
 
+    def test_read_does_not_use_shared_fetch_head(self):
+        """2026-11-27: 같은 폴더를 쓰는 다른 프로세스가 FETCH_HEAD를 바꿔도 실행권 기록을 정확히 읽는다."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); remote = root / 'remote.git'
+            subprocess.run(['git', 'init', '--bare', str(remote)], capture_output=True, check=True)
+            a = sg.GitStore(root / 'a.git', str(remote))
+            self.assertTrue(a.cas('', {'owner': 'a'}))
+            (root / 'a.git' / 'FETCH_HEAD').write_text('0' * 40 + '\t\tbroken\n')
+            self.assertEqual(a.read()[1]['owner'], 'a')
+            self.assertEqual(a.git('for-each-ref', 'refs/fetch-tmp').stdout.strip(), '')   # 임시 ref는 남기지 않는다
+
+
+class ReleaseRetry(SessionTests):
+    def test_release_retries_when_request_moves_during_ledger_upload(self):
+        """2026-11-27 11:51: 반납 쓰기 중 요청이 바뀌어 한 번 실패하면 실행권이 만료까지 남아 양쪽 다 거래하지 않았다 → 다시 읽고 다시 쓴다."""
+        old = self.guard(); self.assertTrue(old.acquire())
+        self.store.state['request'] = 'pcX:first'; self.store.version += 'r'
+        real = old._release_checkpoint
+        def upload_while_request_changes():
+            self.store.state['request'] = 'pcX:second'; self.store.version += 'r'   # 올리는 동안 두 번째 요청
+            return real()
+        with patch.object(old, '_release_checkpoint', side_effect=upload_while_request_changes), patch('session_guard.time.sleep'):
+            with self.assertRaises(sg.SessionLost): old.assert_owner()
+        self.assertEqual(self.store.state['owner'], '')
+        self.assertEqual(self.store.state['request'], 'pcX:second')
+
 
 if __name__ == '__main__':
     unittest.main()

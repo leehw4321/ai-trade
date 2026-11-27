@@ -615,6 +615,14 @@ class Bot:
         g = getattr(self, 'session_guard', None)
         if g is not None and g.acquired:
             return True, '이 PC에 이미 실행권이 있습니다.'
+        gs = self.grant_status()
+        try:
+            started = dt.datetime.fromisoformat(str(gs.get('time'))).timestamp()
+        except ValueError:
+            started = 0
+        if gs.get('state') == 'running' and time.time() - started < 360:
+            # 두 번 이상 눌러도 하나만 돈다(2026-11-27 11:51 두 개가 동시에 돌아 서로 막고 양쪽 다 거래 중단). take_over.py에도 잠금이 있다.
+            return True, '실행권 이전이 이미 진행 중입니다. 끝날 때까지 기다려 주세요(1~4분).'
         tool = ROOT.parents[2] / 'ai-trade' / 'tools' / 'take_over.py'
         if not tool.exists():
             return False, '실행권 이전 도구(take_over.py)를 찾지 못했습니다.'

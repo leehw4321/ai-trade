@@ -1,4 +1,5 @@
 import types
+from unittest import mock
 import unittest
 
 import bot
@@ -61,6 +62,14 @@ class GrantRequest(unittest.TestCase):
     def test_grant_when_already_owner_is_a_noop(self):
         me = types.SimpleNamespace(session_guard=types.SimpleNamespace(acquired=True))
         self.assertEqual(bot.Bot.request_grant(me), (True, '이 PC에 이미 실행권이 있습니다.'))
+
+    def test_second_press_while_running_does_not_start_another(self):
+        """2026-11-27: 버튼을 두 번 이상 눌러 실행권 받기가 둘 돌면 서로 막고 양쪽 다 거래 중단 → 진행 중이면 새로 켜지 않는다."""
+        me = types.SimpleNamespace(session_guard=types.SimpleNamespace(acquired=False),
+                                   grant_status=lambda: {'state': 'running', 'time': bot.now_iso()})
+        with mock.patch.object(bot.subprocess, 'Popen', side_effect=AssertionError('must not start')):
+            ok, msg = bot.Bot.request_grant(me)
+        self.assertTrue(ok); self.assertIn('이미 진행 중', msg)
 
 
 if __name__ == '__main__':

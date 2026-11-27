@@ -72,8 +72,7 @@ class Relay:
         found = self.store.git('ls-remote', self.store.remote, REF).stdout.strip()
         if not found:
             return '', {}
-        self.store.git('fetch', '--quiet', self.store.remote, REF)
-        oid = self.store.git('rev-parse', 'FETCH_HEAD').stdout.strip()
+        oid = self.store.fetch_ref(REF)   # 공용 FETCH_HEAD를 쓰지 않는다(봇의 실행권 확인과 동시에 돌 때 섞임, 2026-11-27)
         names = self.store.git('ls-tree', '-r', '--name-only', oid).stdout.split()
         files = {}
         for n in names:

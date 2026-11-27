@@ -306,6 +306,27 @@ def useful_events(rows, limit=8):
     return out
 
 
+def exchange_events(path, limit=8):
+    """업비트 체결 기록(data/exchange_orders.jsonl, trade_history.py가 5분마다 갱신)의 봇 주문(v5-) 체결. 최신순 (시각, 문구).
+    실행권이 다른 PC에 있으면 이 PC의 봇 장부(live/orders.jsonl)는 넘겨준 순간에 멈추므로, 그 PC가 낸 거래는 이것으로 보여 준다(사용자 지시 2026-11-27)."""
+    rows = []
+    try:
+        lines = Path(path).read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            r = json.loads(line)
+            funds = float(r.get('executed_funds') or 0)
+            if not str(r.get('identifier') or '').startswith('v5-') or funds <= 0 or r.get('side') not in ('bid', 'ask'):
+                continue
+            rows.append((str(r['created_at']), f"{'매수' if r['side'] == 'bid' else '매도'} {str(r['market'])[4:]} {funds:,.0f}원"))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+    rows.sort(reverse=True)
+    return rows[:limit]
+
+
 NOISE = ('봇 종료', '봇 실행 시작', '요청 서버 시작')
 
 
@@ -743,7 +764,11 @@ class Bot:
         f = DATA / 'live' / 'orders.jsonl'
         if f.exists():
             orders = [json.loads(x) for x in f.read_text(encoding='utf-8').splitlines()[-200:] if x.strip()][::-1]
-        ol = ''.join(f"<li><span class=t>{e(t[5:16].replace('T', ' '))}</span>{e(x)}</li>" for t, x in useful_events(orders))             or '<li class=muted>새 체결 없음 · 다음 정시 판단 대기</li>'
+        g = getattr(self, 'session_guard', None)
+        remote = g is not None and not g.snapshot()['owner']
+        events = exchange_events(DATA / 'exchange_orders.jsonl') if remote else useful_events(orders)
+        ol_title = '실거래 기록 <span class=sub>(업비트 체결 · 실행권 PC의 거래 포함, 5분마다 갱신)</span>' if remote else '실거래 기록'
+        ol = ''.join(f"<li><span class=t>{e(t[5:16].replace('T', ' '))}</span>{e(x)}</li>" for t, x in events)             or '<li class=muted>새 체결 없음 · 다음 정시 판단 대기</li>'
         rlist = (s.get('recent') or [])[:40]  # 2026-11-27 사용자 지시: 접을 수 있게, 20개 이상
         recent = ''.join(
             f"<li><span class=t>{e(r['time'][5:16].replace('T', ' '))}</span>{e(r['coin'])} "
@@ -756,7 +781,7 @@ class Bot:
 <div class=chips>{' · '.join(chips)}</div>
 <div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
-<div class=cols><div>{recent_box}</div><div><h3>실거래 기록</h3><ul>{ol}</ul></div></div>
+<div class=cols><div>{recent_box}</div><div><h3>{ol_title}</h3><ul>{ol}</ul></div></div>
 {position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
 
     def real_block(self, prices):

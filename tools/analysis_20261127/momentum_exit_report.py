@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stop035_review as R
 import early_stop_sim as E
 
-START = dt.datetime(2026, 11, 27, 19, 30, tzinfo=R.KST)    # 실거래 적용(배포) 시각 — 배포 뒤 정정
+START = dt.datetime(2026, 11, 27, 19, 24, tzinfo=R.KST)    # 실거래 적용(배포) 시각
 LOG = R.DATA / 'momentum_exit.jsonl'
 UTC = dt.timezone.utc
 

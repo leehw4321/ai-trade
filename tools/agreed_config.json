@@ -114,6 +114,11 @@
     "stop_fast_manual_check": true,
     "stop_fast_manual_max_age": 30,
     "stop_ask_first_enabled": true,
-    "stop_ask_wait_seconds": 60
+    "stop_ask_wait_seconds": 60,
+    "momentum_exit_enabled": true,
+    "momentum_exit_loss_pct": 0.01,
+    "momentum_exit_m5": 2,
+    "momentum_exit_m15": 1,
+    "momentum_exit_m60": 1
   }
 }

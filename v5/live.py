@@ -1771,6 +1771,54 @@ class Live:
         self.share(f'{msg} (수동 추가 매수)')
         return True, msg
 
+    def adopt_user_holding(self, market, revision=None):
+        """사용자가 직접 산(봇 장부 밖) 종목 한 개를 봇 장부로 넘긴다(사용자 지시 2026-11-28). 주문은 내지 않는다.
+        수량 = 업비트 잔고 전부, 원가 = 업비트 평균 매수가 × 수량, 손절가 = 현재가 기준(봇 매수와 같은 ATR·상한 규칙).
+        넘기는 순간의 평가손익은 손실 집계 기준(risk_baseline_unrealized)에 넣어 손실 중단선이 갑자기 움직이지 않게 한다.
+        모든 조회를 먼저 끝내고, 보호 해제(리비전 확인)가 성공한 뒤에만 장부에 넣는다."""
+        market = normalize_protected_market(market)
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        if market in self.d['positions']: return False, '이미 봇 장부 종목입니다. 보호 해제만 누르면 봇이 관리합니다.'
+        if type(revision) is not int: return False, '보호 상태를 새로고침한 뒤 다시 확인하세요'
+        if self.market_has_uncertain_order(market) or (self.d.get('pending_order') or {}).get('market') == market \
+                or market in (self.d.get('resting_orders') or {}):
+            return False, '이 종목에 진행 중인 봇 주문이 있어 보류'
+        self.scan_manual_orders(market, allow_protected=True)  # 최신 직접 주문을 먼저 기록한다(보호 해제와 같은 순서)
+        row = next((r for r in upbit.accounts() if r.get('currency') == market[4:]), None)
+        if not row: return False, '계좌에 이 종목 보유가 없음'
+        qty, locked, avg = float(row['balance']), float(row['locked']), float(row.get('avg_buy_price') or 0)
+        if locked > 1e-12: return False, '업비트에 걸린 미체결 주문(잠긴 수량)이 있어 보류: 주문을 먼저 정리하세요'
+        price = (upbit.tickers([market]).get(market) or {}).get('trade_price')
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False, '현재가를 확인할 수 없어 보류'
+        if not (math.isfinite(qty) and qty > 0) or qty * price < 5000:
+            return False, f'평가액 {qty * price:,.0f}원: 최소 주문금액 5,000원 미만이라 봇이 팔 수 없어 넘기지 않음'
+        atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
+        if atr is None or not math.isfinite(atr) or atr <= 0: return False, '손절 ATR 자료 부족: 보류'
+        stop = st.cap_stop(price, price - self.p.k * atr, self.p)
+        if not (math.isfinite(stop) and 0 < stop < price): return False, '손절가를 정할 수 없어 보류'
+        cost = qty * (avg if math.isfinite(avg) and avg > 0 else price)
+        # 보호 해제가 리비전 불일치(새 직접 주문 등)로 거절되면 장부는 바꾸지 않는다.
+        self.protection_policy.decide(market, False, expected=revision)
+        now = now_iso()
+        pos = {'qty': qty, 'cost': cost, 'stop': stop, 'time': now, 'inherited': True, 'stop_rebased': True,
+               'adoption_price': price, 'atr': atr,
+               'cost_basis_source': 'account_average' if avg > 0 else 'snapshot_estimate',
+               'handover': {'origin': 'user_ui', 'time': now, 'avg_buy_price': avg, 'price': price}}
+        if rotation.enabled(self.p):
+            pos['rotation_initial_risk'] = {'per_unit': max(0., price - stop), 'entry_price': price, 'stop': stop,
+                                            'basis': 'user_handover_price_minus_initial_stop_excludes_costs'}
+        base_add = qty * price * (1 - 0.0005) - cost  # unrealized()와 같은 식
+        self.d['positions'][market] = pos
+        self.d['risk_baseline_unrealized'] = self.d.get('risk_baseline_unrealized', 0.) + base_add
+        self.save()
+        self.record({'event': '사용자 보유 봇 장부 편입', 'market': market, 'qty': qty, 'avg_buy_price': avg, 'price': price,
+                     'cost': cost, 'stop': stop, 'atr': atr, 'baseline_added': base_add})
+        pnl = price / (cost / qty) - 1
+        msg = (f'{market[4:]} {qty:,.8g}개 봇 장부로 편입 · 평단 {cost / qty:,.4g} · 현재가 {price:,.4g} ({pnl:+.2%}) · '
+               f'손절가 {stop:,.4g} ({stop / price - 1:+.2%}) · 다음 판단부터 봇이 관리')
+        self.share(msg + ' (사용자 화면 지시)')
+        return True, msg
+
     def stop_check(self, prices):
         """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""
         if not self.cfg['enabled']: return

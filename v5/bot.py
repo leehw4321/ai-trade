@@ -1211,7 +1211,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
             if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease'))
-            if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect'))
+            if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect','adopt'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
             if not started:
@@ -1425,6 +1425,9 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 elif req.kind in ('protect','unprotect'):
                     ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
                     label='사용자 보호 선택'; self._protection_ui_dirty=True
+                elif req.kind == 'adopt':   # 사용자 직접 보유를 봇 장부로 넘기기(사용자 지시 2026-11-28). 주문 없음
+                    ok, msg = self.live.adopt_user_holding(req.market, getattr(req, 'revision', None))
+                    label = '봇 장부로 넘기기'; self._protection_ui_dirty = True
                 elif req.kind == 'buy':
                     ok, msg = self.live.add_to_position(req.market, req.krw, self.markets or upbit.krw_markets())
                     label = f'수동 추가 매수 {req.krw:,}원'

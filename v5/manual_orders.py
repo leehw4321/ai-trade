@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/grant': 'grant', '/obs': 'obs',
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/adopt':'adopt', '/grant': 'grant', '/obs': 'obs',
          '/promote': 'promote', '/unpromote': 'unpromote', '/buy_now': 'buy_now', '/rest_extend': 'rest_extend', '/reentry_release': 'reentry_release', '/reentry_unrelease': 'reentry_unrelease', '/refresh': 'refresh', '/notice_ack': 'notice_ack',
          '/pause_buy': 'pause_buy', '/resume_buy': 'resume_buy'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
@@ -111,7 +111,7 @@ class ManualOrderServer:
             pct, ordk = doc.get('pct', 100), doc.get('ord', 'market')
             if type(pct) is not int or pct not in SELL_PCTS or ordk not in SELL_ORDS:
                 return 400, '매도 비율 또는 주문 방식이 올바르지 않음'
-        if kind == 'unprotect' and (type(doc.get('revision')) is not int or doc['revision']<0):
+        if kind in ('unprotect','adopt') and (type(doc.get('revision')) is not int or doc['revision']<0):
             return 400, '보호 상태를 새로고침한 뒤 다시 확인하세요'
         return 200, (market, krw)
 
@@ -183,7 +183,7 @@ class ManualOrderServer:
                 if code != 200:
                     return self._send(code, {'ok': False, 'message': value})
                 posted = json.loads(body.decode('utf-8'))
-                revision = posted.get('revision') if kind == 'unprotect' else None
+                revision = posted.get('revision') if kind in ('unprotect', 'adopt') else None
                 options = {'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market')} if kind == 'liquidate' else None
                 code, doc = server.submit(value[0], kind, value[1], revision, options)
                 self._send(code, doc)

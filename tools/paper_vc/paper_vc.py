@@ -208,7 +208,12 @@ def report(st, day=None):
     lines.append('- 누적 합계(1건 첫 매수 10만 원): ' + ' · '.join(f'{k} {v:+,.0f}원' for k, v in tot.items()) + ' (C는 물타기 금액 손익 포함, 판정은 C − B로 물타기 효과를 본다)')
     fl = flow_status()
     if fl: lines.append(f'- 체결 강도·호가 수집(3번): {fl}')
-    lines += ['', '주의: 하루·며칠 결과는 장세 영향이 크다. 판정은 2주 뒤 기준으로만 한다.']
+    lines += ['', '주의: 하루·며칠 결과는 장세 영향이 크다. 판정은 2주 뒤 기준으로만 한다.', '']
+    try:   # 실거래 중 사용자 강제 활성화 거래 누적(2026-11-28 사용자 지시)
+        import forced_trades
+        lines += forced_trades.lines()
+    except Exception as ex:
+        lines.append(f'- 강제 활성화 거래 집계 실패: {type(ex).__name__}')
     REPORTS.mkdir(exist_ok=True)
     f = REPORTS / f'paper_vc_{day:%Y%m%d}.md'
     f.write_text('\n'.join(lines) + '\n', encoding='utf-8')

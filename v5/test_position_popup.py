@@ -56,7 +56,7 @@ class PositionPopupTest(unittest.TestCase):
 
     def test_modal_only_talks_to_the_local_server_and_never_injects_html(self):
         self.assertEqual(pp.MODAL.count('fetch('), 1)
-        self.assertIn("'http://127.0.0.1:'+A.port+(buy?'/buy':'/liquidate')", pp.MODAL)
+        self.assertIn("'http://127.0.0.1:'+A.port+(mode==='adopt'?'/adopt':buy?'/buy':'/liquidate')", pp.MODAL)
         self.assertNotIn('XMLHttpRequest', pp.MODAL)
         self.assertNotIn('<form', pp.MODAL)
         self.assertNotIn('innerHTML', pp.MODAL)  # 값은 textContent로만 넣어 주입을 막는다

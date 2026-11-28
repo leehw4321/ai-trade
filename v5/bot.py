@@ -286,7 +286,7 @@ def holdings_table(rows, protected, stuck, positions, sell_line, esc=html.escape
         qty = r.get('qty') or 0
         buy = cost / qty if qty and cost else None                       # 매수가 = 원가 ÷ 수량(수수료 포함 평균)
         now_px = r.get('price') or (r['value'] / qty if qty else None)   # 현재가
-        attrs = position_popup.row_attrs(m) if m in positions else ''
+        attrs = position_popup.row_attrs(m)   # 장부 밖 보유도 눌러서 상세·'봇 장부로 넘기기'(2026-11-28)
         out.append(f"<tr{attrs}><td><b>{esc(r['coin'])}</b></td><td>{kind}</td><td class=n>{r['value']:,.0f}</td>"
                    f"<td class=n>{cost:,.0f}</td><td class=n>{pnl}</td><td class=n>{fmt_price(buy)}</td><td class=n><b>{fmt_price(now_px)}</b></td>"
                    f"<td class=n>{line}</td></tr>")
@@ -801,7 +801,18 @@ class Bot:
 <div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
 <div class=cols><div>{recent_box}</div><div><h3>{ol_title}</h3><ul>{ol}</ul></div></div>
-{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action())}{position_popup.MODAL}</section>"""
+{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action(), outside=self.outside_rows(urows, protected, L['positions']))}{position_popup.MODAL}</section>"""
+
+    def outside_rows(self, urows, protected, positions):
+        """보유 종목 표에서 봇 장부 밖(직접 보유) 종목의 상세. 보호 리비전은 '봇 장부로 넘기기' 확인에 쓴다."""
+        out = {}
+        for r in urows or ():
+            m = 'KRW-' + str(r.get('coin', ''))
+            if m in positions: continue
+            try: rev = self.live.protection_policy.revision(m)
+            except Exception: rev = None
+            out[m] = position_popup.outside_detail(m, r, m in protected, rev)
+        return out
 
     def real_block(self, prices):
         if (DATA / 'account_live.html').exists():

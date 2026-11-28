@@ -73,5 +73,18 @@ class AdoptTests(unittest.TestCase):
         self.assertNotIn('data-choice="adopt"', html)
 
 
+class PopupTests(unittest.TestCase):
+    def test_outside_holding_gets_adopt_data_and_ledger_wins(self):
+        import json, re, position_popup
+        out = {'KRW-TFUEL': position_popup.outside_detail('KRW-TFUEL', {'qty': 1000, 'cost': 9930, 'price': 9.85, 'value': 9850}, True, 3),
+               'KRW-BTC': position_popup.outside_detail('KRW-BTC', {'qty': 1, 'cost': 1, 'price': 1, 'value': 1}, True, 1)}
+        tag = position_popup.data_script({'KRW-BTC': {'qty': 1, 'cost': 1, 'stop': 0.9, 'time': '2026-11-28T00:00:00'}}, {'KRW-BTC': 1.0},
+                                         action={'port': 1, 'token': 't'}, outside=out)
+        d = json.loads(re.search(r'id="posdata">(.*?)</script>', tag).group(1))
+        self.assertTrue(d['KRW-TFUEL']['outside']); self.assertEqual(d['KRW-TFUEL']['revision'], 3)
+        self.assertTrue(d['KRW-TFUEL']['sellable']); self.assertNotIn('outside', d['KRW-BTC'])
+        self.assertIn('pm-adopt-btn', position_popup.MODAL); self.assertIn("'/adopt'", position_popup.MODAL)
+
+
 if __name__ == '__main__':
     unittest.main()

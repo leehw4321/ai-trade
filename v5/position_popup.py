@@ -90,7 +90,9 @@ MODAL = """<div id="posmodal" hidden><div class="pm-card" role="dialog" aria-mod
 <div id="pm-adopt" hidden><button type="button" id="pm-adopt-btn" class="pm-btn" style="background:#0f6e5c;border-color:#0f6e5c;color:#fff">봇 장부에 올리기(보호 유지)</button></div>
 <div id="pm-hand" hidden><button type="button" id="pm-hand-btn" class="pm-btn" style="background:#0f6e5c;border-color:#0f6e5c;color:#fff">봇에게 매매 권한 넘기기</button></div>
 <div id="pm-act" hidden><div class="pm-row" id="pm-buyrow"><input type="number" id="pm-amt" min="5000" step="1000" aria-label="추가 매수 금액(원)"><span class="pm-won">원</span><button type="button" id="pm-buy" class="pm-btn">추가 매수</button></div>
-<div class="pm-seg" id="pm-pct" role="radiogroup" aria-label="매도 비율"><label><input type="radio" name="pmpct" value="25">25%</label><label><input type="radio" name="pmpct" value="50">50%</label><label><input type="radio" name="pmpct" value="75">75%</label><label><input type="radio" name="pmpct" value="100" checked>전량</label></div>
+<div class="pm-seg" id="pm-pct" role="radiogroup" aria-label="매도 비율"><label><input type="radio" name="pmpct" value="25">25%</label><label><input type="radio" name="pmpct" value="50">50%</label><label><input type="radio" name="pmpct" value="75">75%</label><label><input type="radio" name="pmpct" value="100" checked>전량</label><label><input type="radio" name="pmpct" value="0">지정량</label></div>
+<div class="pm-row" id="pm-qrow" hidden><span class="pm-won">매도 수량</span><input id="pm-qty" inputmode="decimal" aria-label="매도 수량(개)" style="width:140px;padding:7px 8px;border:1px solid rgba(128,140,160,.5);border-radius:8px;background:none;color:inherit;font-size:14px;text-align:right"><span class="pm-won">개</span><button type="button" id="pm-qmax" class="pm-btn pm-step">전부</button></div>
+<div id="pm-qnote" class="pm-note" style="margin-top:4px"></div>
 <div class="pm-seg" id="pm-ord" role="radiogroup" aria-label="주문 방식"><label><input type="radio" name="pmord" value="market" checked>시장가</label><label><input type="radio" name="pmord" value="limit">지정가(희망 매도가)</label></div>
 <div class="pm-row" id="pm-lp" hidden><span class="pm-won">희망 매도가</span><button type="button" id="pm-dn" class="pm-btn pm-step">▼</button><input id="pm-px" inputmode="decimal" aria-label="희망 매도가"><button type="button" id="pm-up" class="pm-btn pm-step">▲</button></div>
 <div id="pm-diff" class="pm-note" style="margin-top:4px"></div>
@@ -133,6 +135,9 @@ function lpx(){return Number(String($('pm-px').value).replace(/,/g,''))}
 function ldiff(){var x=D[cur],p=lpx(),b=x&&x.price;if(!(p>0)||!b){$('pm-diff').textContent='';return}var n=Math.round((p-b)/tk(Math.min(p,b)));
 $('pm-diff').textContent='현재가 '+fp(b)+'원 대비 '+(p>=b?'+':'')+((p/b-1)*100).toFixed(2)+'% · '+(n>0?'+':'')+n+'칸'+(x.avg?' · 평단 대비 '+((p/x.avg-1)*100).toFixed(2)+'%':'')}
 function lstep(d){var b=D[cur]&&D[cur].price,p=lpx()||b;if(!p)return;var t=d>0?tk(p):tk(p-tk(p)*0.5);var q=snap(p+d*t);if(q>0){$('pm-px').value=fp(q);ldiff()}}
+function qv(){return Number(String($('pm-qty').value).replace(/,/g,''))}
+function qshow(){var on=pick('pmpct')==='0',x=D[cur];$('pm-qrow').hidden=!on;if(!on||!x){$('pm-qnote').textContent='';return}var q=qv(),p=(pick('pmord')==='limit'?lpx():0)||x.price||0;
+$('pm-qnote').textContent=q>0?('약 '+n(q*p)+'원 · 보유 '+n(x.qty,8)+'개의 '+(x.qty?(q/x.qty*100).toFixed(1):'-')+'%'+(q>x.qty?' (보유보다 많아 전량으로 처리)':'')):'보유 '+n(x.qty,8)+'개'}
 function lshow(){var lim=pick('pmord')==='limit';$('pm-lp').hidden=!lim;if(lim){if(!lpx()&&D[cur]&&D[cur].price)$('pm-px').value=fp(snap(D[cur].price));ldiff()}else $('pm-diff').textContent=''}
 function pick(name){var r=document.querySelectorAll('input[name='+name+']');for(var i=0;i<r.length;i++)if(r[i].checked)return r[i].value;return null}
 function $(i){return document.getElementById(i)}
@@ -149,9 +154,9 @@ if(!A){$('pm-act').hidden=true;$('pm-note').textContent='조회 전용 창입니
 $('pm-act').hidden=false;$('pm-note').textContent=(x.outside?'봇 장부 밖 보유입니다. [봇 장부에 올리기]는 주문 없이 업비트 잔고 전부·평균 매수가 그대로 장부에 올리고 손절가를 현재가 기준(최대 -3.5%)으로 잡습니다. 보호는 그대로라 봇은 매매하지 않습니다. ':'')+((x.outside||x.protected)?'사용자 보호 중: 봇은 자동으로 손절·익절·매도하지 않습니다. 아래 추가 매수·매도는 사용자 직접 주문(시장가)으로 처리되고 봇 손익과 따로 기록됩니다. 봇에게 맡기려면 [봇에게 매매 권한 넘기기]. ':'')+'주문은 되돌릴 수 없습니다(지정가는 대기 중 취소 버튼이 없고 기한 만료 때 취소됩니다). 주문은 봇이 실행권을 확인한 뒤 냅니다.';
 var cap=A.buy_max||0;$('pm-amt').max=cap;$('pm-amt').value=cap?Math.min(30000,cap):'';$('pm-buy').disabled=!cap;
 $('pm-liq').disabled=!x.sellable;if(!x.sellable)$('pm-res').textContent='평가액 5,000원 미만은 최소 주문금액 때문에 청산할 수 없습니다.';
-$('pm-px').value=x.price?fp(snap(x.price)):'';lshow();
+$('pm-px').value=x.price?fp(snap(x.price)):'';$('pm-qty').value='';lshow();qshow();
 var r=x.rest;$('pm-restrow').hidden=!r;if(r){var left=Math.max(0,Math.round(((r.deadline||0)*1000-Date.now())/60000));$('pm-rest').textContent='걸어 둔 지정가 '+(r.side==='ask'?'매도':'매수')+' '+fp(r.price)+'원 · 약 '+left+'분 남음';$('pm-rcancel').hidden=!r.cancel}}
-function back(){var x=D[cur];if(x&&x.outside)$('pm-adopt').hidden=false;if(x&&!x.outside&&x.protected)$('pm-hand').hidden=false;$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false;$('pm-restrow').hidden=!(x&&x.rest);lshow()}
+function back(){var x=D[cur];if(x&&x.outside)$('pm-adopt').hidden=false;if(x&&!x.outside&&x.protected)$('pm-hand').hidden=false;$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false;$('pm-restrow').hidden=!(x&&x.rest);lshow();qshow()}
 function ask(kind){var x=D[cur];if(!x||busy)return;mode=kind;$('pm-res').textContent='';
 function pre(){return (x.outside?'봇 장부에 올린 뒤(보호 유지) ':'')+((x.outside||x.protected)?'사용자 직접 주문으로 ':'')}
 if(kind==='rcancel'){$('pm-q').textContent=x.name+' 걸어 둔 지정가 주문을 취소할까요? 체결된 부분은 그대로이고 남은 것은 시장가로 바꾸지 않습니다.';$('pm-yes').textContent='예, 취소합니다';$('pm-restrow').hidden=true;$('pm-adopt').hidden=true;$('pm-hand').hidden=true;$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-lp').hidden=true;$('pm-ask').hidden=false;return}
@@ -161,12 +166,13 @@ if(kind==='buy'){amt=Number($('pm-amt').value);var cap=A.buy_max||0;
 if(!Number.isInteger(amt)||amt<5000){$('pm-res').textContent='매수 금액은 5,000원 이상의 정수로 입력하세요.';return}
 if(amt>cap){$('pm-res').textContent='1회 추가 매수 상한은 '+n(cap)+'원입니다.';return}
 $('pm-q').textContent=pre()+x.name+'을(를) '+n(amt)+'원어치 시장가로 추가 매수합니다.'+(x.trail?' ⚠ 추가 매수하면 이 종목의 추적 손절·이익 보호가 꺼집니다(기존 규칙).':'')+' 추가 매수를 원하십니까?'}
-else{sp=Number(pick('pmpct'))||100;so=pick('pmord')==='limit'?'limit':'market';
+else{sp=Number(pick('pmpct'));if(!(sp>=0))sp=100;so=pick('pmord')==='limit'?'limit':'market';
+var sq=qv();if(sp===0&&!(sq>0)){$('pm-res').textContent='매도 수량(개)을 입력하세요.';return}
 var lp=lpx();if(so==='limit'&&!(lp>0&&snap(lp)===lp)){$('pm-res').textContent='희망 매도가가 호가 단위에 맞지 않습니다(▲▼로 조절)';return}
-$('pm-q').textContent=pre()+x.name+' '+(sp===100?'전량':sp+'%')+'(평가액 약 '+n((x.value||0)*sp/100)+'원)을 '+(so==='limit'?fp(lp)+'원 지정가로 걸어 둡니다('+$('pm-diff').textContent+'). 최대 60분 기다리고 안 팔리면 취소, 시장가로 바꾸지 않습니다.'+(x.protected||x.outside?'':' 봇 관리 종목이라 손절선에 가까워지면 안전을 위해 취소 후 시장가로 팝니다.'):'시장가로 매도합니다.')+' 매도를 원하십니까?'}
-$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-lp').hidden=true;$('pm-adopt').hidden=true;$('pm-hand').hidden=true;$('pm-ask').hidden=false}
+$('pm-q').textContent=pre()+x.name+' '+(sp===100?'전량':sp===0?'지정량 '+n(Math.min(sq,x.qty),8)+'개':sp+'%')+'(평가액 약 '+n(sp===0?Math.min(sq,x.qty)*(x.price||0):(x.value||0)*sp/100)+'원)을 '+(so==='limit'?fp(lp)+'원 지정가로 걸어 둡니다('+$('pm-diff').textContent+'). 최대 60분 기다리고 안 팔리면 취소, 시장가로 바꾸지 않습니다.'+(x.protected||x.outside?'':' 봇 관리 종목이라 손절선에 가까워지면 안전을 위해 취소 후 시장가로 팝니다.'):'시장가로 매도합니다.')+' 매도를 원하십니까?'}
+$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-lp').hidden=true;$('pm-qrow').hidden=true;$('pm-adopt').hidden=true;$('pm-hand').hidden=true;$('pm-ask').hidden=false}
 function send(){if(!A||!cur||busy)return;busy=true;$('pm-yes').disabled=true;$('pm-no').disabled=true;$('pm-res').textContent='주문 요청 중… (최대 45초)';
-var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(mode==='adopt')doc.revision=D[cur].revision;else if(buy)doc.krw=amt;else{doc.pct=sp;doc.ord=so;if(so==='limit')doc.price=lpx()}
+var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(mode==='adopt')doc.revision=D[cur].revision;else if(buy)doc.krw=amt;else{doc.pct=sp;doc.ord=so;if(so==='limit')doc.price=lpx();if(sp===0)doc.qty=qv()}
 function post(path,body){return fetch('http://127.0.0.1:'+A.port+path,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)}).then(function(r){return r.json()})}
 var x=D[cur],steps=[],done=[];
 var rv={token:A.token,market:cur,confirm:true,revision:x.revision};
@@ -197,11 +203,11 @@ function hide(){box.hidden=true;try{sessionStorage.removeItem('posOpen')}catch(e
 document.addEventListener('click',function(ev){
 if(ev.target.closest&&ev.target.closest('.pm-x'))return hide();
 if(ev.target===box)return hide();
-var id=ev.target.id;if(id==='pm-liq')return ask('liq');if(id==='pm-buy')return ask('buy');if(id==='pm-adopt-btn')return ask('adopt');if(id==='pm-hand-btn')return ask('hand');if(id==='pm-up')return lstep(1);if(id==='pm-dn')return lstep(-1);if(id==='pm-rcancel')return ask('rcancel');if(id==='pm-no')return back();if(id==='pm-yes')return send();
+var id=ev.target.id;if(id==='pm-liq')return ask('liq');if(id==='pm-buy')return ask('buy');if(id==='pm-adopt-btn')return ask('adopt');if(id==='pm-hand-btn')return ask('hand');if(id==='pm-qmax'){var xx=D[cur];if(xx)$('pm-qty').value=xx.qty;return qshow()}if(id==='pm-up')return lstep(1);if(id==='pm-dn')return lstep(-1);if(id==='pm-rcancel')return ask('rcancel');if(id==='pm-no')return back();if(id==='pm-yes')return send();
 var tr=ev.target.closest&&ev.target.closest('tr.clk');if(tr)show(tr.getAttribute('data-m'))});
 document.addEventListener('keydown',function(ev){if(ev.key==='Escape')hide()});
-document.addEventListener('change',function(ev){if(ev.target&&ev.target.name==='pmord')lshow()});
-document.addEventListener('input',function(ev){if(ev.target&&ev.target.id==='pm-px')ldiff()});
+document.addEventListener('change',function(ev){if(ev.target&&ev.target.name==='pmord'){lshow();qshow()}if(ev.target&&ev.target.name==='pmpct')qshow()});
+document.addEventListener('input',function(ev){if(ev.target&&ev.target.id==='pm-px'){ldiff();qshow()}if(ev.target&&ev.target.id==='pm-qty')qshow()});
 try{var o=sessionStorage.getItem('posOpen');if(o&&D[o])show(o)}catch(e){}
 })();
 </script>"""

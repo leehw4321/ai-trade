@@ -113,8 +113,11 @@ class ManualOrderServer:
                 return 400, '매수 금액이 올바르지 않음'
         if kind in ('liquidate', 'user_sell', 'user_limit_sell'):   # 수동 매도(2026-11-07): 비율 25/50/75/100%, 주문 방식 시장가/지정가(매도호가). 생략하면 전량 시장가(기존 동작)
             pct, ordk = doc.get('pct', 100), doc.get('ord', 'market')
-            if type(pct) is not int or pct not in SELL_PCTS or ordk not in SELL_ORDS:
+            if type(pct) is not int or pct not in SELL_PCTS + (0,) or ordk not in SELL_ORDS:
                 return 400, '매도 비율 또는 주문 방식이 올바르지 않음'
+            q = doc.get('qty')   # 지정량(pct=0, 2026-11-28)
+            if pct == 0 and (type(q) not in (int, float) or isinstance(q, bool) or not 0 < q < 1e15):
+                return 400, '지정 수량이 올바르지 않음'
         if kind in ('unprotect','adopt') and (type(doc.get('revision')) is not int or doc['revision']<0):
             return 400, '보호 상태를 새로고침한 뒤 다시 확인하세요'
         return 200, (market, krw)
@@ -188,7 +191,7 @@ class ManualOrderServer:
                     return self._send(code, {'ok': False, 'message': value})
                 posted = json.loads(body.decode('utf-8'))
                 revision = posted.get('revision') if kind in ('unprotect', 'adopt') else None
-                options = ({'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market'), 'price': posted.get('price')} if kind in ('liquidate', 'user_sell', 'user_limit_sell')
+                options = ({'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market'), 'price': posted.get('price'), 'qty': posted.get('qty')} if kind in ('liquidate', 'user_sell', 'user_limit_sell')
                            else {'price': posted.get('price')} if kind == 'user_limit_buy' else None)
                 code, doc = server.submit(value[0], kind, value[1], revision, options)
                 self._send(code, doc)

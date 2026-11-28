@@ -1624,7 +1624,25 @@ class Live:
             except Exception as error:
                 self.record({'event': '부분 익절 대기', 'market': m, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
 
-    def liquidate_position(self, market, prices, reason='수동 강제 청산', pct=100, ord_type='market', user=False):
+    @staticmethod
+    def _sell_part(volume, price, pct, qty=None):
+        """화면 매도 수량: 비율(25/50/75/100) 또는 지정량(pct=0, qty개, 2026-11-28 사용자 지시). (수량, 오류문).
+        남는 양이 최소 주문(5,000원) 미만이면 자투리를 남기지 않게 전량으로 한다."""
+        if pct == 0:
+            if type(qty) not in (int, float) or isinstance(qty, bool) or not math.isfinite(qty) or qty <= 0: return 0., '지정 수량이 올바르지 않음'
+            part = float(upbit.vol8(min(float(qty), volume)))
+            label = f'지정량 {part:,.8g}개'
+        elif pct in (25, 50, 75):
+            part = float(upbit.vol8(volume * pct / 100)); label = f'{pct}%'
+        elif pct == 100:
+            return volume, ''
+        else:
+            return 0., '매도 비율이 올바르지 않음'
+        if part * price < 5000: return 0., f'{label}는 {part * price:,.0f}원으로 최소 주문금액 5,000원 미만이라 팔 수 없음'
+        if (volume - part) * price < 5000: part = volume
+        return part, ''
+
+    def liquidate_position(self, market, prices, reason='수동 강제 청산', pct=100, ord_type='market', user=False, qty=None):
         """사용자가 화면에서 확인한 종목 한 개를 전량 시장가 매도한다. (성공 여부, 안내문)을 돌려준다.
 
         봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.
@@ -1644,14 +1662,11 @@ class Live:
         if volume * price < 5000:
             return False, f'평가액 {volume * price:,.0f}원: 최소 주문금액 5,000원 미만이라 청산할 수 없음'
         if pct != 100 or ord_type != 'market':
-            if pct not in (25, 50, 75, 100) or ord_type not in ('market', 'limit'): return False, '매도 비율·주문 방식이 올바르지 않음'
-            if pct < 100:
-                part = float(upbit.vol8(volume * pct / 100))
-                if part * price < 5000: return False, f'{pct}%는 평가액 {part * price:,.0f}원으로 최소 주문금액 5,000원 미만이라 팔 수 없음(더 큰 비율을 고르세요)'
-                if (volume - part) * price < 5000: part = volume   # 남는 양이 최소 주문 미만이면 전량(자투리 방지)
-                volume = part
-            reason = f'수동 매도 {pct}%' + (' 지정가' if ord_type == 'limit' else '')
-        if user: reason = f'사용자 직접 매도 {pct}%'
+            if ord_type not in ('market', 'limit'): return False, '매도 비율·주문 방식이 올바르지 않음'
+            volume, why = self._sell_part(volume, price, pct, qty)
+            if why: return False, why
+            reason = f'수동 매도 {pct}%' + (' 지정가' if ord_type == 'limit' else '') if pct else f'수동 매도 지정량 {volume:g}개'
+        if user: reason = f'사용자 직접 매도 {pct}%' if pct else f'사용자 직접 매도 지정량 {volume:g}개'
         self.record({'event': '수동 청산 요청', 'market': market, 'reason': reason, 'pct': pct, 'ord': ord_type})
         if ord_type == 'limit':
             try:
@@ -2036,7 +2051,7 @@ class Live:
 
     USER_SELL_MINUTES = 60
 
-    def user_limit_sell(self, market, pct, price, prices, minutes=None):
+    def user_limit_sell(self, market, pct, price, prices, minutes=None, qty=None):
         """사용자 희망 매도가 지정가 매도(2026-11-28 사용자 지시: 보유·보호 종목에서 ± 호가 칸으로 매도가를 정해 직접 매도 결정).
         봇 장부 종목만. 보호 종목은 사용자 주문(봇 손절 기준으로 취소·시장가 전환 없음, 손익은 봇 집계와 분리),
         봇 관리 종목은 기존 수동 지정가 매도와 같다(손절선 근접이면 안전을 위해 취소 후 시장가). 기한이 지나면 취소만 한다.
@@ -2045,7 +2060,7 @@ class Live:
         if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
         pos = self.d['positions'].get(market)
         if not pos or not pos.get('qty', 0) > 0: return False, '봇 장부에 없는 종목: 먼저 봇 장부에 올리세요'
-        if pct not in (25, 50, 75, 100): return False, '매도 비율이 올바르지 않음'
+        if pct not in (0, 25, 50, 75, 100): return False, '매도 비율이 올바르지 않음'
         if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False, '희망 매도가가 올바르지 않음'
         if self.market_has_uncertain_order(market) or market in (self.d.get('resting_orders') or {}):
             return False, '이 종목에 진행 중인 주문(지정가 대기 포함)이 있어 보류'
@@ -2054,7 +2069,7 @@ class Live:
         bid = book.get('bid')
         if type(bid) not in (int, float) or not math.isfinite(bid) or bid <= 0: return False, '매수호가를 확인할 수 없어 보류'
         if price <= bid:
-            ok, msg = (self.user_sell(market, prices, pct) if user else self.liquidate_position(market, prices, pct=pct))
+            ok, msg = (self.user_sell(market, prices, pct, qty=qty) if user else self.liquidate_position(market, prices, pct=pct, qty=qty))
             return ok, ('희망가가 매수호가 이하라 시장가로 처리 · ' if ok else '') + msg
         tk = upbit.tick_size(price)
         px = float(upbit.price_str(price))
@@ -2062,13 +2077,11 @@ class Live:
         if px > bid * 3: return False, '희망가가 현재가의 3배를 넘음(입력 실수 방지)'
         bal = float({r['currency']: r for r in upbit.accounts()}.get(market[4:], {}).get('balance', 0))
         volume = min(pos['qty'], bal)
-        if pct < 100:
-            part = float(upbit.vol8(volume * pct / 100))
-            if part * px < 5000: return False, f'{pct}%는 {part * px:,.0f}원으로 최소 주문 5,000원 미만'
-            if (volume - part) * px >= 5000: volume = part
+        volume, why = self._sell_part(volume, px, pct, qty)
+        if why: return False, why
         if volume * px < 5000: return False, f'매도 금액 {volume * px:,.0f}원: 최소 주문 5,000원 미만'
         minutes = minutes or self.USER_SELL_MINUTES
-        reason = ('사용자 직접 지정가 매도' if user else '수동 지정가 매도') + f' {pct}%'
+        reason = ('사용자 직접 지정가 매도' if user else '수동 지정가 매도') + (f' {pct}%' if pct else f' 지정량 {volume:g}개')
         self.record({'event': '사용자 지정가 매도 요청', 'market': market, 'price': px, 'pct': pct, 'user': user})
         try:
             msg = self._place_rest_sell(market, volume, reason, px, tk, manual=True, user=user, wait=minutes * 60)
@@ -2081,7 +2094,7 @@ class Live:
         self.share(msg)
         return True, msg
 
-    def user_sell(self, market, prices, pct=100):
+    def user_sell(self, market, prices, pct=100, qty=None):
         """사용자 직접 시장가 매도(보호 중인 봇 장부 종목). 실현손익은 봇 손실 집계에서 빠진다."""
         market = normalize_protected_market(market)
         pos = self.d['positions'].get(market)
@@ -2092,7 +2105,7 @@ class Live:
         state = {}
 
         def change():
-            state['r'] = self.liquidate_position(market, prices, pct=pct, ord_type='market', user=True)
+            state['r'] = self.liquidate_position(market, prices, pct=pct, ord_type='market', user=True, qty=qty)
         price = prices.get(market)
         self._keep_loss_flat(market, price if type(price) in (int, float) and price > 0 else None, change)
         ok, msg = state['r']

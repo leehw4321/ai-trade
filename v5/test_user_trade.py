@@ -221,6 +221,23 @@ class UserLimitSellTests(unittest.TestCase):
         self.assertNotIn('KRW-A', self.w.d.get('resting_orders', {}))
         self.assertEqual(self.w.d['positions']['KRW-A']['qty'], 1000.0)
 
+    def test_custom_quantity(self):
+        ok, msg = self.w.user_limit_sell('KRW-A', 0, 105.0, {}, qty=300.0)
+        self.assertTrue(ok, msg); self.assertAlmostEqual(self.order['volume'], 300.0)
+        self.w.d['resting_orders'].clear(); self.order = {'uuid': 'S2', 'state': 'wait', 'trades': [], 'paid_fee': '0'}
+        ok, _ = self.w.user_limit_sell('KRW-A', 0, 105.0, {}, qty=980.0)      # 남는 20개(2,100원) < 5,000원 → 전량
+        self.assertTrue(ok); self.assertAlmostEqual(self.order['volume'], 1000.0)
+        self.w.d['resting_orders'].clear()
+        for q in (10.0, None, -1, float('inf')):
+            ok, _ = self.w.user_limit_sell('KRW-A', 0, 105.0, {}, qty=q); self.assertFalse(ok, q)
+        self.assertEqual(live.Live._sell_part(1000.0, 100.0, 50), (500.0, ''))
+        self.assertEqual(live.Live._sell_part(1000.0, 100.0, 0, 5000.0)[0], 1000.0)
+        srv = manual_orders.ManualOrderServer(8765, token='t', allowed_kinds={'user_limit_sell', 'liquidate'})
+        b = lambda **k: json.dumps(dict(token='t', market='KRW-A', confirm=True, **k)).encode()
+        self.assertEqual(srv.check('127.0.0.1:8765', 'null', b(pct=0, qty=12.5, price=105.0), 'user_limit_sell')[0], 200)
+        self.assertEqual(srv.check('127.0.0.1:8765', 'null', b(pct=0, price=105.0), 'user_limit_sell')[0], 400)
+        self.assertEqual(srv.check('127.0.0.1:8765', 'null', b(pct=0, qty=3), 'liquidate')[0], 200)
+
     def test_popup_tick_table_matches_exchange(self):
         import re, position_popup, upbit
         tk = position_popup.MODAL.split('var TK=')[1].split(';')[0]

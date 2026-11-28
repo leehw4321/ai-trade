@@ -1536,7 +1536,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 elif req.kind == 'user_limit_sell':   # 보유·보호 종목 희망 매도가 지정가(2026-11-28)
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     opt = getattr(req, 'options', None) or {}
-                    ok, msg = self.live.user_limit_sell(req.market, opt.get('pct', 100), opt.get('price'), prices)
+                    ok, msg = self.live.user_limit_sell(req.market, opt.get('pct', 100), opt.get('price'), prices, qty=opt.get('qty'))
                     label = f"지정가 매도 {opt.get('pct', 100)}% @{opt.get('price')}"
                 elif req.kind == 'user_rest_cancel':
                     ok, msg = self.live.cancel_user_rest(req.market)
@@ -1544,7 +1544,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 elif req.kind == 'user_sell':
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     opt = getattr(req, 'options', None) or {}
-                    ok, msg = self.live.user_sell(req.market, prices, pct=opt.get('pct', 100))
+                    ok, msg = self.live.user_sell(req.market, prices, pct=opt.get('pct', 100), qty=opt.get('qty'))
                     label = f"사용자 직접 매도 {opt.get('pct', 100)}%"
                 elif req.kind == 'adopt':   # 사용자 직접 보유를 봇 장부로 넘기기(사용자 지시 2026-11-28). 주문 없음
                     ok, msg = self.live.adopt_user_holding(req.market, getattr(req, 'revision', None))
@@ -1559,7 +1559,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     opt = getattr(req, 'options', None) or {}
                     pct, ordk = opt.get('pct', 100), opt.get('ord', 'market')
-                    ok, msg = self.live.liquidate_position(req.market, prices, pct=pct, ord_type=ordk)
+                    ok, msg = self.live.liquidate_position(req.market, prices, pct=pct, ord_type=ordk, qty=opt.get('qty'))
                     label = '수동 강제 청산' if (pct == 100 and ordk == 'market') else f'수동 매도 {pct}% ' + ('지정가' if ordk == 'limit' else '시장가')
                     # 일부·지정가 매도는 남은 수량을 봇이 계속 관리한다(손절·이익보호). 전량 시장가 청산만 기존처럼 사용자 보호 결정을 건다.
                     if self.live.cfg.get('auto_manual_protection') and pct == 100 and ordk == 'market':

@@ -31,7 +31,7 @@ def atr_pct(j, i, H, L, C):
     return np.nanmean(tr) / C[j, i]
 
 
-def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=False, reentry=False, slots=3, M=9, scan=7, entry_filter=None):
+def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=False, reentry=False, slots=3, M=9, scan=7, entry_filter=None, score=None):
     held = {}      # j → dict(e, i0, peak, out_since)
     last = {}      # j → (sell i, price, profit)
     trades = []
@@ -55,6 +55,8 @@ def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=Fal
         ok = ~np.isnan(C[:, i - 288]) & ~np.isnan(C[:, i]) & np.array([m not in P.EXCL for m in ms])
         uni = [j for j in np.argsort(-np.where(ok, v24, -1))[:30] if ok[j]]
         rs = C[:, i] / C[:, i - 72] - 1; r4 = C[:, i] / C[:, i - 16] - 1
+        if score is not None:   # 순위 점수 바꿔 시험(2026-11-28): 매수 순서·순위 매도 모두 이 점수
+            with np.errstate(all='ignore'): rs = score(i)
         pool = list(dict.fromkeys(uni + list(held)))
         order = sorted(pool, key=lambda j: -np.nan_to_num(rs[j], nan=-9))
         rank = {j: k + 1 for k, j in enumerate(order)}
@@ -75,7 +77,8 @@ def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=Fal
         for j in order[:scan]:
             if free <= 0: break
             if j in held or j not in uni: continue
-            if not (0 < rs[j] < 0.20 and r4[j] > -0.10): continue
+            if score is None and not (0 < rs[j] < 0.20 and r4[j] > -0.10): continue
+            if score is not None and not np.isfinite(rs[j]): continue
             if entry_filter is not None and not entry_filter(j, i, O, H, L, C, V): continue   # 추가 매수 조건 시험용(2026-11-28)
             if reentry and j in last:
                 si, sp, prof = last[j]

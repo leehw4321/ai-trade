@@ -154,6 +154,19 @@ class UserLimitBuyTests(unittest.TestCase):
         rows = [json.loads(l) for l in self.w.user_trade_file.read_text(encoding='utf-8').splitlines()]
         self.assertEqual((rows[0]['event'], rows[0]['order']), ('open', 'limit'))
 
+    def test_no_waiting_time_by_default(self):
+        import time, bot, strategy as st
+        ok, msg = self.w.user_limit_buy('KRW-A', 30000, 98.0, self.markets)
+        self.assertTrue(ok, msg); self.assertIn('취소할 때까지', msg)
+        r = self.w.d['resting_orders']['KRW-A']['resting']
+        self.assertGreater(r['deadline'] - time.time(), 365 * 86400)
+        json.dumps(self.w.d, allow_nan=False)                      # 장부 지문 계산(allow_nan=False)과 호환
+        self.w.manage_resting({'KRW-A': 99.0})
+        self.assertIn('KRW-A', self.w.d['resting_orders'])
+        html = bot.ranking_rows([{'market': 'KRW-A', 'rs': .05, 'rank': 1}], set(), {}, st.Params(), can_promote=True,
+                                resting=self.w.resting_info())
+        self.assertIn('취소 전까지 유지', html); self.assertNotIn('rest_extend', html); self.assertIn('user_rest_cancel', html)
+
     def test_expiry_without_fill_cancels_and_unprotects_no_market_fallback(self):
         ok, _ = self.w.user_limit_buy('KRW-A', 30000, 98.0, self.markets)
         self.assertTrue(ok)

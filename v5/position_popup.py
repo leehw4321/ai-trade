@@ -155,7 +155,7 @@ $('pm-act').hidden=false;$('pm-note').textContent=(x.outside?'봇 장부 밖 보
 var cap=A.buy_max||0;$('pm-amt').max=cap;$('pm-amt').value=cap?Math.min(30000,cap):'';$('pm-buy').disabled=!cap;
 $('pm-liq').disabled=!x.sellable;if(!x.sellable)$('pm-res').textContent='평가액 5,000원 미만은 최소 주문금액 때문에 청산할 수 없습니다.';
 $('pm-px').value=x.price?fp(snap(x.price)):'';$('pm-qty').value='';lshow();qshow();
-var r=x.rest;$('pm-restrow').hidden=!r;if(r){var left=Math.max(0,Math.round(((r.deadline||0)*1000-Date.now())/60000));$('pm-rest').textContent='걸어 둔 지정가 '+(r.side==='ask'?'매도':'매수')+' '+fp(r.price)+'원 · 약 '+left+'분 남음';$('pm-rcancel').hidden=!r.cancel}}
+var r=x.rest;$('pm-restrow').hidden=!r;if(r){var left=Math.max(0,Math.round(((r.deadline||0)*1000-Date.now())/60000));$('pm-rest').textContent='걸어 둔 지정가 '+(r.side==='ask'?'매도':'매수')+' '+fp(r.price)+'원 · '+(left>43200?'취소 전까지 유지':'약 '+left+'분 남음');$('pm-rcancel').hidden=!r.cancel}}
 function back(){var x=D[cur];if(x&&x.outside)$('pm-adopt').hidden=false;if(x&&!x.outside&&x.protected)$('pm-hand').hidden=false;$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false;$('pm-restrow').hidden=!(x&&x.rest);lshow();qshow()}
 function ask(kind){var x=D[cur];if(!x||busy)return;mode=kind;$('pm-res').textContent='';
 function pre(){return (x.outside?'봇 장부에 올린 뒤(보호 유지) ':'')+((x.outside||x.protected)?'사용자 직접 주문으로 ':'')}
@@ -169,7 +169,7 @@ $('pm-q').textContent=pre()+x.name+'을(를) '+n(amt)+'원어치 시장가로 �
 else{sp=Number(pick('pmpct'));if(!(sp>=0))sp=100;so=pick('pmord')==='limit'?'limit':'market';
 var sq=qv();if(sp===0&&!(sq>0)){$('pm-res').textContent='매도 수량(개)을 입력하세요.';return}
 var lp=lpx();if(so==='limit'&&!(lp>0&&snap(lp)===lp)){$('pm-res').textContent='희망 매도가가 호가 단위에 맞지 않습니다(▲▼로 조절)';return}
-$('pm-q').textContent=pre()+x.name+' '+(sp===100?'전량':sp===0?'지정량 '+n(Math.min(sq,x.qty),8)+'개':sp+'%')+'(평가액 약 '+n(sp===0?Math.min(sq,x.qty)*(x.price||0):(x.value||0)*sp/100)+'원)을 '+(so==='limit'?fp(lp)+'원 지정가로 걸어 둡니다('+$('pm-diff').textContent+'). 최대 60분 기다리고 안 팔리면 취소, 시장가로 바꾸지 않습니다.'+(x.protected||x.outside?'':' 봇 관리 종목이라 손절선에 가까워지면 안전을 위해 취소 후 시장가로 팝니다.'):'시장가로 매도합니다.')+' 매도를 원하십니까?'}
+$('pm-q').textContent=pre()+x.name+' '+(sp===100?'전량':sp===0?'지정량 '+n(Math.min(sq,x.qty),8)+'개':sp+'%')+'(평가액 약 '+n(sp===0?Math.min(sq,x.qty)*(x.price||0):(x.value||0)*sp/100)+'원)을 '+(so==='limit'?fp(lp)+'원 지정가로 걸어 둡니다('+$('pm-diff').textContent+'). 팔리거나 [지정가 취소]를 누를 때까지 걸려 있습니다(대기 시간 없음, 시장가로 바꾸지 않음).'+(x.protected||x.outside?'':' 봇 관리 종목이라 손절선에 가까워지면 안전을 위해 취소 후 시장가로 팝니다.'):'시장가로 매도합니다.')+' 매도를 원하십니까?'}
 $('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-lp').hidden=true;$('pm-qrow').hidden=true;$('pm-adopt').hidden=true;$('pm-hand').hidden=true;$('pm-ask').hidden=false}
 function send(){if(!A||!cur||busy)return;busy=true;$('pm-yes').disabled=true;$('pm-no').disabled=true;$('pm-res').textContent='주문 요청 중… (최대 45초)';
 var buy=mode==='buy',doc={token:A.token,market:cur,confirm:true};if(mode==='adopt')doc.revision=D[cur].revision;else if(buy)doc.krw=amt;else{doc.pct=sp;doc.ord=so;if(so==='limit')doc.price=lpx();if(sp===0)doc.qty=qv()}

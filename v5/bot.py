@@ -151,9 +151,10 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         rest = (resting or {}).get(m)
         if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
             tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(rest['price'])}원"
-            btn += (f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>"
-                    + (f" <button class=pr-btn data-act=rest_extend data-m='{esc(m)}' style='visibility:visible'>+2분</button>"
-                       f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>"
+            forever = rest.get('deadline', 0) - time.time() > 30 * 86400   # 사용자 지정가: 대기 시간 없음
+            btn += ((" <span class=sub>취소 전까지 유지</span>" if forever else f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>")
+                    + (("" if forever else f" <button class=pr-btn data-act=rest_extend data-m='{esc(m)}' style='visibility:visible'>+2분</button>")
+                       + f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>"
                        + (f" <button class=pr-btn data-act=user_rest_cancel data-m='{esc(m)}'>취소</button>" if rest.get('user') else '') if can_promote else ''))
             if rest.get('user'): tag = tag.replace('지정가 매수 중', '사용자 지정가 매수 중')
 
@@ -377,7 +378,7 @@ UB_HTML = """<div id=ub-modal hidden>
 <div id=ub-q style='margin-top:10px;font-size:13.5px;line-height:1.5'></div>
 <div style='display:flex;gap:8px;margin-top:10px;flex-wrap:wrap'><button type=button id=ub-limit class=ub-go>지정가 주문</button><button type=button id=ub-mkt class=ub-go>시장가 주문</button><button type=button id=ub-close>닫기</button></div>
 <div id=ub-res role=status style='margin-top:8px;font-size:13.5px'></div>
-<div class=sub style='margin-top:8px'>사용자 주문으로 표시되고 보호가 걸려 봇은 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서). 지정가는 최대 60분 기다리고 안 사지면 취소(시장가로 바꾸지 않음). 희망가가 매도호가 이상이면 시장가로 체결됩니다.</div>
+<div class=sub style='margin-top:8px'>사용자 주문으로 표시되고 보호가 걸려 봇은 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서). 지정가는 체결되거나 순위표에서 [취소]할 때까지 걸려 있습니다(대기 시간 없음, 시장가로 바꾸지 않음). 희망가가 매도호가 이상이면 시장가로 체결됩니다.</div>
 </div></div><style>#ub-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px}#ub-modal[hidden]{display:none!important}.ub-step{width:30px;padding:4px 0;cursor:pointer}.ub-go{background:#1f6feb;color:#fff;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}#ub-close{padding:8px 14px;border-radius:7px;cursor:pointer}.ub-go:disabled{opacity:.5}</style>"""
 
 UB_JS = """var $=function(i){return document.getElementById(i)},box=$('ub-modal'),cur=null,base=0,stage=null;

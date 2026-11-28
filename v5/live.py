@@ -1028,7 +1028,8 @@ class Live:
         if order.get('uuid'):
             pending['uuid'] = order['uuid']; self.save()
         self.record({'event': '지정가 매도 대기', 'market': market, 'price': ask, 'volume': volume, 'wait_s': wait, 'reason': str(reason)})
-        if manual: return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · {volume:g}개 · 최대 {wait / 60:.0f}분, 안 팔리면 취소(시장가 전환 없음)'
+        if manual: return (f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · {volume:g}개 · '
+                           + ('팔리거나 취소할 때까지 유지' if wait > 30 * 86400 else f'최대 {wait / 60:.0f}분, 안 팔리면 취소(시장가 전환 없음)'))
         return f'{market[4:]} 지정가 매도 대기 {ask:,.8g}원 · 최대 {wait / 60:.0f}분, 안 팔리면 시장가'
 
     def _place_stop_ask(self, market, volume, px):
@@ -1978,7 +1979,10 @@ class Live:
             return f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} 큼: 보류', None, None
         return '', pos, ob
 
-    USER_LIMIT_MINUTES = 60
+    # 사용자 지정가는 대기 시간을 따로 두지 않는다(2026-11-28 사용자 지시 "대기시간 별도로 주지마"): 체결되거나 사용자가 취소할 때까지.
+    # 기한 칸은 비교·JSON 저장이 되도록 아주 먼 시각(10년)으로 둔다.
+    USER_NO_EXPIRY = 10 * 365 * 86400
+    USER_LIMIT_MINUTES = None
 
     def user_limit_buy(self, market, krw, price, markets, context=None, minutes=None):
         """사용자 직접 지정가 매수(2026-11-28 사용자 지시: 현재가 대비 ± 호가 칸으로 희망 매수가). 봇 지정가 대기 경로(resting)를 쓰되
@@ -2000,13 +2004,13 @@ class Live:
         if volume * px < 5000: return False, '금액 부족(최소 주문 5,000원)'
         atr = st.wilder_atr(upbit.completed_candles(market, self.cfg['stop_tf'], 100))
         if atr is None or not math.isfinite(atr) or atr <= 0: return False, '손절 ATR 자료 부족: 보류'
-        minutes = minutes or self.USER_LIMIT_MINUTES
+        wait_s = minutes * 60 if minutes else self.USER_NO_EXPIRY
         trade_id = (pos or {}).get('user_trade', {}).get('id') or ('U' + uuid.uuid4().hex[:10])
         pre = not self.is_protected(market)
         if pre: self.protection_policy.decide(market, True)   # 체결 순간부터 봇 자동 매매 제외
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'bid', 'market': market, 'amount': krw,
                    'reason': '사용자 직접 지정가 매수', 'time': now_iso(), 'atr': atr, 'atr_r': None,
-                   'resting': {'price': px, 'ref_ask': ask, 'tick': tk, 'krw': krw, 'deadline': time.time() + minutes * 60,
+                   'resting': {'price': px, 'ref_ask': ask, 'tick': tk, 'krw': krw, 'deadline': time.time() + wait_s, 'no_expiry': not minutes,
                                'placed': time.time(), 'user': True, 'trade_id': trade_id, 'new_trade': pos is None,
                                'pre_protected': pre, 'context': dict(context or {}, limit_price=px, ask_at_order=ask)}}
         slot = ('rest', market)
@@ -2022,9 +2026,9 @@ class Live:
             return False, f'지정가 주문 거부: {str(error)[:120]}'
         if order.get('uuid'):
             pending['uuid'] = order['uuid']; self.save()
-        self.record({'event': '사용자 지정가 매수 대기', 'market': market, 'price': px, 'ask': ask, 'krw': krw, 'minutes': minutes, 'trade_id': trade_id})
+        self.record({'event': '사용자 지정가 매수 대기', 'market': market, 'price': px, 'ask': ask, 'krw': krw, 'minutes': minutes or '취소 전까지', 'trade_id': trade_id})
         msg = (f'{market[4:]} 사용자 지정가 매수 {px:,.8g}원 걸어 둠(매도호가 {ask:,.8g}원 대비 {px / ask - 1:+.2%}) · {krw:,}원 · '
-               f'최대 {minutes}분, 안 사지면 취소(시장가로 바꾸지 않음) · 순위표에서 남은 시간·즉시 시장가·취소')
+               + (f'최대 {minutes}분, 안 사지면 취소' if minutes else '체결되거나 취소할 때까지 유지') + ' · 순위표에서 즉시 시장가·취소')
         self.share(msg)
         return True, msg
 
@@ -2049,7 +2053,7 @@ class Live:
             pos['user_trade'] = {'id': rest['trade_id'], 'opened': now_iso(), 'context': rest.get('context') or {}}
             self.save()
 
-    USER_SELL_MINUTES = 60
+    USER_SELL_MINUTES = None   # 대기 시간 없음(체결·사용자 취소까지)
 
     def user_limit_sell(self, market, pct, price, prices, minutes=None, qty=None):
         """사용자 희망 매도가 지정가 매도(2026-11-28 사용자 지시: 보유·보호 종목에서 ± 호가 칸으로 매도가를 정해 직접 매도 결정).
@@ -2080,11 +2084,11 @@ class Live:
         volume, why = self._sell_part(volume, px, pct, qty)
         if why: return False, why
         if volume * px < 5000: return False, f'매도 금액 {volume * px:,.0f}원: 최소 주문 5,000원 미만'
-        minutes = minutes or self.USER_SELL_MINUTES
+        wait_s = minutes * 60 if minutes else self.USER_NO_EXPIRY
         reason = ('사용자 직접 지정가 매도' if user else '수동 지정가 매도') + (f' {pct}%' if pct else f' 지정량 {volume:g}개')
         self.record({'event': '사용자 지정가 매도 요청', 'market': market, 'price': px, 'pct': pct, 'user': user})
         try:
-            msg = self._place_rest_sell(market, volume, reason, px, tk, manual=True, user=user, wait=minutes * 60)
+            msg = self._place_rest_sell(market, volume, reason, px, tk, manual=True, user=user, wait=wait_s)
         except SessionLost:
             raise
         except Exception as error:

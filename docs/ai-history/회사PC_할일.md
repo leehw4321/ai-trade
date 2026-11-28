@@ -3,8 +3,7 @@
 ## ★ 2026-11-28 집 PC → 회사 PC (집 PC Claude 작성, 실행권은 집 PC가 계속 보유 — 가져오지 말 것)
 회사 PC에서 Claude에게 "회사PC 할일 해" 또는 "동기화"라고 하면 아래를 순서대로 한다. (11-27 항목이 안 끝났으면 그것부터.)
 - [ ] 1. `git pull` (ai-trade) 후 [사용자_지시_목록](사용자_지시_목록.md)의 11-28 줄들을 읽는다(화면·주문 기능 8건).
-- [ ] 2. `python tools/deploy_v5.py --apply` (설정 조각 없음, config.json 그대로). tools/APPROVED_COMMIT = 1387822(집 PC 22:48 배포본).
-      HEAD에 **24828c6(매도량 지정량)이 더 있으면 집 PC도 아직 미배포**다. 사용자가 "배포"라고 했을 때만 HEAD까지 적용하고, 아니면 `git checkout 1387822 -- v5` 상태로 맞추지 말고 사용자에게 묻는다.
+- [ ] 2. `python tools/deploy_v5.py --apply` (설정 조각 없음, config.json 그대로). tools/APPROVED_COMMIT = 24828c6(집 PC 22:54 배포본, 매도량 지정량 포함).
       tools/deploy_pause.txt가 있어 회사 자동 배포 감시는 멈춰 있으므로 직접 실행한다.
 - [ ] 3. `python tools/take_over.py --config-diff` → "차이 없음"이어야 한다. 다르면 고치지 말고 사용자에게 보고.
 - [ ] 4. `python tools/ai_session.py status`로 실행권이 집 PC(DESKTOP-DLN2HJJ)에 그대로인지 확인. 회사 화면에서 순위표 [직접 매수] 버튼은 실행권 PC에서만 나온다(정상).

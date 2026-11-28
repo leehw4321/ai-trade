@@ -1,6 +1,7 @@
 """두 매수 방식 2주 모의 운용 (2026-11-28 사용자 지시: "2번을 2주간 모의운용하고 매일 보고해줘"). 조회 전용, 주문 없음.
 
   A 지금 방식    : 거래대금 상위 30 중 18시간 상승률 순위(0~20%, 4시간 −10% 보류), 손절 3.5%·+3% 뒤 30% 반납
+  C 변동성 수축 + 물타기: B와 같고 첫 매수가 −1.5%에 같은 금액 1회 추가(손절가는 첫 매수가 기준 그대로). 2026-11-28 추가
   B 변동성 수축  : 같은 범위에서 '최근 4시간 변동폭 ÷ 24시간 변동폭'이 작은 순(급등 뒤 쉬는 종목), 손절 2.5%·+8% 뒤 50% 반납
 공통(실거래에 맞춘 시뮬레이션 gap_study S3와 같게): 자리 3개, 보유 종목 재매수 없음, 매시 정각 판단(7위 안에서 매수),
   유지 순위 9위 밖이면 매도(손실이면 4시간 유예), 재매수 대기(이익 청산 4시간·0.5ATR 눌림, 손실 청산 24시간).
@@ -26,7 +27,9 @@ END = START + dt.timedelta(days=14)
 EXCL = {'KRW-USDT', 'KRW-USDC', 'KRW-USDE', 'KRW-USD1', 'KRW-DAI'}   # 봇 제외 목록과 같게
 COST, KRW, SLOTS, M, SCAN, NBARS = 0.003, 100000, 3, 9, 7, 120
 STRATS = {'A': dict(name='지금 방식(18시간 상승률)', stop=0.035, at=0.03, give=0.30),
-          'B': dict(name='변동성 수축', stop=0.025, at=0.08, give=0.50)}
+          'B': dict(name='변동성 수축', stop=0.025, at=0.08, give=0.50),
+          # 2026-11-28 사용자 지시 '같이 돌리고 매일 보고': B + 물타기(첫 매수가 −1.5%에 같은 금액 1회 추가, 손절가는 첫 매수가 기준 그대로)
+          'C': dict(name='변동성 수축 + 물타기', stop=0.025, at=0.08, give=0.50, avg_d=0.015, avg_f=1.0)}
 
 
 def get(url):
@@ -83,9 +86,13 @@ def atr_pct(b):
 
 
 def load():
-    try: return json.loads((OUT / 'state.json').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+    try:
+        st = json.loads((OUT / 'state.json').read_text(encoding='utf-8'))
+        for k in STRATS: st['S'].setdefault(k, {'held': {}, 'last': {}, 'trades': []})
+        return st
+    except (OSError, ValueError, KeyError):
         return {'last_bar': None, 'S': {k: {'held': {}, 'last': {}, 'trades': []} for k in STRATS}}
+
 
 
 def save(st):
@@ -118,10 +125,14 @@ def step(st, now=None):
             n_new = int((last_start - dt.datetime.fromisoformat(since).replace(tzinfo=UTC)).total_seconds() // 900)
             for o, hi, lo, c in B[m][-min(max(n_new, 1), NBARS - 1):]:
                 e, out, why = h['e'], None, None
+                h.setdefault('u', 1.0); h.setdefault('cost', e)
+                if cfg.get('avg_d') and not h.get('added') and lo <= e * (1 - cfg['avg_d']):     # 물타기(1회, 지정가)
+                    px = float(min(e * (1 - cfg['avg_d']), o)); h['added'] = True; h['u'] += cfg['avg_f']; h['cost'] += cfg['avg_f'] * px; h['add_px'] = px
+                avg = h['cost'] / h['u']
                 if lo <= e * (1 - cfg['stop']): out, why = min(e * (1 - cfg['stop']), o), '손절'
                 else:
                     h['peak'] = float(max(h['peak'], c))
-                    if h['peak'] >= e * (1 + cfg['at']) and c <= h['peak'] - cfg['give'] * (h['peak'] - e): out, why = c, '이익보호'
+                    if h['peak'] >= avg * (1 + cfg['at']) and c <= h['peak'] - cfg['give'] * (h['peak'] - avg): out, why = c, '이익보호'
                 if out is not None:
                     close(s, m, out, why, key); break
         if not hour: continue
@@ -135,7 +146,7 @@ def step(st, now=None):
             if rank.get(m, 99) > M:
                 h.setdefault('out_since', key)
                 n_out = (last_start - dt.datetime.fromisoformat(h['out_since']).replace(tzinfo=UTC)).total_seconds() / 900
-                if B[m][-1, 3] >= h['e'] or n_out >= 16: close(s, m, B[m][-1, 3], '순위', key)
+                if B[m][-1, 3] >= h.get('cost', h['e']) / h.get('u', 1.0) or n_out >= 16: close(s, m, B[m][-1, 3], '순위', key)
             else:
                 h.pop('out_since', None)
         # 3) 매수
@@ -160,9 +171,11 @@ def step(st, now=None):
 
 def close(s, m, px, why, key):
     h = s['held'].pop(m); px = float(px)
-    r = float(px / h['e'] - 1 - COST)
-    s['trades'].append({'m': m, 'open': h['open'], 'close': dt.datetime.now(KST).isoformat(timespec='seconds'), 'e': h['e'], 'x': px, 'ret': r, 'why': why})
-    s['last'][m] = {'bar': key, 'px': px, 'profit': bool(px > h['e'])}
+    u, cost = h.get('u', 1.0), h.get('cost', h['e'])
+    r = float((u * px - cost) / h['e'] - COST / 2 * (u * px + cost) / h['e'])     # 첫 매수 금액 기준(물타기 금액 손익 포함)
+    s['trades'].append({'m': m, 'open': h['open'], 'close': dt.datetime.now(KST).isoformat(timespec='seconds'), 'e': h['e'], 'x': px, 'ret': r, 'why': why,
+                        'cap': u, 'added': bool(h.get('added'))})
+    s['last'][m] = {'bar': key, 'px': px, 'profit': bool(px > cost / u)}
 
 
 def report(st, day=None):
@@ -174,22 +187,25 @@ def report(st, day=None):
     for code, cfg in STRATS.items():
         s = st['S'][code]; tr = s['trades']
         d = [t for t in tr if dt.datetime.fromisoformat(t['close']).date() == day]
-        lines += [f"## {code}. {cfg['name']} (손절 {cfg['stop']:.1%}·+{cfg['at']:.0%} 뒤 {cfg['give']:.0%} 반납)", '',
+        extra = f" · 첫 매수가 −{cfg['avg_d']:.1%}에 같은 금액 물타기" if cfg.get('avg_d') else ''
+        lines += [f"## {code}. {cfg['name']} (손절 {cfg['stop']:.1%}·+{cfg['at']:.0%} 뒤 {cfg['give']:.0%} 반납{extra})", '',
                   '| 구분 | 건수 | 1건 평균 | 합계(1건 10만 원) | 승률 | 손절 | 이익보호 | 순위 |', '|---|---|---|---|---|---|---|---|']
         for name, xs in ((f'{day:%m-%d} 하루', d), ('시작 뒤 누적', tr)):
             if xs:
                 v = np.array([t['ret'] for t in xs])
                 cnt = lambda w: sum(t['why'] == w for t in xs)
                 lines.append(f"| {name} | {len(v)} | {v.mean():+.2%} | {v.sum() * KRW:+,.0f}원 | {(v > 0).mean():.0%} | {cnt('손절')} | {cnt('이익보호')} | {cnt('순위')} |")
+                if cfg.get('avg_d'):
+                    ad = [t for t in xs if t.get('added')]
+                    lines.append(f"| └ 물타기 한 건 | {len(ad)} | {np.mean([t['ret'] for t in ad]) if ad else 0:+.2%} | {sum(t['ret'] for t in ad) * KRW:+,.0f}원 | | | | |")
             else:
                 lines.append(f'| {name} | 0 | - | - | - | - | - | - |')
         marks = st.get('marks', {})
         if s['held']:
             lines += ['', '보유 중: ' + ', '.join(f"{m[4:]} {(marks.get(m, h['e']) / h['e'] - 1):+.1%}(매수 {h['open'][5:16]})" for m, h in s['held'].items())]
         lines.append('')
-    a, b = st['S']['A']['trades'], st['S']['B']['trades']
-    if a and b:
-        lines.append(f"- 누적 비교: B − A = 1건 평균 {np.mean([t['ret'] for t in b]) - np.mean([t['ret'] for t in a]):+.2%}p, 합계 {(sum(t['ret'] for t in b) - sum(t['ret'] for t in a)) * KRW:+,.0f}원")
+    tot = {k: sum(t['ret'] for t in st['S'][k]['trades']) * KRW for k in STRATS}
+    lines.append('- 누적 합계(1건 첫 매수 10만 원): ' + ' · '.join(f'{k} {v:+,.0f}원' for k, v in tot.items()) + ' (C는 물타기 금액 손익 포함, 판정은 C − B로 물타기 효과를 본다)')
     fl = flow_status()
     if fl: lines.append(f'- 체결 강도·호가 수집(3번): {fl}')
     lines += ['', '주의: 하루·며칠 결과는 장세 영향이 크다. 판정은 2주 뒤 기준으로만 한다.']

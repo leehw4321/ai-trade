@@ -145,14 +145,17 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
             act, label = ('reentry_unrelease', '해제 취소') if m in released else ('reentry_release', '재매수 해제')
             btn += f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
         if can_promote and not (w and w.get('trade_blocked', True)):   # 사용자 직접 매수(2026-11-28): 커서를 올리면 보인다
-            btn += f" <button class=ub-btn data-m='{esc(m)}'>직접 매수</button>"
+            upx = (prices or {}).get(m)
+            btn += f" <button class=ub-btn data-m='{esc(m)}' data-px='{upx if isinstance(upx, (int, float)) and upx > 0 else ''}'>직접 매수</button>"
         tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
         rest = (resting or {}).get(m)
         if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
             tag = (tag + ' · ' if tag else '') + f"지정가 매수 중 {fmt_price(rest['price'])}원"
             btn += (f" <span class=rest-cd data-dl='{rest['deadline']:.0f}'></span>"
                     + (f" <button class=pr-btn data-act=rest_extend data-m='{esc(m)}' style='visibility:visible'>+2분</button>"
-                       f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>" if can_promote else ''))
+                       f" <button class=pr-btn data-act=buy_now data-m='{esc(m)}'>즉시 시장가</button>"
+                       + (f" <button class=pr-btn data-act=user_rest_cancel data-m='{esc(m)}'>취소</button>" if rest.get('user') else '') if can_promote else ''))
+            if rest.get('user'): tag = tag.replace('지정가 매수 중', '사용자 지정가 매수 중')
 
         px = (prices or {}).get(m)
         name = esc(m[4:]) + (f" <span class=sub>{fmt_price(px)}원</span>" if isinstance(px, (int, float)) and px > 0 else '')
@@ -349,7 +352,7 @@ def promote_script(api):
         return REST_CD
     return ("<div id=pr-res class=sub></div><script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token']}) + ";"
             "document.querySelectorAll('.pr-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,a=b.dataset.act;"
-            "if(a!='rest_extend'&&!confirm(a=='reentry_release'?m.slice(4)+' 재매수 금지를 1회 해제합니다.\\n다른 매수 조건(순위·과열·급락·5분봉·경보)을 통과하면 다음 판단에서 삽니다.\\n주의: 과거 자료에서 매도 직후 재매수는 평균 손실이었습니다.\\n진행할까요?':a=='reentry_unrelease'?m.slice(4)+' 재매수 해제를 취소할까요?':a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
+            "if(a!='rest_extend'&&!confirm(a=='reentry_release'?m.slice(4)+' 재매수 금지를 1회 해제합니다.\\n다른 매수 조건(순위·과열·급락·5분봉·경보)을 통과하면 다음 판단에서 삽니다.\\n주의: 과거 자료에서 매도 직후 재매수는 평균 손실이었습니다.\\n진행할까요?':a=='reentry_unrelease'?m.slice(4)+' 재매수 해제를 취소할까요?':a=='buy_now'?m.slice(4)+' 지정가 매수를 취소하고 남은 금액을 바로 시장가로 삽니다.\\n진행할까요?':a=='promote'?m.slice(4)+'을(를) 1회 매수 대상으로 올립니다(과열 상한 20%). 한 번 사면 사라지고 과열이 풀리면 지워집니다.\\n진행할까요?':a=='user_rest_cancel'?m.slice(4)+' 사용자 지정가 매수를 취소할까요? 체결된 부분은 그대로 보유합니다.':m.slice(4)+' 직접 지정을 취소할까요?'))return;"
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
@@ -357,17 +360,51 @@ def promote_script(api):
 
 
 def user_buy_script(api):
-    """순위표 '직접 매수'(2026-11-28 사용자 지시). 금액을 묻고 확인한 뒤 127.0.0.1 봇 서버로만 보낸다."""
+    """순위표 '직접 매수'(2026-11-28 사용자 지시). 현재가를 보여 주고 희망 매수가를 ▲▼ 호가 칸으로 조절해 지정가 또는 시장가로 주문한다.
+    127.0.0.1 봇 서버로만 보낸다. 호가 단위는 upbit.TICKS와 같다."""
     cap = int(api.get('buy_max') or 100000)
-    return ("<script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token'], 'cap': cap}) + ";"
-            "document.querySelectorAll('.ub-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,r=document.getElementById('pr-res');"
-            "var k=prompt(m.slice(4)+' 직접 매수 금액(원, 5,000~'+A.cap.toLocaleString()+')','30000');if(k===null)return;k=parseInt(String(k).replace(/[^0-9]/g,''),10);"
-            "if(!(k>=5000&&k<=A.cap)){alert('금액은 5,000원 이상 '+A.cap.toLocaleString()+'원 이하로 입력하세요.');return}"
-            "if(!confirm(m.slice(4)+'을(를) '+k.toLocaleString()+'원어치 시장가로 직접 매수합니다.\\n사용자 주문으로 표시되고 보호가 걸려 봇은 이 종목을 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서 직접).\\n봇 거래와 승패를 비교하는 기록에 남습니다.\\n진행할까요?'))return;"
-            "b.disabled=true;r.textContent='⏳ 매수 요청 중…';"
-            "fetch('http://127.0.0.1:'+A.port+'/user_buy',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true,krw:k})})"
-            ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;b.disabled=false})"
-            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.';b.disabled=false})})})})()</script>")
+    cfg = json.dumps({'port': api['port'], 'token': api['token'], 'cap': cap, 'ticks': upbit.TICKS})
+    return (UB_HTML + "<script>(function(){var A=" + cfg + ";" + UB_JS + "})()</script>")
+
+
+UB_HTML = """<div id=ub-modal hidden style='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px'>
+<div style='background:var(--card,#fff);color:inherit;border-radius:12px;padding:18px 20px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.35)'>
+<h3 id=ub-title style='margin:0 0 4px'></h3><div id=ub-sub class=sub></div>
+<table style='width:100%;margin-top:8px;font-size:14px'><tr><td>현재가</td><td id=ub-now style='text-align:right;font-weight:600'></td></tr>
+<tr><td>희망 매수가</td><td style='text-align:right'><button type=button id=ub-dn class=ub-step>▼</button> <input id=ub-px inputmode=decimal style='width:110px;text-align:right;padding:5px'> <button type=button id=ub-up class=ub-step>▲</button></td></tr>
+<tr><td></td><td id=ub-diff class=sub style='text-align:right'></td></tr>
+<tr><td>금액(원)</td><td style='text-align:right'><input id=ub-krw type=number min=5000 step=1000 style='width:110px;text-align:right;padding:5px'></td></tr></table>
+<div id=ub-q style='margin-top:10px;font-size:13.5px;line-height:1.5'></div>
+<div style='display:flex;gap:8px;margin-top:10px;flex-wrap:wrap'><button type=button id=ub-limit class=ub-go>지정가 주문</button><button type=button id=ub-mkt class=ub-go>시장가 주문</button><button type=button id=ub-close>닫기</button></div>
+<div id=ub-res role=status style='margin-top:8px;font-size:13.5px'></div>
+<div class=sub style='margin-top:8px'>사용자 주문으로 표시되고 보호가 걸려 봇은 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서). 지정가는 최대 60분 기다리고 안 사지면 취소(시장가로 바꾸지 않음). 희망가가 매도호가 이상이면 시장가로 체결됩니다.</div>
+</div></div><style>.ub-step{width:30px;padding:4px 0;cursor:pointer}.ub-go{background:#1f6feb;color:#fff;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}#ub-close{padding:8px 14px;border-radius:7px;cursor:pointer}.ub-go:disabled{opacity:.5}</style>"""
+
+UB_JS = """var $=function(i){return document.getElementById(i)},box=$('ub-modal'),cur=null,base=0,stage=null;
+function tk(p){for(var i=0;i<A.ticks.length;i++)if(p>=A.ticks[i][0])return A.ticks[i][1];return 1e-8}
+function dec(t){var s=String(t);return s.indexOf('e-')>0?parseInt(s.split('e-')[1],10):(s.split('.')[1]||'').length}
+function snap(p){var t=tk(p);return Number((Math.floor(p/t+1e-9)*t).toFixed(dec(t)))}
+function fmt(p){return Number(p).toLocaleString('ko-KR',{maximumFractionDigits:dec(tk(p))})}
+function px(){return Number(String($('ub-px').value).replace(/,/g,''))}
+function show(){var p=px();if(!(p>0)){$('ub-diff').textContent='';return}var n=Math.round((p-base)/tk(Math.min(p,base)));
+$('ub-diff').textContent=base?('현재가 대비 '+(p>=base?'+':'')+((p/base-1)*100).toFixed(2)+'% · '+(n>0?'+':'')+n+'칸'):'';stage=null;$('ub-q').textContent=''}
+function step(d){var p=px()||base;var t=d>0?tk(p):tk(p-tk(p)*0.5);var q=snap(p+d*t);if(q>0){$('ub-px').value=fmt(q);show()}}
+function open(m,p0){cur=m;base=Number(p0)||0;stage=null;$('ub-title').textContent=m.slice(4)+' 직접 매수';$('ub-sub').textContent=m;
+$('ub-now').textContent=base?fmt(base)+'원':'확인 불가(화면 새로고침)';$('ub-px').value=base?fmt(base):'';$('ub-krw').value=Math.min(30000,A.cap);$('ub-krw').max=A.cap;
+$('ub-res').textContent='';$('ub-q').textContent='';$('ub-limit').disabled=$('ub-mkt').disabled=false;show();box.hidden=false}
+function go(kind){var k=parseInt($('ub-krw').value,10),p=px();
+if(!(k>=5000&&k<=A.cap)){$('ub-res').textContent='금액은 5,000원 이상 '+A.cap.toLocaleString()+'원 이하';return}
+if(kind==='limit'&&!(p>0&&snap(p)===p)){$('ub-res').textContent='희망 매수가가 호가 단위에 맞지 않습니다(▲▼로 조절)';return}
+if(stage!==kind){stage=kind;$('ub-q').textContent=kind==='limit'?(cur.slice(4)+' '+fmt(p)+'원에 '+k.toLocaleString()+'원어치 지정가 매수를 겁니다(현재가 대비 '+(base?((p/base-1)*100).toFixed(2)+'%':'-')+'). 한 번 더 누르면 주문합니다.'):(cur.slice(4)+' '+k.toLocaleString()+'원어치를 시장가로 바로 삽니다. 한 번 더 누르면 주문합니다.');return}
+$('ub-limit').disabled=$('ub-mkt').disabled=true;$('ub-res').textContent='⏳ 주문 요청 중…';
+var body={token:A.token,market:cur,confirm:true,krw:k};if(kind==='limit')body.price=p;
+fetch('http://127.0.0.1:'+A.port+(kind==='limit'?'/user_limit_buy':'/user_buy'),{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)})
+.then(function(x){return x.json()}).then(function(d){$('ub-res').textContent=(d.ok?'✔ ':'✘ ')+d.message;stage=null;$('ub-q').textContent='';if(!d.ok)$('ub-limit').disabled=$('ub-mkt').disabled=false})
+.catch(function(){$('ub-res').textContent='✘ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.';$('ub-limit').disabled=$('ub-mkt').disabled=false})}
+document.querySelectorAll('.ub-btn').forEach(function(b){b.addEventListener('click',function(){open(b.dataset.m,b.dataset.px)})});
+$('ub-up').onclick=function(){step(1)};$('ub-dn').onclick=function(){step(-1)};$('ub-px').oninput=show;$('ub-krw').oninput=function(){stage=null;$('ub-q').textContent=''};
+$('ub-limit').onclick=function(){go('limit')};$('ub-mkt').onclick=function(){go('market')};$('ub-close').onclick=function(){box.hidden=true};
+box.addEventListener('click',function(e){if(e.target===box)box.hidden=true});"""
 
 
 # 지정가 매수 남은 시간(1초마다). 서버가 없어도 표시는 한다.
@@ -1265,7 +1302,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease','user_buy','user_sell'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease','user_buy','user_sell','user_limit_buy','user_rest_cancel'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect','adopt'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -1300,7 +1337,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     last_display = 0; self._refresh_now = False
                 TF = self.p.tf * 60
                 end4 = boundary(now - SETTLE, TF)
-                held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']))
+                held = list({m for lg in self.ledgers.values() for m in lg.d['positions']} | set(self.live.d['positions']) | set(self.live.d.get('resting_orders') or {}))
                 if held and now - last_stop >= stop_iv:
                     live = {m: t['trade_price'] for m, t in upbit.tickers(held).items()}
                     if self.can_act():  # 실행권이 없는 PC는 실거래 손절·판단을 하지 않는다(주문은 어차피 막힌다)
@@ -1483,6 +1520,13 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 elif req.kind == 'user_buy':   # 순위표·상세 창 사용자 직접 매수(2026-11-28)
                     ok, msg = self.live.user_buy(req.market, req.krw, self.markets or upbit.krw_markets(), self.user_context(req.market))
                     label = f'사용자 직접 매수 {req.krw:,}원'; self._protection_ui_dirty = True
+                elif req.kind == 'user_limit_buy':   # 사용자 지정가(희망 매수가) 매수(2026-11-28)
+                    lp = (getattr(req, 'options', None) or {}).get('price')
+                    ok, msg = self.live.user_limit_buy(req.market, req.krw, lp, self.markets or upbit.krw_markets(), self.user_context(req.market))
+                    label = f'사용자 지정가 매수 {req.krw:,}원 @{lp}'; self._protection_ui_dirty = True
+                elif req.kind == 'user_rest_cancel':
+                    ok, msg = self.live.cancel_user_rest(req.market)
+                    label = '사용자 지정가 매수 취소'
                 elif req.kind == 'user_sell':
                     prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
                     opt = getattr(req, 'options', None) or {}

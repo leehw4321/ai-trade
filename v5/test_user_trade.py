@@ -118,6 +118,60 @@ class UserTradeTests(unittest.TestCase):
         self.assertEqual(srv.check('127.0.0.1:8765', 'null', body(pct=33), 'user_sell')[0], 400)
 
 
+class UserLimitBuyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name); (root / 'data').mkdir()
+        (root / 'data/user_protected_assets.json').write_text('{"markets":[]}')
+        self.w = live.Live(root / 'data/live', {'enabled': True, 'max_order_krw': 10**9, 'max_total_buy_krw': 10**9}, live.st.Params())
+        self.markets = {'KRW-A': {'warning': False}}
+        self.order = {'uuid': 'L1', 'state': 'wait', 'trades': [], 'paid_fee': '0'}
+        self.ps = [patch.object(live.upbit, 'accounts', return_value=[{'currency': 'KRW', 'balance': '1000000', 'locked': '0'}]),
+                   patch.object(live.upbit, 'orderbooks', return_value={'KRW-A': {'ask': 100.0, 'bid': 99.9}}),
+                   patch.object(live.upbit, 'completed_candles', return_value=[]),
+                   patch.object(live.st, 'wilder_atr', return_value=2.0),
+                   patch.object(live.upbit, 'limit_buy_post_only', side_effect=lambda m, px, v, identifier: (self.order.update(identifier=identifier, market=m, side='bid'), dict(self.order))[1]),
+                   patch.object(live.upbit, 'get_order', side_effect=lambda u: dict(self.order)),
+                   patch.object(live.upbit, 'cancel_order', side_effect=lambda u: self.order.update(state='cancel')),
+                   patch.object(live.upbit, 'tickers', side_effect=lambda ms: {m: {'trade_price': 99.0} for m in ms}),
+                   patch.object(live.upbit, 'market_buy', side_effect=AssertionError('no market order')),
+                   patch.object(self.w, '_wait', side_effect=lambda o: dict(self.order)),
+                   patch.object(self.w, 'scan_manual_orders', side_effect=lambda m=None, risk=False, amount=None, allow_protected=False: amount)]
+        for x in self.ps: x.start(); self.addCleanup(x.stop)
+
+    def test_limit_waits_protected_then_fill_becomes_user_trade(self):
+        ok, msg = self.w.user_limit_buy('KRW-A', 30000, 98.0, self.markets, {'rank': 2})
+        self.assertTrue(ok, msg)
+        self.assertIn('KRW-A', self.w.protected_markets())          # 걸 때부터 보호
+        self.assertIn('KRW-A', self.w.d['resting_orders'])
+        self.w.manage_resting({'KRW-A': 99.0}, still_ok=lambda m, r: '봇 조건 붕괴')   # 봇 조건으로 취소하지 않음
+        self.assertIn('KRW-A', self.w.d['resting_orders'])
+        self.order.update(state='done', executed_volume='300', trades=[{'volume': '300', 'funds': '29400'}], paid_fee='14.7')
+        self.w.manage_resting({'KRW-A': 98.0})
+        self.assertNotIn('KRW-A', self.w.d.get('resting_orders', {}))
+        pos = self.w.d['positions']['KRW-A']
+        self.assertEqual(pos['qty'], 300.0); self.assertEqual(pos['user_trade']['context']['limit_price'], 98.0)
+        rows = [json.loads(l) for l in self.w.user_trade_file.read_text(encoding='utf-8').splitlines()]
+        self.assertEqual((rows[0]['event'], rows[0]['order']), ('open', 'limit'))
+
+    def test_expiry_without_fill_cancels_and_unprotects_no_market_fallback(self):
+        ok, _ = self.w.user_limit_buy('KRW-A', 30000, 98.0, self.markets)
+        self.assertTrue(ok)
+        self.w.d['resting_orders']['KRW-A']['resting']['deadline'] = 0
+        self.w.manage_resting({'KRW-A': 99.0})
+        self.assertNotIn('KRW-A', self.w.d.get('resting_orders', {}))
+        self.assertNotIn('KRW-A', self.w.d['positions'])
+        self.assertNotIn('KRW-A', self.w.protected_markets())       # 하나도 안 사졌으면 보호 되돌림
+
+    def test_price_validation_and_cancel(self):
+        for bad in (98.05, 60.0, -1, float('nan')):
+            ok, msg = self.w.user_limit_buy('KRW-A', 30000, bad, self.markets); self.assertFalse(ok, bad)
+        ok, _ = self.w.user_limit_buy('KRW-A', 30000, 97.0, self.markets); self.assertTrue(ok)
+        ok, msg = self.w.user_limit_buy('KRW-A', 30000, 96.0, self.markets); self.assertFalse(ok); self.assertIn('진행 중', msg)
+        ok, _ = self.w.cancel_user_rest('KRW-A'); self.assertTrue(ok)
+        self.assertEqual(self.w.d['resting_orders']['KRW-A']['resting']['deadline'], 0)
+
+
 class RankButtonTests(unittest.TestCase):
     def test_rank_rows_have_hover_buy_button_only_with_server(self):
         import bot, strategy as st
@@ -126,7 +180,7 @@ class RankButtonTests(unittest.TestCase):
         self.assertNotIn('ub-btn', bot.ranking_rows(rk, set(), {}, st.Params(), can_promote=False))
         self.assertNotIn('ub-btn', bot.ranking_rows(rk, set(), {'KRW-A': {'trade_blocked': True, 'warning_reasons': ['유의']}}, st.Params(), can_promote=True))
         js = bot.user_buy_script({'port': 1, 'token': 't', 'buy_max': 100000})
-        self.assertIn("'/user_buy'", js); self.assertIn('confirm(', js); self.assertIn('prompt(', js)
+        self.assertIn("'/user_buy'", js); self.assertIn("'/user_limit_buy'", js); self.assertIn('ub-up', js)
 
 
 if __name__ == '__main__':

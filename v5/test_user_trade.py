@@ -181,6 +181,10 @@ class RankButtonTests(unittest.TestCase):
         self.assertNotIn('ub-btn', bot.ranking_rows(rk, set(), {'KRW-A': {'trade_blocked': True, 'warning_reasons': ['유의']}}, st.Params(), can_promote=True))
         js = bot.user_buy_script({'port': 1, 'token': 't', 'buy_max': 100000})
         self.assertIn("'/user_buy'", js); self.assertIn("'/user_limit_buy'", js); self.assertIn('ub-up', js)
+        # 2026-11-28 사고: 창 자체 style의 display:flex가 hidden을 이겨 페이지를 열 때마다 빈 주문 창이 화면을 덮었다
+        import re
+        tag = re.search(r'<div id=ub-modal[^>]*>', js).group(0)
+        self.assertNotIn('display', tag); self.assertIn('#ub-modal[hidden]{display:none!important}', js)
 
 
 if __name__ == '__main__':

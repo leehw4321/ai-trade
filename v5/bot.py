@@ -367,7 +367,7 @@ def user_buy_script(api):
     return (UB_HTML + "<script>(function(){var A=" + cfg + ";" + UB_JS + "})()</script>")
 
 
-UB_HTML = """<div id=ub-modal hidden style='position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px'>
+UB_HTML = """<div id=ub-modal hidden>
 <div style='background:var(--card,#fff);color:inherit;border-radius:12px;padding:18px 20px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.35)'>
 <h3 id=ub-title style='margin:0 0 4px'></h3><div id=ub-sub class=sub></div>
 <table style='width:100%;margin-top:8px;font-size:14px'><tr><td>현재가</td><td id=ub-now style='text-align:right;font-weight:600'></td></tr>
@@ -378,7 +378,7 @@ UB_HTML = """<div id=ub-modal hidden style='position:fixed;inset:0;background:rg
 <div style='display:flex;gap:8px;margin-top:10px;flex-wrap:wrap'><button type=button id=ub-limit class=ub-go>지정가 주문</button><button type=button id=ub-mkt class=ub-go>시장가 주문</button><button type=button id=ub-close>닫기</button></div>
 <div id=ub-res role=status style='margin-top:8px;font-size:13.5px'></div>
 <div class=sub style='margin-top:8px'>사용자 주문으로 표시되고 보호가 걸려 봇은 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서). 지정가는 최대 60분 기다리고 안 사지면 취소(시장가로 바꾸지 않음). 희망가가 매도호가 이상이면 시장가로 체결됩니다.</div>
-</div></div><style>.ub-step{width:30px;padding:4px 0;cursor:pointer}.ub-go{background:#1f6feb;color:#fff;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}#ub-close{padding:8px 14px;border-radius:7px;cursor:pointer}.ub-go:disabled{opacity:.5}</style>"""
+</div></div><style>#ub-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px}#ub-modal[hidden]{display:none!important}.ub-step{width:30px;padding:4px 0;cursor:pointer}.ub-go{background:#1f6feb;color:#fff;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}#ub-close{padding:8px 14px;border-radius:7px;cursor:pointer}.ub-go:disabled{opacity:.5}</style>"""
 
 UB_JS = """var $=function(i){return document.getElementById(i)},box=$('ub-modal'),cur=null,base=0,stage=null;
 function tk(p){for(var i=0;i<A.ticks.length;i++)if(p>=A.ticks[i][0])return A.ticks[i][1];return 1e-8}

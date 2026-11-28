@@ -23,7 +23,7 @@ def render(live, account_markets=(), action=None):
         button=(f'<button type="button" data-choice="unprotect" data-market="{e(market)}">보호 해제</button>' if is_protected
                 else f'<button type="button" data-choice="protect" data-market="{e(market)}">보호하기</button>')
         if market in set(account_markets) and market not in live.d['positions']:   # 봇 장부 밖 직접 보유: 봇에게 넘기기(2026-11-28)
-            button+=f' <button type="button" data-choice="adopt" data-market="{e(market)}">봇 장부로 넘기기</button>'
+            button+=f' <button type="button" data-choice="adopt" data-market="{e(market)}">봇 장부에 올리기(보호 유지)</button>'
         keep=f'<button type="button" data-choice="protect" data-market="{e(market)}">보호 유지</button>'
         if is_protected and manual.get('pending'):
             pending.append(f'<div class="ap-pending"><b>{name}</b> 직접 주문/보유 감지 · 보호 중입니다. 보호를 해제할까요? 답하지 않으면 계속 보호합니다. {keep} {button}</div>')
@@ -53,10 +53,7 @@ const board=document.getElementById('asset-protection-board'),raw=document.getEl
 if(!board||!raw)return;let D;try{D=JSON.parse(raw.textContent)}catch(e){return}
 const out=document.getElementById('ap-result'),ask=document.getElementById('ap-confirm');let chosen=null,busy=false;
 function clear(){chosen=null;ask.hidden=true;try{sessionStorage.removeItem('protectionAsk')}catch(e){}}
-function adopt(m){const r=D.rows[m];if(!r)return;if(!confirm(m.substring(4)+'을(를) 봇 장부로 넘깁니다.
-주문은 나가지 않습니다. 업비트 잔고 전부·평균 매수가 그대로 장부에 올리고, 손절가는 현재가 기준(최대 -3.5%)으로 새로 잡습니다.
-보호가 해제되고 다음 판단부터 봇이 손절·이익보호·순위 매도로 관리합니다(곧 팔릴 수 있음).
-진행할까요?'))return;send('adopt',m,r.revision)}
+function adopt(m){const r=D.rows[m];if(!r)return;if(!confirm(m.substring(4)+'을(를) 봇 장부에 올립니다.\n주문은 나가지 않습니다. 업비트 잔고 전부·평균 매수가 그대로 장부에 올리고, 손절가는 현재가 기준(최대 -3.5%)으로 잡습니다.\n사용자 보호는 그대로라 봇은 아직 매매하지 않습니다. 매수·매도 권한은 [보호 해제]로 따로 넘깁니다.\n진행할까요?'))return;send('adopt',m,r.revision)}
 function choose(m){const r=D.rows[m];if(!r)return;chosen={market:m,revision:r.revision};ask.hidden=false;document.getElementById('ap-question').textContent=m.substring(4)+' 보호를 해제하고 봇 관리를 허용할까요?';try{sessionStorage.setItem('protectionAsk',JSON.stringify(chosen))}catch(e){}}
 async function send(kind,m,rev){
 if(busy)return;if(!D.action){out.textContent='봇의 보호 제어 연결을 확인한 뒤 새로고침하세요.';return}

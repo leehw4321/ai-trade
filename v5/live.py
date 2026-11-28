@@ -224,11 +224,35 @@ class Live:
         except (asset_protection.ProtectionError,OSError,ValueError,TypeError) as error:
             raise ProtectedAssetError(str(error)) from None
 
+    def _loss_flat_price(self, market):
+        """보호 변경으로 손실 집계에 들고 나는 봇 장부 종목의 현재가. 장부에 없으면 None(조정 불필요)."""
+        if market not in self.d['positions']: return None
+        px = (upbit.tickers([market]).get(market) or {}).get('trade_price')
+        if type(px) not in (int, float) or not math.isfinite(px) or px <= 0:
+            raise ProtectedAssetError('현재가를 확인할 수 없어 보호 변경 보류(손실 집계 기준을 맞출 수 없음)')
+        return px
+
+    def _keep_loss_flat(self, market, price, change):
+        """change() 전후 손실 집계 차이를 기준(risk_loss_offset)으로 옮겨, 보호 변경·장부 편입 순간 손실 중단선이 움직이지 않게 한다
+        (2026-11-28). 이후 그 종목의 손익만 봇 손실로 쌓인다."""
+        prices = {m: price for m in [market]} if price else {}
+        before = self.raw_loss(prices)
+        result = change()
+        delta = self.raw_loss(prices) - before
+        if delta:
+            self.d['risk_loss_offset'] = self.d.get('risk_loss_offset', 0.) + delta
+            self.record({'event': '손실 집계 기준 조정(보호 변경·장부 편입)', 'market': market, 'delta': delta,
+                         'loss_offset': self.d['risk_loss_offset']})
+        self.save()
+        return result
+
     def set_user_protection(self, market, protect, revision=None):
+        market=normalize_protected_market(market)
         if not protect: self.scan_manual_orders(market,allow_protected=True)
-        result=self.protection_policy.decide(market,protect,expected=revision)
+        price=self._loss_flat_price(market)
+        result=self._keep_loss_flat(market,price,lambda:self.protection_policy.decide(market,protect,expected=revision))
         self.record({'event':'사용자 보호 선택','market':result['market'],'protected':protect})
-        return True, ('보호 유지: 봇 주문·손절·익절 제외' if protect else '보호 해제: 다음 봇 판단부터 관리 허용')
+        return True, ('보호 유지: 봇 주문·손절·익절 제외' if protect else '보호 해제: 봇에게 매수·매도 권한을 넘김(다음 판단부터 관리)')
 
     def assert_unprotected(self, market):
         if self.is_protected(market):
@@ -1772,10 +1796,10 @@ class Live:
         return True, msg
 
     def adopt_user_holding(self, market, revision=None):
-        """사용자가 직접 산(봇 장부 밖) 종목 한 개를 봇 장부로 넘긴다(사용자 지시 2026-11-28). 주문은 내지 않는다.
+        """사용자가 직접 산(봇 장부 밖) 종목 한 개를 봇 장부에 올린다(사용자 지시 2026-11-28). 주문은 내지 않는다.
         수량 = 업비트 잔고 전부, 원가 = 업비트 평균 매수가 × 수량, 손절가 = 현재가 기준(봇 매수와 같은 ATR·상한 규칙).
-        넘기는 순간의 평가손익은 손실 집계 기준(risk_baseline_unrealized)에 넣어 손실 중단선이 갑자기 움직이지 않게 한다.
-        모든 조회를 먼저 끝내고, 보호 해제(리비전 확인)가 성공한 뒤에만 장부에 넣는다."""
+        사용자 지시: 장부에 올려도 거래 주도권은 사용자에게 있다. 보호 상태는 바꾸지 않으며(보호 중이면 봇은 매매하지 않음),
+        매수·매도 권한은 별도 '보호 해제' 확인으로만 넘긴다. 손실 집계는 _keep_loss_flat으로 그 순간 값을 유지한다."""
         market = normalize_protected_market(market)
         if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
         if market in self.d['positions']: return False, '이미 봇 장부 종목입니다. 보호 해제만 누르면 봇이 관리합니다.'
@@ -1797,8 +1821,8 @@ class Live:
         stop = st.cap_stop(price, price - self.p.k * atr, self.p)
         if not (math.isfinite(stop) and 0 < stop < price): return False, '손절가를 정할 수 없어 보류'
         cost = qty * (avg if math.isfinite(avg) and avg > 0 else price)
-        # 보호 해제가 리비전 불일치(새 직접 주문 등)로 거절되면 장부는 바꾸지 않는다.
-        self.protection_policy.decide(market, False, expected=revision)
+        if revision != self.protection_policy.revision(market):
+            return False, '새 직접 주문 또는 보호 변경이 있습니다. 새로고침 후 다시 확인하세요.'
         now = now_iso()
         pos = {'qty': qty, 'cost': cost, 'stop': stop, 'time': now, 'inherited': True, 'stop_rebased': True,
                'adoption_price': price, 'atr': atr,
@@ -1807,15 +1831,15 @@ class Live:
         if rotation.enabled(self.p):
             pos['rotation_initial_risk'] = {'per_unit': max(0., price - stop), 'entry_price': price, 'stop': stop,
                                             'basis': 'user_handover_price_minus_initial_stop_excludes_costs'}
-        base_add = qty * price * (1 - 0.0005) - cost  # unrealized()와 같은 식
-        self.d['positions'][market] = pos
-        self.d['risk_baseline_unrealized'] = self.d.get('risk_baseline_unrealized', 0.) + base_add
-        self.save()
+        self._keep_loss_flat(market, price, lambda: self.d['positions'].__setitem__(market, pos))
+        guarded = self.is_protected(market)
         self.record({'event': '사용자 보유 봇 장부 편입', 'market': market, 'qty': qty, 'avg_buy_price': avg, 'price': price,
-                     'cost': cost, 'stop': stop, 'atr': atr, 'baseline_added': base_add})
+                     'cost': cost, 'stop': stop, 'atr': atr, 'protected': guarded})
         pnl = price / (cost / qty) - 1
-        msg = (f'{market[4:]} {qty:,.8g}개 봇 장부로 편입 · 평단 {cost / qty:,.4g} · 현재가 {price:,.4g} ({pnl:+.2%}) · '
-               f'손절가 {stop:,.4g} ({stop / price - 1:+.2%}) · 다음 판단부터 봇이 관리')
+        msg = (f'{market[4:]} {qty:,.8g}개 봇 장부에 올림 · 평단 {cost / qty:,.4g} · 현재가 {price:,.4g} ({pnl:+.2%}) · '
+               f'손절가 {stop:,.4g} ({stop / price - 1:+.2%}) · '
+               + ('사용자 보호 유지: 봇은 매매하지 않음. 매수·매도 권한은 [봇에게 매매 권한 넘기기]로 따로 넘김' if guarded
+                  else '보호 중이 아니어서 다음 판단부터 봇이 관리'))
         self.share(msg + ' (사용자 화면 지시)')
         return True, msg
 

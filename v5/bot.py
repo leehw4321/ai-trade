@@ -801,7 +801,7 @@ class Bot:
 <div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
 <div class=cols><div>{recent_box}</div><div><h3>{ol_title}</h3><ul>{ol}</ul></div></div>
-{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action(), outside=self.outside_rows(urows, protected, L['positions']))}{position_popup.MODAL}</section>"""
+{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action(), outside=self.outside_rows(urows, protected, L['positions']), prot=self.prot_rows(protected, L['positions']))}{position_popup.MODAL}</section>"""
 
     def outside_rows(self, urows, protected, positions):
         """보유 종목 표에서 봇 장부 밖(직접 보유) 종목의 상세. 보호 리비전은 '봇 장부로 넘기기' 확인에 쓴다."""
@@ -812,6 +812,14 @@ class Bot:
             try: rev = self.live.protection_policy.revision(m)
             except Exception: rev = None
             out[m] = position_popup.outside_detail(m, r, m in protected, rev)
+        return out
+
+    def prot_rows(self, protected, positions):
+        """봇 장부 종목의 보호 여부·리비전(상세 창의 '봇에게 매매 권한 넘기기' 확인용)."""
+        out = {}
+        for m in positions:
+            try: out[m] = (m in protected, self.live.protection_policy.revision(m))
+            except Exception: out[m] = (m in protected, None)
         return out
 
     def real_block(self, prices):

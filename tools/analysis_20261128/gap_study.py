@@ -31,7 +31,7 @@ def atr_pct(j, i, H, L, C):
     return np.nanmean(tr) / C[j, i]
 
 
-def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=False, reentry=False, slots=3, M=9, scan=7):
+def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=False, reentry=False, slots=3, M=9, scan=7, entry_filter=None):
     held = {}      # j → dict(e, i0, peak, out_since)
     last = {}      # j → (sell i, price, profit)
     trades = []
@@ -76,6 +76,7 @@ def portfolio(ms, grid, O, H, L, C, V, start_i, end_i, cap24=True, rank_exit=Fal
             if free <= 0: break
             if j in held or j not in uni: continue
             if not (0 < rs[j] < 0.20 and r4[j] > -0.10): continue
+            if entry_filter is not None and not entry_filter(j, i, O, H, L, C, V): continue   # 추가 매수 조건 시험용(2026-11-28)
             if reentry and j in last:
                 si, sp, prof = last[j]
                 hrs = (i - si) / 4

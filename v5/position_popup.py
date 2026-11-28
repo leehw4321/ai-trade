@@ -28,7 +28,7 @@ def detail(market, pos, price, last_sell=None, now=None):
         'stop': stop,
         'stop_gap_pct': (price / stop - 1) * 100 if price and stop else None,
         'peak': _num(pos.get('peak')), 'atr': _num(pos.get('atr')),
-        'trail': bool(pos.get('trail')), 'inherited': bool(pos.get('inherited')),
+        'trail': bool(pos.get('trail')), 'inherited': bool(pos.get('inherited')), 'user': bool(pos.get('user_trade')),
         'adoption_price': _num(pos.get('adoption_price')),
         'entered': str(pos.get('time') or '')[:16].replace('T', ' '),
         'held_hours': None, 'last_sell': None,
@@ -130,12 +130,12 @@ $('pm-yes').disabled=false;$('pm-no').disabled=false;$('pm-adopt').hidden=true;$
 if(x.outside&&A){$('pm-adopt').hidden=false;$('pm-adopt-btn').disabled=!x.sellable||x.revision==null}
 if(!x.outside&&x.protected&&A){$('pm-hand').hidden=false;$('pm-hand-btn').disabled=x.revision==null}
 if(!A){$('pm-act').hidden=true;$('pm-note').textContent='조회 전용 창입니다. 이 화면에서는 주문을 낼 수 없습니다.';return}
-$('pm-act').hidden=false;$('pm-note').textContent=(x.outside?'봇 장부 밖 보유입니다. [봇 장부에 올리기]는 주문 없이 업비트 잔고 전부·평균 매수가 그대로 장부에 올리고 손절가를 현재가 기준(최대 -3.5%)으로 잡습니다. 보호는 그대로라 봇은 매매하지 않습니다. ':'')+(x.protected?'사용자 보호 중: 매수·매도 권한은 사용자에게 있고 봇은 손절·익절도 하지 않습니다. 추가 매수·매도를 누르면 권한을 봇에게 넘길지 다시 묻습니다. ':'')+'주문은 되돌릴 수 없습니다(지정가는 대기 중 취소 버튼이 없고 기한 만료 때 취소됩니다). 주문은 봇이 실행권을 확인한 뒤 냅니다.';
+$('pm-act').hidden=false;$('pm-note').textContent=(x.outside?'봇 장부 밖 보유입니다. [봇 장부에 올리기]는 주문 없이 업비트 잔고 전부·평균 매수가 그대로 장부에 올리고 손절가를 현재가 기준(최대 -3.5%)으로 잡습니다. 보호는 그대로라 봇은 매매하지 않습니다. ':'')+((x.outside||x.protected)?'사용자 보호 중: 봇은 자동으로 손절·익절·매도하지 않습니다. 아래 추가 매수·매도는 사용자 직접 주문(시장가)으로 처리되고 봇 손익과 따로 기록됩니다. 봇에게 맡기려면 [봇에게 매매 권한 넘기기]. ':'')+'주문은 되돌릴 수 없습니다(지정가는 대기 중 취소 버튼이 없고 기한 만료 때 취소됩니다). 주문은 봇이 실행권을 확인한 뒤 냅니다.';
 var cap=A.buy_max||0;$('pm-amt').max=cap;$('pm-amt').value=cap?Math.min(30000,cap):'';$('pm-buy').disabled=!cap;
 $('pm-liq').disabled=!x.sellable;if(!x.sellable)$('pm-res').textContent='평가액 5,000원 미만은 최소 주문금액 때문에 청산할 수 없습니다.'}
 function back(){var x=D[cur];if(x&&x.outside)$('pm-adopt').hidden=false;if(x&&!x.outside&&x.protected)$('pm-hand').hidden=false;$('pm-ask').hidden=true;$('pm-liq').hidden=false;$('pm-buyrow').hidden=false;$('pm-pct').hidden=false;$('pm-ord').hidden=false}
 function ask(kind){var x=D[cur];if(!x||busy)return;mode=kind;$('pm-res').textContent='';
-function pre(){return (x.outside?'① 봇 장부에 올리고 ':'')+((x.outside||x.protected)?'② 매수·매도 권한을 봇에게 넘긴 뒤(보호 해제: 이후 봇이 손절·이익보호·순위 매도로 관리) ':'')}
+function pre(){return (x.outside?'봇 장부에 올린 뒤(보호 유지) ':'')+((x.outside||x.protected)?'사용자 직접 주문으로 ':'')}
 if(kind==='adopt'||kind==='hand'){$('pm-q').textContent=kind==='adopt'?x.name+' '+n(x.qty,8)+'개(평가액 약 '+n(x.value)+'원)를 봇 장부에 올립니다. 주문은 나가지 않고 사용자 보호는 그대로라 봇은 아직 매매하지 않습니다. 올리시겠습니까?':x.name+'의 매수·매도 권한을 봇에게 넘깁니다(보호 해제). 다음 판단부터 봇이 손절·이익보호·순위 매도로 관리하며 곧 팔릴 수 있습니다. 넘기시겠습니까?';$('pm-yes').textContent=kind==='adopt'?'예, 올립니다':'예, 권한을 넘깁니다';$('pm-hand').hidden=true;$('pm-adopt').hidden=true;$('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-ask').hidden=false;return}
 $('pm-yes').textContent='예, 청산합니다';
 if(kind==='buy'){amt=Number($('pm-amt').value);var cap=A.buy_max||0;
@@ -143,6 +143,7 @@ if(!Number.isInteger(amt)||amt<5000){$('pm-res').textContent='매수 금액은 5
 if(amt>cap){$('pm-res').textContent='1회 추가 매수 상한은 '+n(cap)+'원입니다.';return}
 $('pm-q').textContent=pre()+x.name+'을(를) '+n(amt)+'원어치 시장가로 추가 매수합니다.'+(x.trail?' ⚠ 추가 매수하면 이 종목의 추적 손절·이익 보호가 꺼집니다(기존 규칙).':'')+' 추가 매수를 원하십니까?'}
 else{sp=Number(pick('pmpct'))||100;so=pick('pmord')==='limit'?'limit':'market';
+if((x.outside||x.protected)&&so==='limit'){$('pm-res').textContent='사용자 보호 종목의 화면 매도는 시장가만 됩니다.';return}
 $('pm-q').textContent=pre()+x.name+' '+(sp===100?'전량':sp+'%')+'(평가액 약 '+n((x.value||0)*sp/100)+'원)을 '+(so==='limit'?'매도 1호가 지정가로 걸어 둡니다. 약 20분 안에 안 팔리면 취소되고 시장가로 바꾸지 않습니다.':'시장가로 매도합니다.')+' 매도를 원하십니까?'}
 $('pm-liq').hidden=true;$('pm-buyrow').hidden=true;$('pm-pct').hidden=true;$('pm-ord').hidden=true;$('pm-adopt').hidden=true;$('pm-hand').hidden=true;$('pm-ask').hidden=false}
 function send(){if(!A||!cur||busy)return;busy=true;$('pm-yes').disabled=true;$('pm-no').disabled=true;$('pm-res').textContent='주문 요청 중… (최대 45초)';
@@ -152,14 +153,14 @@ var x=D[cur],steps=[],done=[];
 var rv={token:A.token,market:cur,confirm:true,revision:x.revision};
 if(mode==='adopt')steps.push(['/adopt',rv]);
 else if(mode==='hand')steps.push(['/unprotect',rv]);
-else{if(x.outside)steps.push(['/adopt',rv]);if(x.outside||x.protected)steps.push(['/unprotect',rv]);steps.push([buy?'/buy':'/liquidate',doc])}
+else{if(x.outside)steps.push(['/adopt',rv]);steps.push((x.outside||x.protected)?[buy?'/user_buy':'/user_sell',doc]:[buy?'/buy':'/liquidate',doc])}
 function run(i){if(i>=steps.length)return Promise.resolve();$('pm-res').textContent='처리 중 '+(i+1)+'/'+steps.length+'…';
 return post(steps[i][0],steps[i][1]).then(function(d){done.push((d.ok?'✅ ':'⚠️ ')+d.message);if(!d.ok&&i<steps.length-1){done.push('→ 다음 단계는 하지 않았습니다.');return}return run(i+1)})}
 run(0).then(function(){$('pm-ask').hidden=true;$('pm-res').textContent=done.join(' ')+' (표는 30초 안에 갱신됩니다)'})
 .catch(function(){$('pm-ask').hidden=true;$('pm-res').textContent='⚠️ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.'})}
 function show(m){try{D=JSON.parse(el.textContent)}catch(e){}var x=D[m];if(!x)return;var same=(cur===m&&!box.hidden);cur=m;if(!same)resetAct(x);
 document.getElementById('pm-title').textContent=x.name+' ('+m+')';
-document.getElementById('pm-sub').textContent=x.outside?('봇 장부 밖 직접 보유'+(x.protected?' · 사용자 보호 중(봇이 손대지 않음)':'')):(x.inherited?'계좌 인수 보유분':'봇 신규 매수')+' · '+x.entered+(x.held_hours==null?'':' · 보유 '+n(x.held_hours,1)+'시간');
+document.getElementById('pm-sub').textContent=x.outside?('봇 장부 밖 직접 보유'+(x.protected?' · 사용자 보호 중(봇이 손대지 않음)':'')):(x.user?'사용자 직접 주문':x.inherited?'계좌 인수 보유분':'봇 신규 매수')+' · '+x.entered+(x.held_hours==null?'':' · 보유 '+n(x.held_hours,1)+'시간');
 document.getElementById('pm-body').textContent='';
 var c=x.pnl==null?'':(x.pnl>=0?'pm-up':'pm-dn');
 put('현재가',px(x.price));put('평균 매수가',px(x.avg));put('수량',n(x.qty,8));

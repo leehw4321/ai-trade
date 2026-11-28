@@ -214,6 +214,11 @@ def report(st, day=None):
         lines += forced_trades.lines()
     except Exception as ex:
         lines.append(f'- 강제 활성화 거래 집계 실패: {type(ex).__name__}')
+    try:   # 사용자 직접 주문 vs 봇 자동 거래 승패·패턴(2026-11-28 사용자 지시)
+        import user_vs_bot
+        lines += user_vs_bot.lines()
+    except Exception as ex:
+        lines.append(f'- 사용자 주문 비교 집계 실패: {type(ex).__name__}')
     REPORTS.mkdir(exist_ok=True)
     f = REPORTS / f'paper_vc_{day:%Y%m%d}.md'
     f.write_text('\n'.join(lines) + '\n', encoding='utf-8')

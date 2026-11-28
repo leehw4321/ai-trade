@@ -144,6 +144,8 @@ def ranking_rows(ranking, held, warned, p, esc=html.escape, promoted=(), hot=(),
         if can_promote and m not in held and rs > 0 and (m in released or reentry_note((last_sells or {}).get(m), p, time.time() if now is None else now)):
             act, label = ('reentry_unrelease', '해제 취소') if m in released else ('reentry_release', '재매수 해제')
             btn += f" <button class=pr-btn data-act={act} data-m='{esc(m)}'>{label}</button>"
+        if can_promote and not (w and w.get('trade_blocked', True)):   # 사용자 직접 매수(2026-11-28): 커서를 올리면 보인다
+            btn += f" <button class=ub-btn data-m='{esc(m)}'>직접 매수</button>"
         tip = f" title='오른쪽 버튼으로 사용자 권한으로 매수 대상 후보에 올릴 수 있습니다(상한 {co.EXT_CAP:.0%}, 1회 매수 권한)'" if btn else ''
         rest = (resting or {}).get(m)
         if rest:   # 걸어 둔 지정가 매수(2026-11-06): 남은 시간과 즉시 시장가 버튼
@@ -351,7 +353,21 @@ def promote_script(api):
             "b.disabled=true;var r=document.getElementById('pr-res');r.textContent='⏳ 요청 중…';"
             "fetch('http://127.0.0.1:'+A.port+'/'+a,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true})})"
             ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;if(!d.ok)b.disabled=false})"
-            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})})()</script>" + REST_CD)
+            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다.';b.disabled=false})})})})()</script>" + user_buy_script(api) + REST_CD)
+
+
+def user_buy_script(api):
+    """순위표 '직접 매수'(2026-11-28 사용자 지시). 금액을 묻고 확인한 뒤 127.0.0.1 봇 서버로만 보낸다."""
+    cap = int(api.get('buy_max') or 100000)
+    return ("<script>(function(){var A=" + json.dumps({'port': api['port'], 'token': api['token'], 'cap': cap}) + ";"
+            "document.querySelectorAll('.ub-btn').forEach(function(b){b.addEventListener('click',function(){var m=b.dataset.m,r=document.getElementById('pr-res');"
+            "var k=prompt(m.slice(4)+' 직접 매수 금액(원, 5,000~'+A.cap.toLocaleString()+')','30000');if(k===null)return;k=parseInt(String(k).replace(/[^0-9]/g,''),10);"
+            "if(!(k>=5000&&k<=A.cap)){alert('금액은 5,000원 이상 '+A.cap.toLocaleString()+'원 이하로 입력하세요.');return}"
+            "if(!confirm(m.slice(4)+'을(를) '+k.toLocaleString()+'원어치 시장가로 직접 매수합니다.\\n사용자 주문으로 표시되고 보호가 걸려 봇은 이 종목을 자동으로 손절·매도하지 않습니다(매도는 보유 종목 상세 창에서 직접).\\n봇 거래와 승패를 비교하는 기록에 남습니다.\\n진행할까요?'))return;"
+            "b.disabled=true;r.textContent='⏳ 매수 요청 중…';"
+            "fetch('http://127.0.0.1:'+A.port+'/user_buy',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:A.token,market:m,confirm:true,krw:k})})"
+            ".then(function(x){return x.json()}).then(function(d){r.textContent=(d.ok?'✔ ':'✘ ')+d.message;b.disabled=false})"
+            ".catch(function(){r.textContent='✘ 봇에 연결하지 못했습니다. 주문 여부를 주문 기록에서 확인하세요.';b.disabled=false})})})})()</script>")
 
 
 # 지정가 매수 남은 시간(1초마다). 서버가 없어도 표시는 한다.
@@ -814,6 +830,26 @@ class Bot:
             out[m] = position_popup.outside_detail(m, r, m in protected, rev)
         return out
 
+    def user_context(self, market):
+        """사용자 직접 매수 순간의 봇 판단 자료(순위·18시간 상승률·봉 연속·신호등). 승패 패턴 분석용 기록이며 주문 판단에는 쓰지 않는다."""
+        out = {'hour': dt.datetime.now(KST).hour}
+        try:
+            d = self.ledger.d
+            out['ranking_time'] = d.get('ranking_time')
+            row = next((r for r in d.get('ranking', []) if r.get('market') == market), None)
+            if row: out.update({k: v for k, v in row.items() if isinstance(v, (int, float, str, bool)) and k != 'market'})
+            else: out['rank'] = None
+            out['bot_held'] = sorted(self.live.d['positions'])
+        except Exception as ex:
+            out['error'] = type(ex).__name__
+        try:
+            if getattr(self, 'streaks', None) is not None:
+                s = self.streaks.get([market]).get(market) or {}
+                out['streak'] = {k: v for k, v in s.items() if isinstance(v, (int, float, str, bool))}
+        except Exception:
+            pass
+        return out
+
     def prot_rows(self, protected, positions):
         """봇 장부 종목의 보호 여부·리비전(상세 창의 '봇에게 매매 권한 넘기기' 확인용)."""
         out = {}
@@ -1054,7 +1090,7 @@ class Bot:
 <script>try{{if(localStorage.getItem('hideDust')!=='0')document.documentElement.classList.add('hd');}}catch(e){{document.documentElement.classList.add('hd');}}</script><style>
 html.hd .dust{{display:none}}
 details>summary{{cursor:pointer;color:var(--muted);padding:8px 2px}}details[open]>summary{{margin-bottom:8px}}
-tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} tr.rk-hot td{{background:#ffe6cc}} .pr-btn{{visibility:hidden;margin-left:6px;font-size:12px;cursor:pointer}} tr:hover .pr-btn,.pr-btn:focus,.pr-btn:disabled{{visibility:visible}} @media (hover:none){{.pr-btn{{visibility:visible}}}} .chip-hot{{background:#ffe6cc;color:#17212b}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
+tr.rk-held td{{background:#dff0fa}} tr.rk-alert td{{background:#fbe0e0}} tr.rk-target td{{background:#e0f3dc}} tr.rk-watch td{{background:#fff5d1}} tr.rk-hot td{{background:#ffe6cc}} .pr-btn,.ub-btn{{visibility:hidden;margin-left:6px;font-size:12px;cursor:pointer}} .ub-btn{{background:#1f6feb;color:#fff;border:0;border-radius:5px;padding:2px 8px}} tr:hover .pr-btn,tr:hover .ub-btn,.pr-btn:focus,.ub-btn:focus,.pr-btn:disabled,.ub-btn:disabled{{visibility:visible}} @media (hover:none){{.pr-btn,.ub-btn{{visibility:visible}}}} .chip-hot{{background:#ffe6cc;color:#17212b}} .chip{{padding:1px 8px;border-radius:4px}} .chip-held{{background:#dff0fa;color:#17212b}} .chip-alert{{background:#fbe0e0;color:#17212b}} .chip-target{{background:#e0f3dc;color:#17212b}} .chip-watch{{background:#fff5d1;color:#17212b}}
 @media (prefers-color-scheme:dark){{tr.rk-held td{{background:#1d3647}} tr.rk-alert td{{background:#4a2a2d}} tr.rk-target td{{background:#22402a}} tr.rk-watch td{{background:#47401f}} tr.rk-hot td{{background:#4d3620}} .chip-hot{{background:#4d3620;color:#e3e8eb}} .chip-held{{background:#1d3647;color:#e3e8eb}} .chip-alert{{background:#4a2a2d;color:#e3e8eb}} .chip-target{{background:#22402a;color:#e3e8eb}} .chip-watch{{background:#47401f;color:#e3e8eb}}}}
 .tag{{font-size:12px;padding:2px 8px;border-radius:10px;white-space:nowrap}} .tag-prot{{background:#fbe0e0;color:#7a1f1c}} .tag-bot{{background:#e0f3dc;color:#1d4d22}} .tag-stuck{{background:#fff0c2;color:#5c4300}}
 .chips{{font-size:13.5px;margin:6px 0 10px}} header h1{{margin:0}} small{{font-size:12px}}
@@ -1229,7 +1265,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease','user_buy','user_sell'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect','adopt'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -1444,6 +1480,14 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                 elif req.kind in ('protect','unprotect'):
                     ok,msg=self.live.set_user_protection(req.market,req.kind=='protect',getattr(req,'revision',None))
                     label='사용자 보호 선택'; self._protection_ui_dirty=True
+                elif req.kind == 'user_buy':   # 순위표·상세 창 사용자 직접 매수(2026-11-28)
+                    ok, msg = self.live.user_buy(req.market, req.krw, self.markets or upbit.krw_markets(), self.user_context(req.market))
+                    label = f'사용자 직접 매수 {req.krw:,}원'; self._protection_ui_dirty = True
+                elif req.kind == 'user_sell':
+                    prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
+                    opt = getattr(req, 'options', None) or {}
+                    ok, msg = self.live.user_sell(req.market, prices, pct=opt.get('pct', 100))
+                    label = f"사용자 직접 매도 {opt.get('pct', 100)}%"
                 elif req.kind == 'adopt':   # 사용자 직접 보유를 봇 장부로 넘기기(사용자 지시 2026-11-28). 주문 없음
                     ok, msg = self.live.adopt_user_holding(req.market, getattr(req, 'revision', None))
                     label = '봇 장부로 넘기기'; self._protection_ui_dirty = True

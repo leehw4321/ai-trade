@@ -515,7 +515,7 @@ class Live:
                     except OSError: pass
                 else:
                     # 추가 체결·추가 매수 lot 처리는 미합의(안건 27): 소급 변경하지 않고 EXIT-T1에서 제외한다.
-                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis', 'reentry'):
+                    for k in ('entry', 'atr', 'atr_r', 'stop0', 'last_bar', 'peak', 'profit_guard_v', 'profit_guard_peak', 'profit_guard_stop', 'stop0_rebased', 'stop_rebased', 'bot_basis', 'reentry', 'user_trade', 'handover'):
                         if k in old: new[k] = old[k]
                     new['trail'] = False
                 if rotation.enabled(self.p) and old is None:
@@ -607,8 +607,17 @@ class Live:
                         pass
         return not self.has_uncertain_orders()
 
-    def _trade(self, side, market, amount, reason, risk=False, entry_context=None, validate_entry=False):
+    def _assert_tradeable(self, market, user=False):
+        """봇 주문은 보호 종목 금지. 사용자 화면 직접 주문(user=True, 2026-11-28)은 보호 중인 '봇 장부' 종목에도 허용한다
+        (거래 주도권은 사용자). 장부 밖 보호 보유(업비트 직접 보유)는 섞이지 않게 여전히 막는다."""
+        if user:
+            if self.is_protected(market) and market not in self.d['positions']:
+                raise ProtectedAssetError(market + ' 장부 밖 사용자 보유: 먼저 봇 장부에 올리세요')
+            return
         self.assert_unprotected(market)
+
+    def _trade(self, side, market, amount, reason, risk=False, entry_context=None, validate_entry=False, user=False):
+        self._assert_tradeable(market, user)
         if not self.cfg['enabled']: raise RuntimeError('실거래 비활성')
         if risk:
             if side != 'ask': raise ValueError('위험 청산은 매도만 허용')
@@ -629,7 +638,7 @@ class Live:
                 except Exception: atr_r = None
                 if atr_r is None or not math.isfinite(atr_r) or atr_r <= 0: atr_r = None  # 자료가 없으면 기존 정의로 되돌아간다
         t_scan=time.monotonic()
-        checked=self.scan_manual_orders(market,risk,amount)
+        checked=self.scan_manual_orders(market,risk,amount,allow_protected=user)
         if checked is not None: amount=checked
         t_scanned=time.monotonic()
         if amount<=0: raise ProtectedAssetError('현재 가용 봇 보유 수량 없음: 주문 보류')
@@ -638,7 +647,7 @@ class Live:
             book = upbit.orderbooks([market]).get(market, {})
             why = self.entry_chase_block(market, entry_context, book.get('ask'))
             if why: raise EntrySkip(why)
-        self.assert_unprotected(market)  # ATR/quote requests may have taken time.
+        self._assert_tradeable(market, user)  # ATR/quote requests may have taken time.
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': side, 'market': market,
                    'amount': amount, 'reason': str(reason), 'time': now_iso(), 'atr': atr, 'atr_r': atr_r}
         risk_market = market if risk else None
@@ -651,7 +660,7 @@ class Live:
         self._set_pending(pending, risk_market)
         self.save()  # Persist identifier BEFORE transmission; unknown outcomes are looked up, never replayed.
         try:
-            self.assert_unprotected(market)  # Do not transmit a newly protected asset.
+            self._assert_tradeable(market, user)  # Do not transmit a newly protected asset.
             t_send=time.monotonic()
             order = (upbit.market_buy(market, amount, identifier=pending['identifier']) if side == 'bid'
                      else upbit.market_sell(market, amount, identifier=pending['identifier']))
@@ -1577,16 +1586,17 @@ class Live:
             except Exception as error:
                 self.record({'event': '부분 익절 대기', 'market': m, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
 
-    def liquidate_position(self, market, prices, reason='수동 강제 청산', pct=100, ord_type='market'):
+    def liquidate_position(self, market, prices, reason='수동 강제 청산', pct=100, ord_type='market', user=False):
         """사용자가 화면에서 확인한 종목 한 개를 전량 시장가 매도한다. (성공 여부, 안내문)을 돌려준다.
 
         봇이 관리하는 장부 종목만 허용하고 손절과 같은 위험 청산 경로(_trade risk=True)를 쓴다.
         그래서 주문 식별자 선기록·실행권 검사·미확정 주문 대사·장부 반영이 손절과 동일하다.
         """
-        if self.is_protected(market): return False, '사용자 보호 종목: 해제 전에는 봇 화면 주문도 금지'
+        if self.is_protected(market) and not user: return False, '사용자 보호 종목: 해제 전에는 봇 화면 주문도 금지'
         if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
         pos = self.d['positions'].get(market)
         if not pos or not pos.get('qty', 0) > 0: return False, '봇이 관리하는 보유 종목이 아님'
+        if user and ord_type != 'market': return False, '사용자 보호 종목의 화면 매도는 시장가만 지원'
         price = prices.get(market)
         if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
             return False, '현재가를 확인할 수 없어 청산 보류'
@@ -1603,6 +1613,7 @@ class Live:
                 if (volume - part) * price < 5000: part = volume   # 남는 양이 최소 주문 미만이면 전량(자투리 방지)
                 volume = part
             reason = f'수동 매도 {pct}%' + (' 지정가' if ord_type == 'limit' else '')
+        if user: reason = f'사용자 직접 매도 {pct}%'
         self.record({'event': '수동 청산 요청', 'market': market, 'reason': reason, 'pct': pct, 'ord': ord_type})
         if ord_type == 'limit':
             try:
@@ -1619,7 +1630,7 @@ class Live:
             self.share(msg + ' (수동 지정가 매도)')
             return True, msg
         try:
-            o = self._trade('ask', market, volume, reason, risk=True)
+            o = self._trade('ask', market, volume, reason, risk=True, **({'user': True} if user else {}))
         except SessionLost:
             raise
         except Exception as error:
@@ -1842,6 +1853,94 @@ class Live:
                   else '보호 중이 아니어서 다음 판단부터 봇이 관리'))
         self.share(msg + ' (사용자 화면 지시)')
         return True, msg
+
+    # ---------- 사용자 직접 주문(2026-11-28 사용자 지시: 순위표에서 직접 주문, 봇 자동 거래와 승패·패턴 비교) ----------
+    @property
+    def user_trade_file(self):
+        return self.folder / 'user_trades.jsonl'
+
+    def _user_log(self, row):
+        try:
+            with self.user_trade_file.open('a', encoding='utf-8') as f:
+                f.write(json.dumps({'time': now_iso(), 'epoch': time.time(), **row}, ensure_ascii=False) + '\n')
+        except OSError:
+            pass
+
+    def user_buy(self, market, krw, markets, context=None):
+        """사용자 직접 시장가 매수. 산 종목은 '사용자 주문'으로 표시하고 보호를 걸어 봇이 자동으로 손절·매도하지 않는다.
+        봇 전략 조건(순위·과열·재매수 대기·손실 중단)은 보지 않지만 주문 안전 검사(미확정 주문·가용 원화·호가 차이·한도)는 지킨다.
+        손익은 봇 손실 집계에서 빠진다(_keep_loss_flat + 보호)."""
+        market = normalize_protected_market(market)
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        cap = min(self.cfg.get('manual_buy_max_krw', 100000), self.cfg['max_order_krw'])
+        if type(krw) is not int or krw < 5000: return False, '매수 금액은 5,000원 이상의 정수여야 함'
+        if krw > cap: return False, f'1회 직접 매수 상한 {cap:,}원 초과'
+        pos = self.d['positions'].get(market)
+        protected = self.is_protected(market)
+        if pos and not protected: return False, '봇이 관리 중인 종목: 상세 창의 추가 매수를 쓰세요(봇 거래와 섞이지 않게)'
+        if not pos and protected: return False, '업비트에서 직접 산 장부 밖 보유가 있는 종목: 상세 창에서 먼저 봇 장부에 올리세요'
+        if self.has_uncertain_orders(): return False, '미확정 주문 대사 중: 보류'
+        if m_info := (markets or {}).get(market):
+            if m_info.get('trade_blocked'): return False, '업비트 거래 제한 종목'
+        elif market not in (markets or {}): return False, '원화 마켓에 없음'
+        if self.market_has_uncertain_order(market) or market in (self.d.get('resting_orders') or {}):
+            return False, '이 종목에 진행 중인 봇 주문이 있어 보류'
+        krw_avail = float(next((r['balance'] for r in upbit.accounts() if r['currency'] == 'KRW'), 0))
+        if krw * 1.0005 > krw_avail: return False, f'가용 원화 부족 ({krw_avail:,.0f}원)'
+        ob = upbit.orderbooks([market])[market]
+        if (ob['ask'] - ob['bid']) / ob['ask'] > self.cfg['max_spread']:
+            return False, f'호가 차이 {((ob["ask"] - ob["bid"]) / ob["ask"]):.2%} 큼: 보류'
+        trade_id = (pos or {}).get('user_trade', {}).get('id') or ('U' + uuid.uuid4().hex[:10])
+        self.record({'event': '사용자 직접 매수 요청', 'market': market, 'krw': krw, 'trade_id': trade_id})
+        state = {}
+
+        def change():
+            o = self._trade('bid', market, krw, '사용자 직접 매수', user=True)
+            state['o'] = o
+            v, _, _ = self._fill(o)
+            p2 = self.d['positions'].get(market)
+            if v > 0 and p2 is not None:
+                if pos is None:
+                    p2['user_trade'] = {'id': trade_id, 'opened': now_iso(), 'context': context or {}}
+                if not self.is_protected(market):
+                    self.protection_policy.decide(market, True)
+        try:
+            self._keep_loss_flat(market, ob['ask'], change)
+        except SessionLost:
+            raise
+        except Exception as error:
+            self.record({'event': '사용자 직접 매수 실패', 'market': market, 'reason': type(error).__name__ + ': ' + str(error)[:250]})
+            return False, f'매수 실패: {type(error).__name__}: {str(error)[:120]}'
+        v, funds, fee = self._fill(state['o'])
+        if v <= 0: return False, f'매수 미체결 ({state["o"].get("state")})'
+        self._user_log({'event': 'open' if pos is None else 'add', 'id': trade_id, 'market': market, 'krw': funds + fee,
+                        'qty': v, 'price': funds / v, 'context': context or {}})
+        msg = f'{market[4:]} 사용자 직접 매수 {funds + fee:,.0f}원 ({v:,.8g}개, 평균 {funds / v:,.4g}) · 사용자 보호: 봇은 자동 매매하지 않음'
+        self.share(msg)
+        return True, msg
+
+    def user_sell(self, market, prices, pct=100):
+        """사용자 직접 시장가 매도(보호 중인 봇 장부 종목). 실현손익은 봇 손실 집계에서 빠진다."""
+        market = normalize_protected_market(market)
+        pos = self.d['positions'].get(market)
+        if not pos: return False, '봇 장부에 없는 종목'
+        if not self.is_protected(market): return False, '봇이 관리 중인 종목: 일반 매도를 쓰세요'
+        trade_id = (pos.get('user_trade') or {}).get('id')
+        cost_before, realized_before = pos.get('cost', 0.), self.d.get('realized', 0.)
+        state = {}
+
+        def change():
+            state['r'] = self.liquidate_position(market, prices, pct=pct, ord_type='market', user=True)
+        price = prices.get(market)
+        self._keep_loss_flat(market, price if type(price) in (int, float) and price > 0 else None, change)
+        ok, msg = state['r']
+        if ok:
+            left = self.d['positions'].get(market)
+            self._user_log({'event': 'sell', 'id': trade_id, 'market': market, 'pct': pct,
+                            'realized': self.d.get('realized', 0.) - realized_before,
+                            'cost_sold': cost_before - (left or {}).get('cost', 0.), 'closed': left is None,
+                            'source': 'user_trade' if trade_id else ('handover' if pos.get('handover') else 'inherited' if pos.get('inherited') else 'bot')})
+        return ok, msg
 
     def stop_check(self, prices):
         """Manage explicitly delegated positions, retaining partial fills and unresolved orders."""

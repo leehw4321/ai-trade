@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_PORT = 8765
 MARKET = re.compile(r'^KRW-[A-Z0-9]{1,20}$')
 MAX_BODY = 2048
-KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/adopt':'adopt', '/grant': 'grant', '/obs': 'obs',
+KINDS = {'/liquidate': 'liquidate', '/buy': 'buy', '/protect':'protect', '/unprotect':'unprotect', '/adopt':'adopt', '/user_buy':'user_buy', '/user_sell':'user_sell', '/grant': 'grant', '/obs': 'obs',
          '/promote': 'promote', '/unpromote': 'unpromote', '/buy_now': 'buy_now', '/rest_extend': 'rest_extend', '/reentry_release': 'reentry_release', '/reentry_unrelease': 'reentry_unrelease', '/refresh': 'refresh', '/notice_ack': 'notice_ack',
          '/pause_buy': 'pause_buy', '/resume_buy': 'resume_buy'}
 MIN_KRW, MAX_KRW = 5000, 100_000_000  # 업비트 최소 주문금액 / 형식 점검용 상한. 실제 한도는 봇 설정이 정한다
@@ -103,11 +103,11 @@ class ManualOrderServer:
         if doc.get('confirm') is not True or not isinstance(market, str) or not MARKET.match(market):
             return 400, '확인되지 않은 요청'
         krw = None
-        if kind == 'buy':
+        if kind in ('buy', 'user_buy'):
             krw = doc.get('krw')
             if type(krw) is not int or not MIN_KRW <= krw <= MAX_KRW:
                 return 400, '매수 금액이 올바르지 않음'
-        if kind == 'liquidate':   # 수동 매도(2026-11-07): 비율 25/50/75/100%, 주문 방식 시장가/지정가(매도호가). 생략하면 전량 시장가(기존 동작)
+        if kind in ('liquidate', 'user_sell'):   # 수동 매도(2026-11-07): 비율 25/50/75/100%, 주문 방식 시장가/지정가(매도호가). 생략하면 전량 시장가(기존 동작)
             pct, ordk = doc.get('pct', 100), doc.get('ord', 'market')
             if type(pct) is not int or pct not in SELL_PCTS or ordk not in SELL_ORDS:
                 return 400, '매도 비율 또는 주문 방식이 올바르지 않음'
@@ -184,7 +184,7 @@ class ManualOrderServer:
                     return self._send(code, {'ok': False, 'message': value})
                 posted = json.loads(body.decode('utf-8'))
                 revision = posted.get('revision') if kind in ('unprotect', 'adopt') else None
-                options = {'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market')} if kind == 'liquidate' else None
+                options = {'pct': posted.get('pct', 100), 'ord': posted.get('ord', 'market')} if kind in ('liquidate', 'user_sell') else None
                 code, doc = server.submit(value[0], kind, value[1], revision, options)
                 self._send(code, doc)
 

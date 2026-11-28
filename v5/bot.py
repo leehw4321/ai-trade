@@ -854,7 +854,7 @@ class Bot:
 <div class=tiles>{tiles}</div>{eq_table}{daily_report.section(daily_report.recent(DATA / 'reports'))}
 <h3>보유 종목 <span class=sub>(행을 누르면 상세 · 매도선 = 손절·이익보호·본전 중 지금 먼저 걸리는 선)</span></h3>{table}
 <div class=cols><div>{recent_box}</div><div><h3>{ol_title}</h3><ul>{ol}</ul></div></div>
-{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action(), outside=self.outside_rows(urows, protected, L['positions']), prot=self.prot_rows(protected, L['positions']))}{position_popup.MODAL}</section>"""
+{position_popup.data_script(L['positions'], prices, L.get('last_sell'), action=self.manual_action(), outside=self.outside_rows(urows, protected, L['positions']), prot=self.prot_rows(protected, L['positions']), rests=self.rest_rows())}{position_popup.MODAL}</section>"""
 
     def outside_rows(self, urows, protected, positions):
         """보유 종목 표에서 봇 장부 밖(직접 보유) 종목의 상세. 보호 리비전은 '봇 장부로 넘기기' 확인에 쓴다."""
@@ -893,6 +893,15 @@ class Bot:
         for m in positions:
             try: out[m] = (m in protected, self.live.protection_policy.revision(m))
             except Exception: out[m] = (m in protected, None)
+        return out
+
+    def rest_rows(self):
+        """상세 창 표시용: 종목별 걸어 둔 지정가 주문(가격·방향·남은 시각·취소 가능)."""
+        out = {}
+        for m, pnd in (self.live.d.get('resting_orders') or {}).items():
+            r = pnd.get('resting') or {}
+            out[m] = {'side': pnd.get('side'), 'price': r.get('price'), 'deadline': r.get('deadline'),
+                      'cancel': bool(r.get('user') or (pnd.get('side') == 'ask' and r.get('manual')))}
         return out
 
     def real_block(self, prices):
@@ -1302,7 +1311,7 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
         self.manual_server = None
         if True:
             kinds={'grant', 'obs', 'refresh', 'notice_ack', 'pause_buy', 'resume_buy'}
-            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease','user_buy','user_sell','user_limit_buy','user_rest_cancel'))
+            if self.live.cfg.get('manual_ui'): kinds.update(('buy','liquidate','promote','unpromote','buy_now','rest_extend','reentry_release','reentry_unrelease','user_buy','user_sell','user_limit_buy','user_limit_sell','user_rest_cancel'))
             if self.live.cfg.get('protection_ui'): kinds.update(('protect','unprotect','adopt'))
             srv = manual_orders.ManualOrderServer(self.live.cfg.get('manual_port', manual_orders.DEFAULT_PORT),allowed_kinds=kinds)
             started=srv.start()
@@ -1524,6 +1533,11 @@ ul{{margin:0;padding:0;list-style:none;font-size:13.5px}} li{{padding:4px 0;bord
                     lp = (getattr(req, 'options', None) or {}).get('price')
                     ok, msg = self.live.user_limit_buy(req.market, req.krw, lp, self.markets or upbit.krw_markets(), self.user_context(req.market))
                     label = f'사용자 지정가 매수 {req.krw:,}원 @{lp}'; self._protection_ui_dirty = True
+                elif req.kind == 'user_limit_sell':   # 보유·보호 종목 희망 매도가 지정가(2026-11-28)
+                    prices = {m: t['trade_price'] for m, t in upbit.tickers([req.market]).items()}
+                    opt = getattr(req, 'options', None) or {}
+                    ok, msg = self.live.user_limit_sell(req.market, opt.get('pct', 100), opt.get('price'), prices)
+                    label = f"지정가 매도 {opt.get('pct', 100)}% @{opt.get('price')}"
                 elif req.kind == 'user_rest_cancel':
                     ok, msg = self.live.cancel_user_rest(req.market)
                     label = '사용자 지정가 매수 취소'

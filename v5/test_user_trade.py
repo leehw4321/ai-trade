@@ -172,6 +172,62 @@ class UserLimitBuyTests(unittest.TestCase):
         self.assertEqual(self.w.d['resting_orders']['KRW-A']['resting']['deadline'], 0)
 
 
+class UserLimitSellTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name); (root / 'data').mkdir()
+        (root / 'data/user_protected_assets.json').write_text('{"markets":[]}')
+        self.w = live.Live(root / 'data/live', {'enabled': True, 'max_order_krw': 10**9, 'max_total_buy_krw': 10**9}, live.st.Params())
+        self.w.d['positions']['KRW-A'] = {'qty': 1000.0, 'cost': 100000.0, 'stop': 90.0, 'time': '2026-11-28T00:00:00+09:00',
+                                          'user_trade': {'id': 'U1', 'opened': 'x', 'context': {}}}
+        self.w.protection_policy.decide('KRW-A', True)
+        self.order = {'uuid': 'S1', 'state': 'wait', 'trades': [], 'paid_fee': '0'}
+        self.ps = [patch.object(live.upbit, 'accounts', return_value=[{'currency': 'A', 'balance': '1000', 'locked': '0'}]),
+                   patch.object(live.upbit, 'orderbooks', return_value={'KRW-A': {'ask': 100.1, 'bid': 100.0}}),
+                   patch.object(live.upbit, 'limit_sell_post_only', side_effect=lambda m, px, v, identifier: (self.order.update(identifier=identifier, market=m, side='ask', price=px, volume=v), dict(self.order))[1]),
+                   patch.object(live.upbit, 'get_order', side_effect=lambda u: dict(self.order)),
+                   patch.object(live.upbit, 'cancel_order', side_effect=lambda u: self.order.update(state='cancel')),
+                   patch.object(live.upbit, 'tickers', side_effect=lambda ms: {m: {'trade_price': 85.0} for m in ms}),
+                   patch.object(live.upbit, 'market_sell', side_effect=AssertionError('no market order')),
+                   patch.object(self.w, '_wait', side_effect=lambda o: dict(self.order)),
+                   patch.object(self.w, 'scan_manual_orders', side_effect=lambda m=None, risk=False, amount=None, allow_protected=False: amount)]
+        for x in self.ps: x.start(); self.addCleanup(x.stop)
+
+    def today(self, px):
+        return self.w.raw_loss({'KRW-A': px}) - self.w.d.get('risk_loss_offset', 0.)
+
+    def test_protected_limit_sell_ignores_bot_stop_and_keeps_bot_loss_flat(self):
+        ok, msg = self.w.user_limit_sell('KRW-A', 100, 110.0, {'KRW-A': 100.0})
+        self.assertTrue(ok, msg); self.assertEqual(self.order['price'], 110.0)
+        self.w.manage_resting({'KRW-A': 85.0})                      # 봇 손절선(90) 아래여도 사용자 주문은 그대로
+        self.assertIn('KRW-A', self.w.d['resting_orders'])
+        before = self.today(110.0)
+        self.order.update(state='done', executed_volume='1000', trades=[{'volume': '1000', 'funds': '110000'}], paid_fee='55')
+        self.w.manage_resting({'KRW-A': 110.0})
+        self.assertNotIn('KRW-A', self.w.d['positions'])
+        self.assertAlmostEqual(self.today(110.0), before, places=6)   # 사용자 실현손익은 봇 손실 밖
+        rows = [json.loads(l) for l in self.w.user_trade_file.read_text(encoding='utf-8').splitlines()]
+        self.assertEqual((rows[-1]['event'], rows[-1]['id'], rows[-1]['closed']), ('sell', 'U1', True))
+        self.assertAlmostEqual(rows[-1]['realized'], 110000 - 55 - 100000)
+
+    def test_expiry_cancels_without_market_and_validation(self):
+        for bad in (110.05, 400.0, 0):
+            ok, _ = self.w.user_limit_sell('KRW-A', 100, bad, {}); self.assertFalse(ok, bad)
+        ok, _ = self.w.user_limit_sell('KRW-A', 50, 105.0, {}); self.assertTrue(ok)
+        self.assertAlmostEqual(self.order['volume'], 500.0)
+        ok, msg = self.w.user_limit_sell('KRW-A', 50, 106.0, {}); self.assertFalse(ok); self.assertIn('진행 중', msg)
+        ok, _ = self.w.cancel_user_rest('KRW-A'); self.assertTrue(ok)
+        self.w.manage_resting({'KRW-A': 100.0})
+        self.assertNotIn('KRW-A', self.w.d.get('resting_orders', {}))
+        self.assertEqual(self.w.d['positions']['KRW-A']['qty'], 1000.0)
+
+    def test_popup_tick_table_matches_exchange(self):
+        import re, position_popup, upbit
+        tk = position_popup.MODAL.split('var TK=')[1].split(';')[0]
+        tk = re.sub(r'(?<![0-9])[.]', '0.', tk)
+        self.assertEqual(json.loads(tk), [list(map(float, t)) for t in upbit.TICKS])
+
+
 class RankButtonTests(unittest.TestCase):
     def test_rank_rows_have_hover_buy_button_only_with_server(self):
         import bot, strategy as st

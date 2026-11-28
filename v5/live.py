@@ -998,25 +998,27 @@ class Live:
         except Exception: return None
         return self._place_rest_sell(market, volume, reason, ask, tk)
 
-    def _place_rest_sell(self, market, volume, reason, ask, tk, manual=False):
+    def _place_rest_sell(self, market, volume, reason, ask, tk, manual=False, user=False, wait=None):
         """매도 1호가(ask)에 post_only 지정가 매도를 걸고 resting_orders에 기록한다. 거절·중복·최소금액 미달이면 None.
         manual=True(사용자 수동 지정가 매도): 기한이 지나면 취소만 하고 시장가로 바꾸지 않는다(손절선 근접만 안전을 위해 시장가)."""
         if self.market_has_uncertain_order(market): return None
-        self.assert_unprotected(market)
-        checked = self.scan_manual_orders(market, False, volume)
+        self._assert_tradeable(market, user)
+        checked = self.scan_manual_orders(market, False, volume, allow_protected=user)
         if checked is not None: volume = checked
         volume = float(upbit.vol8(volume))
         if volume * ask < 5000: return None
-        wait = float(self.cfg.get('resting_sell_wait_seconds', 1200))
+        wait = float(wait or self.cfg.get('resting_sell_wait_seconds', 1200))
+        pos0 = self.d['positions'].get(market) or {}
         pending = {'identifier': 'v5-' + uuid.uuid4().hex, 'side': 'ask', 'market': market, 'amount': volume,
                    'reason': str(reason), 'time': now_iso(), 'atr': None, 'atr_r': None,
                    'resting': {'price': ask, 'tick': tk, 'volume': volume, 'deadline': time.time() + wait, 'placed': time.time(),
-                               'manual': bool(manual)}}
+                               'manual': bool(manual), 'user': bool(user), 'cost0': pos0.get('cost', 0.), 'qty0': pos0.get('qty', 0.),
+                               'trade_id': (pos0.get('user_trade') or {}).get('id')}}
         slot = ('rest', market)
         self._set_pending(pending, slot)
         self.save()
         try:
-            self.assert_unprotected(market)
+            self._assert_tradeable(market, user)
             order = upbit.limit_sell_post_only(market, ask, volume, identifier=pending['identifier'])
         except (upbit.OrderRejected, SessionLost, ProtectedAssetError) as error:
             self._set_pending(None, slot); self.save()
@@ -1126,7 +1128,9 @@ class Live:
                 except Exception: px = None
             live_px = type(px) in (int, float) and math.isfinite(px) and px > 0
             pos = self.d['positions'].get(m)
-            if self.is_protected(m): why = '사용자 보호 지정'
+            if rest.get('user'):   # 사용자 보호 종목의 사용자 지정가 매도: 봇 손절 기준으로 취소하지 않고 기한만 본다
+                if time.time() >= rest['deadline']: why = '대기 시간 만료'
+            elif self.is_protected(m): why = '사용자 보호 지정'
             elif rest.get('stop_floor'):   # 바닥가 손절: 이미 손절선 아래이므로 기한만 본다
                 if time.time() >= rest['deadline']: why = '바닥가 대기 만료'
             elif rest.get('stop_ask'):     # 매도호가 손절: 기한만 본다(손절선 아래라는 이유로 취소하지 않음)
@@ -1135,16 +1139,24 @@ class Live:
             elif live_px and not rest.get('manual') and px <= rest['price'] * (1 - float(self.cfg.get('resting_sell_drop_pct', 0.005))): why = '가격 하락 중'
             elif time.time() >= rest['deadline']: why = '대기 시간 만료'
             if not why:
-                self._apply_pending(order, slot)
+                if rest.get('user'): self._keep_loss_flat(m, None, lambda: self._apply_pending(order, slot))   # 사용자 손익은 봇 손실에서 분리
+                else: self._apply_pending(order, slot)
                 return
             upbit.cancel_order(pending['uuid'])
             order = self._wait(order)
         _, f0, fee0 = self._fill(order)
-        if not self._apply_pending(order, slot): return
+        if rest.get('user'):
+            if not self._keep_loss_flat(m, None, lambda: self._apply_pending(order, slot)): return
+        elif not self._apply_pending(order, slot): return
         pos = self.d['positions'].get(m)
+        if rest.get('manual') and f0 > 0:   # 화면 지정가 매도 체결은 사용자 거래 기록에 남긴다(봇 장부 종목이면 source로 구분)
+            sold = rest.get('cost0', 0.) - (pos or {}).get('cost', 0.)
+            self._user_log({'event': 'sell', 'id': rest.get('trade_id'), 'market': m, 'order': 'limit', 'price': rest['price'],
+                            'realized': (f0 - fee0) - sold, 'cost_sold': sold, 'closed': pos is None,
+                            'source': 'user_trade' if rest.get('trade_id') else ('user_protected' if rest.get('user') else 'bot_position')})
         label = '바닥가 손절' if rest.get('stop_floor') else '매도호가 손절' if rest.get('stop_ask') else '지정가'
         msg = f'{m[4:]} {label} 매도 {f0 - fee0:,.0f}원 체결'
-        manual_expired = bool(rest.get('manual')) and why == '대기 시간 만료'
+        manual_expired = bool(rest.get('manual')) and why in ('대기 시간 만료', '사용자 취소')
         if manual_expired: msg += ' · 수동 지정가 기한 만료로 취소(시장가 전환 없음, 남은 수량은 보유 그대로)'
         if pos and pos.get('qty', 0) > 0 and why != '사용자 보호 지정' and not manual_expired and self.cfg['enabled'] and not self.is_protected(m):
             try:
@@ -2004,9 +2016,11 @@ class Live:
     def cancel_user_rest(self, market):
         """사용자 지정가 매수 취소(다음 관리 주기에 취소, 체결분은 그대로 사용자 주문으로 남는다)."""
         p = self.d.get('resting_orders', {}).get(market)
-        if not p or not p.get('resting', {}).get('user'): return False, '걸어 둔 사용자 지정가 매수가 없음'
-        p['resting']['deadline'] = 0; p['resting'].pop('force', None); self.save()
-        return True, f'{market[4:]} 지정가 매수 취소 요청(체결된 부분은 그대로 보유)'
+        r = (p or {}).get('resting', {})
+        if not p or not (r.get('user') or (p.get('side') == 'ask' and r.get('manual'))): return False, '걸어 둔 사용자 지정가 주문이 없음'
+        r['deadline'] = 0; r.pop('force', None); self.save()
+        side = '매도' if p.get('side') == 'ask' else '매수'
+        return True, f'{market[4:]} 지정가 {side} 취소 요청(체결된 부분은 그대로, 남은 것은 시장가로 바꾸지 않음)'
 
     def _user_unprotect_if_empty(self, market):
         """사용자 지정가가 하나도 안 사진 채 끝나면, 걸 때 붙인 보호를 되돌린다(봇이 그 종목을 다시 살 수 있게)."""
@@ -2019,6 +2033,53 @@ class Live:
         if pos is not None and rest.get('new_trade') and not pos.get('user_trade'):
             pos['user_trade'] = {'id': rest['trade_id'], 'opened': now_iso(), 'context': rest.get('context') or {}}
             self.save()
+
+    USER_SELL_MINUTES = 60
+
+    def user_limit_sell(self, market, pct, price, prices, minutes=None):
+        """사용자 희망 매도가 지정가 매도(2026-11-28 사용자 지시: 보유·보호 종목에서 ± 호가 칸으로 매도가를 정해 직접 매도 결정).
+        봇 장부 종목만. 보호 종목은 사용자 주문(봇 손절 기준으로 취소·시장가 전환 없음, 손익은 봇 집계와 분리),
+        봇 관리 종목은 기존 수동 지정가 매도와 같다(손절선 근접이면 안전을 위해 취소 후 시장가). 기한이 지나면 취소만 한다.
+        희망가가 매수호가 이하이면 바로 체결되는 가격이라 시장가 매도로 처리한다."""
+        market = normalize_protected_market(market)
+        if not self.cfg['enabled']: return False, '실거래가 꺼져 있음'
+        pos = self.d['positions'].get(market)
+        if not pos or not pos.get('qty', 0) > 0: return False, '봇 장부에 없는 종목: 먼저 봇 장부에 올리세요'
+        if pct not in (25, 50, 75, 100): return False, '매도 비율이 올바르지 않음'
+        if type(price) not in (int, float) or not math.isfinite(price) or price <= 0: return False, '희망 매도가가 올바르지 않음'
+        if self.market_has_uncertain_order(market) or market in (self.d.get('resting_orders') or {}):
+            return False, '이 종목에 진행 중인 주문(지정가 대기 포함)이 있어 보류'
+        user = self.is_protected(market)
+        book = upbit.orderbooks([market]).get(market, {})
+        bid = book.get('bid')
+        if type(bid) not in (int, float) or not math.isfinite(bid) or bid <= 0: return False, '매수호가를 확인할 수 없어 보류'
+        if price <= bid:
+            ok, msg = (self.user_sell(market, prices, pct) if user else self.liquidate_position(market, prices, pct=pct))
+            return ok, ('희망가가 매수호가 이하라 시장가로 처리 · ' if ok else '') + msg
+        tk = upbit.tick_size(price)
+        px = float(upbit.price_str(price))
+        if abs(px - price) > tk * 1e-6: return False, f'호가 단위({tk:g}원)에 맞지 않는 가격'
+        if px > bid * 3: return False, '희망가가 현재가의 3배를 넘음(입력 실수 방지)'
+        bal = float({r['currency']: r for r in upbit.accounts()}.get(market[4:], {}).get('balance', 0))
+        volume = min(pos['qty'], bal)
+        if pct < 100:
+            part = float(upbit.vol8(volume * pct / 100))
+            if part * px < 5000: return False, f'{pct}%는 {part * px:,.0f}원으로 최소 주문 5,000원 미만'
+            if (volume - part) * px >= 5000: volume = part
+        if volume * px < 5000: return False, f'매도 금액 {volume * px:,.0f}원: 최소 주문 5,000원 미만'
+        minutes = minutes or self.USER_SELL_MINUTES
+        reason = ('사용자 직접 지정가 매도' if user else '수동 지정가 매도') + f' {pct}%'
+        self.record({'event': '사용자 지정가 매도 요청', 'market': market, 'price': px, 'pct': pct, 'user': user})
+        try:
+            msg = self._place_rest_sell(market, volume, reason, px, tk, manual=True, user=user, wait=minutes * 60)
+        except SessionLost:
+            raise
+        except Exception as error:
+            return False, f'지정가 매도 실패: {type(error).__name__}: {str(error)[:120]}'
+        if not msg: return False, '지정가 매도를 걸 수 없음(거래소 거절·최소 금액). 주문 기록을 확인하세요.'
+        msg += f' · 현재 매수호가 {bid:,.8g}원 대비 {px / bid - 1:+.2%}' + (' · 사용자 주문(봇 손절과 무관)' if user else '')
+        self.share(msg)
+        return True, msg
 
     def user_sell(self, market, prices, pct=100):
         """사용자 직접 시장가 매도(보호 중인 봇 장부 종목). 실현손익은 봇 손실 집계에서 빠진다."""
